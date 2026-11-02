@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/jambuai/gpu4agents/discussions
+    about: Ask how to do something or share what you built.
+  - name: Security issue
+    url: https://github.com/jambuai/gpu4agents/security/advisories/new
+    about: Report a vulnerability privately.

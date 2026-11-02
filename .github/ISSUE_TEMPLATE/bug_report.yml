@@ -1,0 +1,38 @@
+name: Bug report
+description: Something does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste `VAST_API_KEY`, endpoint keys or `.env` contents. Security issues go to SECURITY.md, not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected, what you got.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The command or MCP tool call, and the relevant part of `jambu.yaml`.
+      render: shell
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: "`gpu --json ...` output, the error and exit code, or `gpu logs --source onstart`."
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`gpu --version`"
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: How were you using it
+      options: [CLI, Claude Code, Cursor, Claude Desktop, Another MCP client, From an application]
