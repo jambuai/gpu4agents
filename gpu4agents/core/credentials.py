@@ -93,3 +93,29 @@ class CredentialResolver:
             if path.is_file():
                 out.append(f"{label} ({path})")
         return out
+
+
+def save_user_credential(name: str, value: str) -> Path:
+    """Write ``name=value`` into ``~/.gpu/credentials`` (mode 600), replacing an earlier value.
+
+    Other lines are kept as they are. This is the only place a credential is
+    written to disk, and only when the user runs ``gpu login``.
+    """
+    path = gpu_home() / "credentials"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        path.parent.chmod(0o700)
+    except OSError:
+        pass
+    lines = path.read_text().splitlines() if path.is_file() else []
+    kept = [
+        line for line in lines
+        if line.strip().removeprefix("export ").partition("=")[0].strip() != name
+    ]
+    kept.append(f"{name}={value}")
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as handle:
+        handle.write("\n".join(kept) + "\n")
+    path.chmod(0o600)
+    _DOTENV_CACHE.pop(path, None)
+    return path

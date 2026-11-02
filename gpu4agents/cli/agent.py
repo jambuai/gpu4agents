@@ -12,7 +12,7 @@ from ..core.errors import JambuError
 from ._common import console, get_context, handle, print_json
 
 agent_app = typer.Typer(
-    help="Give Claude Code, Cursor or Claude Desktop the gpu skill and MCP tools.",
+    help="Give Claude Code, Codex, Gemini CLI, Cursor or Claude Desktop the gpu4agents skill and MCP tools.",
     no_args_is_help=True,
 )
 
@@ -38,7 +38,7 @@ def install_command(
         ["claude"],
         "--target",
         "-t",
-        help="claude (Claude Code), cursor, desktop (Claude Desktop). Repeat for several.",
+        help="claude, codex, gemini, cursor, desktop (Claude Desktop), or auto (every runtime found). Repeat for several.",
     ),
     global_scope: bool = typer.Option(
         False, "--global", "-g", help="For every project of this user, not just this directory."
@@ -47,7 +47,7 @@ def install_command(
         Path("."), "--dir", help="Project directory (default: the current one)."
     ),
 ) -> None:
-    """Install the gpu skill and register the gpu MCP server."""
+    """Install the gpu4agents skill and register the gpu MCP server."""
     from ..agent.install import install
 
     context = get_context(ctx)

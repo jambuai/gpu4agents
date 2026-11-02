@@ -328,3 +328,90 @@ def _sweep(
         console.print(Text(f"! {len(pending)} action(s) pending; re-run with --apply", style="yellow"))
     if failed:
         raise typer.Exit(1)
+
+
+VAST_KEYS_URL = "https://cloud.vast.ai/manage-keys/"
+
+
+def _vast_account(key: str) -> dict:
+    """Check a key against the account API. Seam for tests."""
+    from ..providers.vast.client import VastClient
+
+    client = VastClient(key)
+    try:
+        return client.whoami()
+    finally:
+        client.close()
+
+
+def _account_summary(user: dict) -> dict:
+    """What is safe to print about the account: no email, no name, no key."""
+    balance = user.get("credit", user.get("balance"))
+    try:
+        balance = round(float(balance), 2)
+    except (TypeError, ValueError):
+        balance = None
+    return {"balance_usd": balance}
+
+
+def login_command(
+    ctx: typer.Context,
+    from_stdin: bool = typer.Option(
+        False, "--stdin", help="Read the key from stdin instead of a hidden prompt."
+    ),
+    check: bool = typer.Option(
+        False, "--check", help="Only check the key gpu already finds; write nothing."
+    ),
+) -> None:
+    """Save your Vast.ai API key in ~/.gpu/credentials, after checking it works.
+
+    Run it in your own terminal: the key is typed into a hidden prompt, never
+    into an agent's chat. `gpu login --check` tells whether a working key is
+    found, and where.
+    """
+    import getpass
+    import sys
+
+    from ..core.credentials import save_user_credential
+    from ..core.errors import AuthenticationError
+    from ..providers.vast.config import API_KEY_ENV
+
+    context = get_context(ctx)
+    try:
+        if check:
+            credentials = account_credentials(Path.cwd())
+            key = credentials.get(API_KEY_ENV)
+            if not key:
+                raise AuthenticationError(
+                    f"no {API_KEY_ENV} found; run `gpu login` in a terminal "
+                    f"(create a key at {VAST_KEYS_URL})"
+                )
+            source = credentials.file_source(API_KEY_ENV) or "environment"
+            summary = {"ok": True, "source": source, **_account_summary(_vast_account(key))}
+        else:
+            if from_stdin:
+                key = sys.stdin.readline().strip()
+            else:
+                if not sys.stdin.isatty():
+                    raise ConfigError(
+                        "gpu login needs a terminal for the hidden prompt; "
+                        "run it in your own terminal, or pipe the key with --stdin"
+                    )
+                typer.echo(f"Create a key at {VAST_KEYS_URL}", err=True)
+                key = getpass.getpass("Vast.ai API key (input hidden): ").strip()
+            if not key:
+                raise ConfigError("no key given")
+            summary = _account_summary(_vast_account(key))
+            path = save_user_credential(API_KEY_ENV, key)
+            summary = {"ok": True, "saved": str(path), **summary}
+    except JambuError as exc:
+        handle(exc)
+        return
+    if context.json:
+        print_json(summary)
+        return
+    where = summary.get("saved") or summary.get("source")
+    balance = summary.get("balance_usd")
+    console.print(Text(f"Vast.ai key works ({where})", style="green"))
+    if balance is not None:
+        console.print(Text(f"balance: ${balance:.2f}", style="dim"))

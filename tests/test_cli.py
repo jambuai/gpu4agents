@@ -309,3 +309,77 @@ def test_env_without_an_endpoint_exits_3(config, monkeypatch):
     result = runner.invoke(app, ["env", "--format", "json"])
     assert result.exit_code == 3
     assert json.loads(result.stdout)["state"] == "none"
+
+
+# -- gpu login ------------------------------------------------------------------
+
+
+def _fake_account(monkeypatch, seen=None, fail=False):
+    from gpu4agents.cli import account
+    from gpu4agents.core.errors import AuthenticationError
+
+    def check(key):
+        if seen is not None:
+            seen.append(key)
+        if fail:
+            raise AuthenticationError("vast.ai rejected the API key")
+        return {"credit": 12.345, "email": "someone@example.com", "username": "someone"}
+
+    monkeypatch.setattr(account, "_vast_account", check)
+
+
+def test_login_checks_the_key_then_saves_it_private(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    from gpu4agents.core.paths import gpu_home
+
+    monkeypatch.delenv("VAST_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    seen = []
+    _fake_account(monkeypatch, seen)
+    creds = gpu_home() / "credentials"
+    creds.parent.mkdir(parents=True, exist_ok=True)
+    creds.write_text("HF_TOKEN=hf_x\nVAST_API_KEY=old\n")
+
+    result = runner.invoke(app, ["--json", "login", "--stdin"], input="new-key\n")
+
+    assert result.exit_code == 0, result.output
+    assert seen == ["new-key"]
+    payload = json.loads(result.stdout)
+    assert payload == {"ok": True, "saved": str(creds), "balance_usd": 12.35}
+    assert "new-key" not in result.output and "someone" not in result.output
+    assert creds.read_text() == "HF_TOKEN=hf_x\nVAST_API_KEY=new-key\n"
+    assert stat.S_IMODE(os.stat(creds).st_mode) == 0o600
+
+
+def test_login_rejects_a_bad_key_without_writing_it(tmp_path, monkeypatch):
+    from gpu4agents.core.paths import gpu_home
+
+    monkeypatch.chdir(tmp_path)
+    _fake_account(monkeypatch, fail=True)
+    result = runner.invoke(app, ["login", "--stdin"], input="bad\n")
+    assert result.exit_code == 5
+    assert not (gpu_home() / "credentials").exists()
+
+
+def test_login_without_a_terminal_or_stdin_says_how(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _fake_account(monkeypatch)
+    result = runner.invoke(app, ["login"], input="")
+    assert result.exit_code == 2
+    assert "own terminal" in " ".join(result.output.split())
+
+
+def test_login_check_reports_where_the_key_is(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("VAST_API_KEY", raising=False)
+    _fake_account(monkeypatch)
+    missing = runner.invoke(app, ["login", "--check"])
+    assert missing.exit_code == 5
+    assert "gpu login" in missing.output
+
+    monkeypatch.setenv("VAST_API_KEY", "from-env")
+    found = runner.invoke(app, ["--json", "login", "--check"])
+    assert found.exit_code == 0, found.output
+    assert json.loads(found.stdout) == {"ok": True, "source": "environment", "balance_usd": 12.35}

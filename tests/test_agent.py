@@ -245,8 +245,10 @@ def test_install_for_claude_and_cursor_merges_existing_configs(tmp_path, home):
     (project / ".mcp.json").write_text(json.dumps({"mcpServers": {"other": {"command": "x"}}}))
     result = install_mod.install(["claude", "cursor"], project)
 
-    skill = project / ".claude" / "skills" / "gpu" / "SKILL.md"
+    skill = project / ".claude" / "skills" / "gpu4agents" / "SKILL.md"
     assert skill.read_text() == install_mod.skill_text()
+    shared = project / ".agents" / "skills" / "gpu4agents" / "SKILL.md"
+    assert shared.read_text() == install_mod.skill_text()
     servers = json.loads((project / ".mcp.json").read_text())["mcpServers"]
     assert servers["other"] == {"command": "x"}
     assert servers["gpu"]["args"][-1] == "mcp"
@@ -270,7 +272,7 @@ def test_install_for_desktop_pins_the_project_and_zips_the_skill(tmp_path, home,
     assert entry["args"][-2:] == ["--project", str(project.resolve())]
     assert Path(entry["command"]).is_absolute()
     archive = Path(next(i["path"] for i in result["installed"] if "zip" in i["what"]))
-    assert zipfile.ZipFile(archive).namelist() == ["gpu/SKILL.md"]
+    assert zipfile.ZipFile(archive).namelist() == ["gpu4agents/SKILL.md"]
 
 
 def test_global_claude_install_uses_claude_mcp_add(tmp_path, home, monkeypatch):
@@ -283,7 +285,7 @@ def test_global_claude_install_uses_claude_mcp_add(tmp_path, home, monkeypatch):
     install_mod.install(["claude"], tmp_path, global_scope=True, run=lambda argv, **kw: calls.append(argv) or Done())
     assert calls[-1][:6] == ["claude", "mcp", "add", "--scope", "user", "gpu"]
     assert calls[-1][-1] == "mcp"
-    assert (home / ".claude" / "skills" / "gpu" / "SKILL.md").is_file()
+    assert (home / ".claude" / "skills" / "gpu4agents" / "SKILL.md").is_file()
 
 
 def test_install_refuses_a_broken_config_instead_of_overwriting_it(tmp_path, home):
@@ -300,9 +302,79 @@ def test_cli_agent_install_and_skill(tmp_path, home, monkeypatch):
     runner = CliRunner()
     result = runner.invoke(app, ["--json", "agent", "install", "-t", "claude", "-t", "cursor"])
     assert result.exit_code == 0, result.output
-    assert len(json.loads(result.stdout)["installed"]) == 3
+    assert len(json.loads(result.stdout)["installed"]) == 4
     assert runner.invoke(app, ["agent", "install", "-t", "vscode"]).exit_code == 2
-    assert runner.invoke(app, ["agent", "skill"]).stdout.startswith("---\nname: gpu\n")
+    assert runner.invoke(app, ["agent", "skill"]).stdout.startswith("---\nname: gpu4agents\n")
+
+
+def test_codex_gets_the_shared_skill_and_a_toml_server_entry(tmp_path, home, monkeypatch):
+    codex = home / ".codex"
+    codex.mkdir()
+    config = codex / "config.toml"
+    config.write_text('model = "gpt-5"\n\n[mcp_servers.gpu]\ncommand = "old"\nargs = []\n\n[mcp_servers.other]\ncommand = "x"\n')
+    monkeypatch.setattr(install_mod.shutil, "which", lambda name: "/opt/bin/gpu" if name == "gpu" else None)
+
+    result = install_mod.install(["codex"], tmp_path, global_scope=True)
+
+    assert (home / ".agents" / "skills" / "gpu4agents" / "SKILL.md").is_file()
+    text = config.read_text()
+    assert 'model = "gpt-5"' in text
+    assert '[mcp_servers.other]\ncommand = "x"' in text
+    assert text.count("[mcp_servers.gpu]") == 1
+    assert 'command = "/opt/bin/gpu"\nargs = ["mcp"]' in text
+    assert "old" not in text
+    assert {i["action"] for i in result["installed"]} == {"created", "updated"}
+    again = install_mod.install(["codex"], tmp_path, global_scope=True)
+    assert {i["action"] for i in again["installed"]} == {"unchanged"}
+
+
+def test_codex_home_is_honored_and_a_missing_config_is_created(tmp_path, home, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex-home"))
+    install_mod.install(["codex"], tmp_path, global_scope=True)
+    text = (tmp_path / "codex-home" / "config.toml").read_text()
+    assert text.startswith("[mcp_servers.gpu]\ncommand = ")
+
+
+def test_gemini_project_and_global_settings(tmp_path, home):
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / ".gemini").mkdir()
+    (project / ".gemini" / "settings.json").write_text(json.dumps({"theme": "dark"}))
+    install_mod.install(["gemini"], project)
+    data = json.loads((project / ".gemini" / "settings.json").read_text())
+    assert data["theme"] == "dark"
+    assert data["mcpServers"]["gpu"]["args"][-1] == "mcp"
+    assert (project / ".agents" / "skills" / "gpu4agents" / "SKILL.md").is_file()
+
+    install_mod.install(["gemini"], project, global_scope=True)
+    assert json.loads((home / ".gemini" / "settings.json").read_text())["mcpServers"]["gpu"]
+
+
+def test_auto_installs_for_the_runtimes_found(tmp_path, home, monkeypatch):
+    (home / ".codex").mkdir()
+    (home / ".gemini").mkdir()
+    monkeypatch.setattr(install_mod.shutil, "which", lambda name: None)
+    result = install_mod.install(["auto"], tmp_path, global_scope=True)
+    assert result["targets"] == ["codex", "gemini"]
+    nothing = tmp_path / "empty-home"
+    nothing.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: nothing))
+    monkeypatch.delenv("CODEX_HOME", raising=False)
+    empty = install_mod.install(["auto"], tmp_path, global_scope=True)
+    assert empty["installed"] == [] and "no agent runtime found" in empty["notes"][0]
+
+
+def test_the_old_gpu_skill_is_replaced_but_a_foreign_one_is_kept(tmp_path, home):
+    skills = tmp_path / ".claude" / "skills"
+    (skills / "gpu").mkdir(parents=True)
+    (skills / "gpu" / "SKILL.md").write_text("---\nname: gpu\ndescription: x\n---\nuse gpu_setup\n")
+    install_mod.install(["claude"], tmp_path)
+    assert not (skills / "gpu").exists()
+
+    (skills / "gpu").mkdir()
+    (skills / "gpu" / "SKILL.md").write_text("---\nname: gpu\ndescription: someone else's\n---\n")
+    install_mod.install(["claude"], tmp_path)
+    assert (skills / "gpu" / "SKILL.md").is_file()
 
 
 # -- the skill itself ---------------------------------------------------------
@@ -311,9 +383,10 @@ def test_cli_agent_install_and_skill(tmp_path, home, monkeypatch):
 def test_skill_frontmatter_and_tool_names_match_the_server(tmp_path):
     text = install_mod.skill_text()
     front = yaml.safe_load(text.split("---")[1])
-    assert front["name"] == "gpu"
+    assert front["name"] == "gpu4agents"
     assert 0 < len(front["description"]) <= 1024
     mentioned = set(re.findall(r"\bgpu_[a-z]+\b", text))
+    assert "gpu login" in text and "install.sh" in text
     assert mentioned <= set(Server(project=tmp_path).tools), mentioned - set(Server(project=tmp_path).tools)
 
 
@@ -346,3 +419,12 @@ def test_stop_cancels_a_running_setup_first(tmp_path, monkeypatch):
     assert not error, payload
     assert payload["setup_cancelled"]["status"] == "cancelled"
     assert not job.running()
+
+
+def test_the_published_copies_of_the_skill_and_installer_match_the_sources():
+    root = Path(__file__).resolve().parents[1]
+    assert (root / "skills" / "gpu4agents" / "SKILL.md").read_text() == install_mod.skill_text()
+    site = root / "site" / "web"
+    if site.is_dir():
+        assert (site / "install.sh").read_text() == (root / "install.sh").read_text()
+        assert (site / "install.md").read_text() == (root / "INSTALL.md").read_text()
