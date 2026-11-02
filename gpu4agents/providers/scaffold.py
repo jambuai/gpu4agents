@@ -1,7 +1,8 @@
 """`gpu providers new NAME`: the starting file for an adapter written outside this package.
 
-The template compiles and registers as is; every method that needs the
-provider's API raises NotImplementedError with a note on what it must do.
+The template compiles and registers as is. Every method that needs the
+provider's API calls ``todo(...)``, which fails with a normal gpu error (exit 9)
+naming the file and what is left to write.
 """
 
 from __future__ import annotations
@@ -26,8 +27,7 @@ Selected in jambu.yaml with:
         name: {name}
         plugin: ./{plugin_dir}/{name}.py:{cls}
 
-Fill in every method that raises NotImplementedError, reading the provider's
-API docs. Keep everything provider-specific in this file: the core only sees
+Replace every todo(...) call with real code, reading the provider's API docs. Keep everything provider-specific in this file: the core only sees
 the normalized models (Instance, Offer, InstanceState, ...) and errors.
 """
 
@@ -43,6 +43,7 @@ from gpu4agents.core.errors import (
     ProviderError,
     ProviderTimeoutError,
     ProvisioningError,
+    UnsupportedCapabilityError,
 )
 from gpu4agents.core.models import (
     ComputeSpec,
@@ -62,6 +63,11 @@ from gpu4agents.providers.base import GPUProvider, WatchdogSpec
 
 API_BASE = "https://api.example.com/v1"  # TODO: the provider's API root
 API_KEY_ENV = "{env}"
+
+
+def todo(what: str):
+    """A part of this adapter that is not written yet: a clean error, not a traceback."""
+    raise UnsupportedCapabilityError(f"the {display} adapter does not do this yet: {{what}} (write it in {{__file__}})")
 
 # Runs inside the watchdog on the rented machine, so the machine can stop or
 # delete itself when idle even if nobody's laptop is on. Python stdlib only.
@@ -149,7 +155,7 @@ class {cls}(GPUProvider):
     @classmethod
     def verify_credentials(cls, values: dict[str, str]) -> dict[str, Any]:
         """Called by `gpu login` before saving. Return only safe fields (no email, no name)."""
-        raise NotImplementedError("call an account endpoint, e.g. GET /account, and return {{'balance_usd': ...}}")
+        todo("verify_credentials: call an account endpoint, e.g. GET /account, and return {{'balance_usd': ...}}")
 
     # -- the contract ---------------------------------------------------------
 
@@ -164,21 +170,21 @@ class {cls}(GPUProvider):
         """GPUs for rent that fit spec.gpu (min_vram_gb, count), spec.disk_gb and
         spec.max_hourly_cost_usd, cheapest first. Skip offers whose host_id is in
         spec.exclude_hosts."""
-        raise NotImplementedError("list GPU types/offers and map each to Offer(...)")
+        todo("find_offers: list GPU offers and map each to Offer(...)")
 
     def setup(self, spec: ComputeSpec) -> Instance:
         """Rent one machine: image spec.image, env spec.env, disk spec.disk_gb,
         label spec.label, publish every port in spec.ports, and run spec.onstart
         (a bash script that starts the model server and the watchdog) at boot.
         Raise CapacityUnavailableError when nothing fits."""
-        raise NotImplementedError("create the instance and return self._to_instance(payload)")
+        todo("setup: create the instance and return self._to_instance(payload)")
 
     def start(self, instance: Instance) -> Instance:
-        raise NotImplementedError("resume a stopped instance, wait until it runs, return it")
+        todo("start: resume a stopped instance, wait until it runs, return it")
 
     def run(self, instance: Instance, workload: Workload) -> Execution:
         self.require_capability("remote_exec")
-        raise NotImplementedError
+        todo("run: execute workload.command on the machine")
 
     def status(self, instance: Instance) -> InstanceStatus:
         payload = self._call("GET", f"/instances/{{instance.id}}")
@@ -189,18 +195,18 @@ class {cls}(GPUProvider):
 
     def stop(self, instance: Instance) -> None:
         """Must succeed when the machine is already stopped or gone."""
-        raise NotImplementedError
+        todo("stop: the provider's stop call")
 
     def destroy(self, instance: Instance) -> None:
         """Must succeed when the machine is already gone."""
-        raise NotImplementedError
+        todo("destroy: the provider's delete call")
 
     def logs(self, instance: Instance) -> LogStream:
         return LogStream(iter(()), source=self.name)
 
     def list_instances(self) -> list[Instance]:
         """Only machines whose label starts with "jambu-": never touch anything else."""
-        raise NotImplementedError("list instances and keep those where is_jambu_label(label)")
+        todo("list_instances: list instances and keep those where is_jambu_label(label)")
 
     def watchdog_spec(self, spec_or_instance=None) -> WatchdogSpec:
         return WatchdogSpec(
@@ -216,7 +222,7 @@ class {cls}(GPUProvider):
         (PROVISIONING, STARTING, READY, STOPPED, FAILED, DESTROYED), and each
         published port onto endpoints: "model" for the runtime port, "watchdog"
         for the watchdog port, as Endpoint(name, url, internal_port, external_port)."""
-        raise NotImplementedError
+        todo("_to_instance: map the provider's instance payload")
 '''
 
 

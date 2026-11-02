@@ -94,7 +94,7 @@ This writes this skill and registers the `gpu` MCP server for that agent. The to
 When the user wants a provider `gpu providers` does not list, write an adapter for it. The full steps are in https://gpu4agents.jambu.ai/providers.md (copy in the repository: `PROVIDERS.md`). In short:
 
 1. `gpu providers new <name>` writes `gpu_providers/<name>.py`, a skeleton of the provider contract. `gpu init --provider <name>` writes a `jambu.yaml` that loads it (`provider.name` and `provider.plugin`).
-2. Read the provider's API docs and fill in every method that raises `NotImplementedError`: offers, rent, status, stop, destroy, list, and the two stdlib-only calls the watchdog makes from the machine to stop or delete itself.
+2. Read the provider's API docs and replace every `todo(...)` in that file with real code: offers, rent, status, stop, destroy, list, and the two stdlib-only calls the watchdog makes from the machine to stop or delete itself.
 3. The user runs `gpu login --provider <name>`. Then `gpu validate` and `gpu offers` must work without renting anything.
 4. One small test run, with the user's yes: `gpu setup`, `gpu status` (`watchdog.reachable` must be true), `gpu destroy --yes`.
 

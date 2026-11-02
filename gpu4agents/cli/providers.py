@@ -62,7 +62,7 @@ def new_command(
         "path": str(path),
         "provider": {"name": name, "plugin": scaffold.plugin_spec(name)},
         "next": [
-            f"implement every NotImplementedError in {path}",
+            f"replace every todo(...) in {path} with calls to the provider's API",
             f"jambu.yaml: gpu_runtime.provider.name: {name} and plugin: {scaffold.plugin_spec(name)}",
             f"gpu login --provider {name}",
             "gpu validate, then gpu offers (rents nothing)",

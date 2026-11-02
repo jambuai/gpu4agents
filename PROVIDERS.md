@@ -28,7 +28,7 @@ In an existing `jambu.yaml`, add those two lines under `gpu_runtime.provider` yo
 
 ## 3. Read the provider's API docs, then fill in the file
 
-Every method that raises `NotImplementedError` needs the provider's API. Read the contract in `gpu4agents/providers/base.py` (run `python -c "import gpu4agents.providers.base as b; print(b.__file__)"` to find it) and the guide at https://github.com/jambuai/gpu4agents/blob/main/docs/ADDING_A_PROVIDER.md. The Vast.ai adapter in `gpu4agents/providers/vast/` is a full working example.
+Every `todo(...)` call marks a part that needs the provider's API; until you write it, that part fails with a clear error (exit 9). Read the contract in `gpu4agents/providers/base.py` (run `python -c "import gpu4agents.providers.base as b; print(b.__file__)"` to find it) and the guide at https://github.com/jambuai/gpu4agents/blob/main/docs/ADDING_A_PROVIDER.md. The Vast.ai adapter in `gpu4agents/providers/vast/` is a full working example.
 
 What each part must do:
 
@@ -45,7 +45,7 @@ What each part must do:
 
 Raise only the errors in `gpu4agents.core.errors`: `AuthenticationError`, `CapacityUnavailableError`, `ProvisioningError`, `ProviderTimeoutError`, `ProviderError`. The CLI turns them into the usual exit codes.
 
-If the provider has no API for something (no stop, no price list), set that capability to `False` and leave the method raising. Tell the user which features that turns off.
+If the provider has no API for something (no stop, no price list), set that capability to `False` and leave its `todo(...)` in place. Tell the user which features that turns off.
 
 ## 4. Connect the account
 

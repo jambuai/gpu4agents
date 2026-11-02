@@ -459,6 +459,14 @@ def test_providers_new_writes_an_adapter_that_loads(tmp_path, monkeypatch):
     actions = sys.modules[cls.__module__].WATCHDOG_ACTIONS
     compile(actions, "watchdog_actions", "exec")
     assert "def provider_stop(ctx)" in actions and "def provider_destroy(ctx)" in actions
+    # an unfinished adapter fails with a normal error, not a traceback
+    from gpu4agents.providers.registry import registry
+
+    monkeypatch.setattr(registry, "_providers", dict(registry._providers))
+    assert runner.invoke(app, ["init", "--provider", "my-cloud"]).exit_code == 0
+    unfinished = runner.invoke(app, ["login", "--stdin"], input="key\n")
+    assert unfinished.exit_code == 9, unfinished.output
+    assert "verify_credentials" in unfinished.output and "Traceback" not in unfinished.output
     again = runner.invoke(app, ["providers", "new", "my-cloud"])
     assert again.exit_code == 2  # refuses to overwrite
     assert runner.invoke(app, ["providers", "new", "vast"]).exit_code == 2
