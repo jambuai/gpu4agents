@@ -1,0 +1,6 @@
+video/renders/
+video/.hyperframes/
+video/assets/narration.wav
+web/media/*.mp4
+video/AGENTS.md
+video/CLAUDE.md

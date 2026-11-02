@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/gsap.min.js"></script>
+    <style>
+      @font-face { font-family: "Bricolage Grotesque"; src: url("fonts/BricolageGrotesque.woff2") format("woff2"); font-weight: 200 800; }
+      @font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMono.woff2") format("woff2"); font-weight: 400 800; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px; height: 1080px; overflow: hidden;
+        background: #0A0F0B; color: #ECF2E8;
+        font-family: "Bricolage Grotesque", sans-serif;
+      }
+      #root { position: relative; width: 1920px; height: 1080px; overflow: hidden; background: #0A0F0B; }
+      .mono { font-family: "JetBrains Mono", monospace; }
+
+      .scene {
+        position: absolute; inset: 0; width: 1920px; height: 1080px; overflow: hidden;
+        background: #0A0F0B;
+      }
+      #s2, #s3, #s4, #s5, #s6 { opacity: 0; }
+      #s1 { z-index: 1; } #s2 { z-index: 2; } #s3 { z-index: 3; }
+      #s4 { z-index: 4; } #s5 { z-index: 5; } #s6 { z-index: 6; }
+
+      .inner { position: absolute; inset: 0; }
+      .content {
+        position: absolute; inset: 0; width: 100%; height: 100%;
+        padding: 110px 120px 190px; box-sizing: border-box;
+        display: flex; gap: 80px;
+      }
+
+      /* shared decor */
+      .grid {
+        position: absolute; inset: -200px;
+        background-image:
+          linear-gradient(rgba(92,191,58,0.10) 2px, rgba(92,191,58,0) 2px),
+          linear-gradient(90deg, rgba(92,191,58,0.10) 2px, rgba(92,191,58,0) 2px);
+        background-size: 96px 96px;
+      }
+      .glow { position: absolute; border-radius: 50%; }
+      .ghost {
+        position: absolute; font-weight: 800; letter-spacing: -0.05em; line-height: 0.8;
+        color: rgba(236,242,232,0.06); white-space: nowrap;
+      }
+      .eyebrow {
+        font-family: "JetBrains Mono", monospace; font-size: 24px; letter-spacing: 0.18em;
+        text-transform: uppercase; color: #5CBF3A; display: flex; align-items: center; gap: 18px;
+      }
+      .eyebrow .rule { width: 72px; height: 3px; background: #5CBF3A; }
+      .corner {
+        position: absolute; font-family: "JetBrains Mono", monospace; font-size: 20px;
+        color: #9CAA9D; letter-spacing: 0.08em;
+      }
+      .tl { top: 44px; left: 120px; } .tr { top: 44px; right: 120px; }
+
+      .card {
+        background: #111912; border: 2px solid #22302A; border-radius: 22px;
+        box-shadow: 0 30px 80px rgba(0,0,0,0.45);
+      }
+      .bar-dots { display: flex; gap: 10px; padding: 20px 24px; border-bottom: 2px solid #22302A; align-items: center; }
+      .bar-dots i { width: 14px; height: 14px; border-radius: 50%; background: #22302A; display: block; }
+      .bar-dots span { margin-left: 16px; font-family: "JetBrains Mono", monospace; font-size: 20px; color: #9CAA9D; }
+      .pill {
+        display: inline-flex; align-items: center; gap: 12px; padding: 10px 22px; border-radius: 999px;
+        font-family: "JetBrains Mono", monospace; font-size: 22px; font-weight: 700; letter-spacing: 0.08em;
+      }
+      .pill .dot { width: 14px; height: 14px; border-radius: 50%; }
+
+      /* ---------- scene 1 ---------- */
+      #s1 .left { width: 860px; display: flex; flex-direction: column; justify-content: center; gap: 34px; }
+      #s1 .h { font-size: 100px; font-weight: 800; letter-spacing: -0.04em; line-height: 0.98; }
+      #s1 .h.dim { color: #9CAA9D; }
+      #s1 .h .em { color: #FF7A4D; }
+      #s1 .right { flex: 1; position: relative; }
+      #s1-editor { position: absolute; left: 0; top: 0; width: 720px; }
+      #s1-editor .code { padding: 28px 32px; font-family: "JetBrains Mono", monospace; font-size: 25px; line-height: 1.75; }
+      .code .ln { white-space: nowrap; overflow: hidden; }
+      .k { color: #5CBF3A; } .s { color: #B4E06C; } .c { color: #9CAA9D; }
+      #s1-scores { position: absolute; right: 0; top: 330px; width: 560px; padding: 30px 34px; display: flex; flex-direction: column; gap: 24px; }
+      .score-row { display: flex; flex-direction: column; gap: 10px; }
+      .score-row .lbl { display: flex; justify-content: space-between; font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; }
+      .score-row .lbl b { color: #ECF2E8; font-weight: 700; }
+      .track { height: 16px; background: #22302A; border-radius: 8px; overflow: hidden; }
+      .fill { height: 100%; border-radius: 8px; background: #5CBF3A; transform-origin: left center; }
+      .fill.b { background: #B4E06C; }
+      #s1-gpu { position: absolute; left: 60px; top: 560px; width: 520px; padding: 30px 34px; display: flex; gap: 28px; align-items: center; border-color: rgba(255,122,77,0.55); }
+      #s1-gpu .chip { width: 110px; height: 110px; border-radius: 18px; border: 4px solid #FF7A4D; display: grid; place-items: center; font-family: "JetBrains Mono", monospace; font-weight: 700; font-size: 28px; color: #FF7A4D; }
+      #s1-gpu .t1 { font-size: 34px; font-weight: 800; }
+      #s1-gpu .t2 { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #FF7A4D; margin-top: 8px; }
+
+      /* ---------- scene 2 ---------- */
+      #s2 .left { width: 900px; display: flex; flex-direction: column; gap: 22px; justify-content: center; }
+      #s2 .chat { padding: 0 0 26px; }
+      .bubble-user {
+        margin: 26px 30px 6px auto; max-width: 640px; background: #22302A; border-radius: 22px 22px 6px 22px;
+        padding: 22px 28px; font-size: 30px; line-height: 1.3;
+      }
+      .tool { margin: 18px 30px 0; border: 2px solid #22302A; border-radius: 16px; padding: 18px 22px; display: flex; flex-direction: column; gap: 12px; }
+      .tool .name { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #5CBF3A; font-weight: 700; }
+      .tool .out { font-family: "JetBrains Mono", monospace; font-size: 23px; color: #ECF2E8; }
+      .tool .out .ok { color: #5CBF3A; }
+      .progress { height: 12px; background: #22302A; border-radius: 6px; overflow: hidden; }
+      .progress .fill { background: #5CBF3A; }
+      .swap { position: relative; height: 32px; }
+      .swap span { position: absolute; left: 0; top: 0; font-family: "JetBrains Mono", monospace; font-size: 23px; color: #9CAA9D; }
+      .kv { font-family: "JetBrains Mono", monospace; font-size: 22px; line-height: 1.6; }
+      .kv .key { color: #9CAA9D; display: inline-block; width: 150px; }
+      #s2 .right { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 36px; padding-left: 20px; }
+      #s2 .h { font-size: 96px; font-weight: 800; letter-spacing: -0.04em; line-height: 0.98; }
+      #s2 .h .lf { color: #5CBF3A; }
+      .machine { position: relative; width: 640px; height: 330px; padding: 34px 38px; display: flex; gap: 36px; align-items: center; }
+      .chipbig { position: relative; width: 210px; height: 210px; border-radius: 26px; border: 5px solid #22302A; display: grid; place-items: center; }
+      .chipbig .core { width: 120px; height: 120px; border-radius: 14px; background: #22302A; }
+      .chipbig .pins { position: absolute; inset: -22px; }
+      .machine .meta { display: flex; flex-direction: column; gap: 14px; }
+      .machine .gpu-name { font-size: 46px; font-weight: 800; letter-spacing: -0.02em; }
+      .machine .spec { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; }
+      .tags { display: flex; gap: 18px; }
+      .tag { font-family: "JetBrains Mono", monospace; font-size: 24px; padding: 12px 22px; border: 2px solid #22302A; border-radius: 12px; color: #ECF2E8; }
+      .tag s { color: #9CAA9D; }
+
+      /* ---------- scene 3 ---------- */
+      #s3 .left { width: 820px; display: flex; flex-direction: column; justify-content: center; gap: 30px; }
+      #s3 .eyebrow { color: #FF7A4D; } #s3 .eyebrow .rule { background: #FF7A4D; }
+      #s3 .h { font-size: 116px; font-weight: 800; letter-spacing: -0.045em; line-height: 0.95; }
+      #s3 .h.em { color: #FF7A4D; }
+      #s3 .right { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 28px; }
+      .clock { font-family: "JetBrains Mono", monospace; font-size: 190px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
+      .clock small { font-size: 60px; color: #9CAA9D; margin-left: 14px; }
+      .bill { width: 700px; padding: 30px 36px; display: flex; justify-content: space-between; align-items: center; border-color: rgba(255,122,77,0.6); }
+      .bill .lbl { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; letter-spacing: 0.1em; text-transform: uppercase; }
+      .bill .amt { font-family: "JetBrains Mono", monospace; font-size: 84px; font-weight: 700; color: #FF7A4D; font-variant-numeric: tabular-nums; }
+      .ended { width: 700px; padding: 22px 30px; display: flex; justify-content: space-between; align-items: center; opacity: 0.85; }
+      .ended .t { font-family: "JetBrains Mono", monospace; font-size: 24px; color: #9CAA9D; }
+
+      /* ---------- scene 4 ---------- */
+      #s4 .content { flex-direction: column; gap: 46px; }
+      #s4 .top { display: flex; justify-content: space-between; align-items: flex-end; }
+      #s4 .h { font-size: 112px; font-weight: 800; letter-spacing: -0.045em; line-height: 0.95; }
+      #s4 .h .lf { color: #5CBF3A; }
+      .yaml { font-family: "JetBrains Mono", monospace; font-size: 30px; padding: 22px 30px; }
+      .yaml .key { color: #9CAA9D; } .yaml .val { color: #B4E06C; font-weight: 700; }
+      .timeline { position: relative; padding: 44px 48px 40px; }
+      .tl-head { display: flex; justify-content: space-between; font-family: "JetBrains Mono", monospace; font-size: 24px; color: #9CAA9D; margin-bottom: 30px; }
+      .tl-head b { color: #ECF2E8; font-variant-numeric: tabular-nums; }
+      .rail { position: relative; height: 70px; }
+      .rail .base { position: absolute; left: 0; right: 0; top: 33px; height: 4px; background: #22302A; }
+      .req { position: absolute; top: 20px; width: 6px; height: 30px; border-radius: 3px; background: #5CBF3A; }
+      .idlebar { position: absolute; left: 520px; right: 140px; top: 26px; height: 18px; border-radius: 9px; background: #FF7A4D; transform-origin: left center; }
+      .stopmark { position: absolute; right: 60px; top: 2px; width: 66px; height: 66px; border-radius: 50%; border: 4px solid #5CBF3A; display: grid; place-items: center; }
+      .stopmark i { width: 22px; height: 22px; border-radius: 4px; background: #5CBF3A; display: block; }
+      .tl-foot { display: flex; justify-content: space-between; font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; margin-top: 20px; }
+      #s4 .bottom { display: flex; gap: 30px; align-items: stretch; }
+      .state { flex: 1.2; padding: 30px 36px; display: flex; justify-content: space-between; align-items: center; }
+      .state .lbl { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; letter-spacing: 0.1em; text-transform: uppercase; }
+      .state .rate { font-family: "JetBrains Mono", monospace; font-size: 64px; font-weight: 700; font-variant-numeric: tabular-nums; position: relative; width: 320px; height: 76px; text-align: right; }
+      .state .rate span { position: absolute; right: 0; top: 0; }
+      .pillwrap { position: relative; width: 250px; height: 56px; }
+      .pillwrap .pill { position: absolute; right: 0; top: 0; }
+      .checks { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 18px; }
+      .check { display: flex; align-items: center; gap: 18px; font-size: 36px; font-weight: 300; }
+      .check .box { width: 44px; height: 44px; border-radius: 10px; background: #5CBF3A; display: grid; place-items: center; color: #0A0F0B; font-weight: 800; font-size: 30px; }
+
+      /* ---------- scene 5 ---------- */
+      #s5 .content { flex-direction: column; gap: 40px; }
+      #s5 .h { font-size: 104px; font-weight: 800; letter-spacing: -0.045em; line-height: 0.95; max-width: 1500px; }
+      .rows { display: flex; flex-direction: column; }
+      .row { display: flex; align-items: center; gap: 60px; padding: 26px 0; border-top: 3px solid #22302A; }
+      .row:last-child { border-bottom: 3px solid #22302A; }
+      .row .big { width: 380px; font-family: "JetBrains Mono", monospace; font-size: 76px; font-weight: 700; color: #5CBF3A; letter-spacing: -0.03em; }
+      .row .what { flex: 1; font-size: 44px; font-weight: 300; }
+      .row .what b { font-weight: 800; }
+      .row .cfg { font-family: "JetBrains Mono", monospace; font-size: 24px; color: #9CAA9D; }
+
+      /* ---------- scene 6 ---------- */
+      #s6 .content { flex-direction: column; justify-content: center; gap: 40px; }
+      .brand { display: flex; align-items: center; gap: 26px; }
+      .brand svg { width: 110px; height: 110px; }
+      .brand .name { font-size: 76px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; }
+      .brand .by { font-family: "JetBrains Mono", monospace; font-size: 24px; color: #9CAA9D; margin-top: 8px; letter-spacing: 0.06em; }
+      #s6 .h { font-size: 92px; font-weight: 800; letter-spacing: -0.045em; line-height: 0.98; max-width: 1350px; }
+      #s6 .h.lf { margin-top: 18px; }
+      #s6 .h.lf { color: #5CBF3A; }
+      #s6 .row2 { display: flex; gap: 40px; align-items: center; }
+      .term { padding: 28px 36px; font-family: "JetBrains Mono", monospace; font-size: 34px; line-height: 1.6; }
+      .term .p { color: #5CBF3A; }
+      .facts { display: flex; flex-direction: column; gap: 14px; font-family: "JetBrains Mono", monospace; font-size: 26px; color: #9CAA9D; }
+      .facts b { color: #ECF2E8; }
+
+      /* captions */
+      #captions { position: absolute; left: 0; right: 0; bottom: 58px; height: 70px; z-index: 50; pointer-events: none; }
+      .cap {
+        position: absolute; left: 50%; top: 0; transform: translateX(-50%); white-space: nowrap;
+        font-size: 36px; font-weight: 500; color: #ECF2E8; padding: 12px 28px; border-radius: 14px;
+        background: rgba(10,15,11,0.82); opacity: 0;
+      }
+      #fade { position: absolute; inset: 0; background: #0A0F0B; opacity: 0; z-index: 60; }
+      #flash { position: absolute; inset: 0; background: #5CBF3A; opacity: 0; z-index: 40; }
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="64.47" data-width="1920" data-height="1080">
+
+      <!-- ================= SCENE 1: the agent can do everything but rent ================= -->
+      <div id="s1" class="scene"><div class="inner" id="s1i">
+        <div class="grid" id="s1-grid"></div>
+        <div class="glow" style="left:-300px;top:-380px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(92,191,58,0.22) 0%, rgba(92,191,58,0) 65%);"></div>
+        <div data-layout-ignore class="ghost" id="s1-ghost" style="font-size:460px;left:-40px;bottom:-60px;">AGENT</div>
+        <div data-layout-ignore class="corner tl mono">GPU for Agents</div>
+        <div data-layout-ignore class="corner tr mono">VSL · 01/06</div>
+        <div class="content">
+          <div class="left">
+            <div class="eyebrow" id="s1-eb"><span class="rule"></span>Your coding agent</div>
+            <div class="h" id="s1-h1">Writes the experiment.</div>
+            <div class="h dim" id="s1-h2">Scores the models.</div>
+            <div class="h" id="s1-h3">Can't rent a <span class="em">GPU.</span></div>
+          </div>
+          <div class="right">
+            <div class="card" id="s1-editor">
+              <div class="bar-dots"><i></i><i></i><i></i><span>eval.py</span></div>
+              <div class="code">
+                <div class="ln" id="s1-l1"><span class="k">from</span> openai <span class="k">import</span> OpenAI</div>
+                <div class="ln" id="s1-l2">prompts = load(<span class="s">"prompts.jsonl"</span>)</div>
+                <div class="ln" id="s1-l3"><span class="k">for</span> model <span class="k">in</span> [<span class="s">"qwen-7b"</span>, <span class="s">"llama-8b"</span>]:</div>
+                <div class="ln" id="s1-l4">&nbsp;&nbsp;&nbsp;&nbsp;score(model, prompts)</div>
+                <div class="ln c" id="s1-l5"># needs a GPU to run</div>
+              </div>
+            </div>
+            <div class="card" id="s1-scores">
+              <div class="score-row"><div class="lbl"><b>Qwen 7B</b><span>0.82</span></div><div class="track"><div class="fill" id="s1-f1" style="width:82%"></div></div></div>
+              <div class="score-row"><div class="lbl"><b>Llama 8B</b><span>0.77</span></div><div class="track"><div class="fill b" id="s1-f2" style="width:77%"></div></div></div>
+            </div>
+            <div class="card" id="s1-gpu">
+              <div class="chip">GPU</div>
+              <div><div class="t1">No GPU access</div><div class="t2">✕ needs a human</div></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <!-- ================= SCENE 2: the agent provisions ================= -->
+      <div id="s2" class="scene"><div class="inner" id="s2i">
+        <div class="glow" id="s2-glow" style="right:-260px;top:120px;width:1100px;height:1100px;background:radial-gradient(circle, rgba(92,191,58,0.26) 0%, rgba(92,191,58,0) 62%);"></div>
+        <div data-layout-ignore class="ghost" style="font-size:380px;right:-60px;top:-40px;">SETUP</div>
+        <div data-layout-ignore class="corner tl mono">GPU for Agents</div>
+        <div data-layout-ignore class="corner tr mono">VSL · 02/06</div>
+        <div class="content">
+          <div class="left">
+            <div class="card chat" id="s2-chat">
+              <div class="bar-dots"><i></i><i></i><i></i><span>claude code · gpu MCP</span></div>
+              <div class="bubble-user" id="s2-user">Compare Qwen 7B and Llama 8B on these 50 prompts.</div>
+              <div class="tool" id="s2-t1">
+                <div class="name">gpu_offers</div>
+                <div class="out">RTX 4090 · 24 GB · $0.38/h <span class="ok">✓ under $0.60/h cap</span></div>
+              </div>
+              <div class="tool" id="s2-t2">
+                <div class="name">gpu_setup</div>
+                <div class="progress"><div class="fill" id="s2-prog" style="width:100%"></div></div>
+                <div class="swap"><span id="s2-st1">renting the machine…</span><span id="s2-st2">serving Qwen/Qwen2.5-7B-Instruct…</span><span id="s2-st3" style="color:#5CBF3A">ready</span></div>
+              </div>
+              <div class="tool" id="s2-t3">
+                <div class="kv"><span class="key">base_url</span>https://…:8000/v1</div>
+                <div class="kv"><span class="key">api_key</span>sk-••••••••</div>
+              </div>
+            </div>
+          </div>
+          <div class="right">
+            <div class="eyebrow" id="s2-eb"><span class="rule"></span>Now it can</div>
+            <div class="h" id="s2-h">The agent rents<br /><span class="lf">its own GPU.</span></div>
+            <div class="card machine" id="s2-machine">
+              <div class="chipbig" id="s2-chip"><div class="core" id="s2-core"></div></div>
+              <div class="meta">
+                <div class="gpu-name">RTX 4090</div>
+                <div class="spec">24 GB · vLLM · OpenAI API</div>
+                <div class="pillwrap" style="width:auto;height:auto;"><div class="pill" id="s2-pill" style="position:static;background:rgba(92,191,58,0.16);color:#5CBF3A;"><span class="dot" style="background:#5CBF3A"></span>RUNNING</div></div>
+              </div>
+            </div>
+            <div class="tags"><div class="tag" id="s2-tag1"><s>dashboards</s></div><div class="tag" id="s2-tag2"><s>tickets</s></div></div>
+          </div>
+        </div>
+      </div></div>
+
+      <!-- ================= SCENE 3: the bill keeps running ================= -->
+      <div id="s3" class="scene"><div class="inner" id="s3i">
+        <div class="glow" id="s3-glow" style="right:-200px;top:-200px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(255,122,77,0.24) 0%, rgba(255,122,77,0) 62%);"></div>
+        <div data-layout-ignore class="ghost" style="font-size:420px;left:-30px;bottom:-70px;color:rgba(255,122,77,0.07);">$$$$</div>
+        <div data-layout-ignore class="corner tl mono">GPU for Agents</div>
+        <div data-layout-ignore class="corner tr mono">VSL · 03/06</div>
+        <div class="content">
+          <div class="left">
+            <div class="eyebrow" id="s3-eb"><span class="rule"></span>Then</div>
+            <div class="h" id="s3-h1">The chat ends.</div>
+            <div class="h em" id="s3-h2">The bill doesn't.</div>
+          </div>
+          <div class="right">
+            <div class="card ended" id="s3-ended"><span class="t">conversation ended · 23:04</span><span class="pill" style="background:rgba(92,191,58,0.16);color:#5CBF3A;"><span class="dot" style="background:#5CBF3A"></span>GPU RUNNING</span></div>
+            <div class="clock" id="s3-clock"><span id="s3-hh">00:47</span><small>AM</small></div>
+            <div class="card bill" id="s3-bill"><div><div class="lbl">still billing</div><div class="lbl" style="margin-top:8px;color:#FF7A4D">$0.38 / hour · idle</div></div><div class="amt" id="s3-amt">$1.57</div></div>
+          </div>
+        </div>
+      </div></div>
+
+      <!-- ================= SCENE 4: the watchdog ================= -->
+      <div id="s4" class="scene"><div class="inner" id="s4i">
+        <div class="grid" id="s4-grid"></div>
+        <div class="glow" style="left:400px;top:-500px;width:1200px;height:1200px;background:radial-gradient(circle, rgba(92,191,58,0.20) 0%, rgba(92,191,58,0) 62%);"></div>
+        <div data-layout-ignore class="corner tl mono">GPU for Agents</div>
+        <div data-layout-ignore class="corner tr mono">VSL · 04/06</div>
+        <div class="content">
+          <div class="top">
+            <div style="display:flex;flex-direction:column;gap:26px;">
+              <div class="eyebrow" id="s4-eb"><span class="rule"></span>A watchdog on the machine</div>
+              <div class="h" id="s4-h">Idle? <span class="lf">It shuts down.</span></div>
+            </div>
+            <div class="card yaml" id="s4-yaml"><span class="key">lifecycle.idle_timeout:</span> <span class="val">15m</span></div>
+          </div>
+          <div class="card timeline" id="s4-tl">
+            <div class="tl-head"><span>requests</span><span>idle <b id="s4-idle">00:00</b> / 15:00</span></div>
+            <div class="rail">
+              <div class="base"></div>
+              <div class="req" style="left:20px"></div><div class="req" style="left:70px"></div><div class="req" style="left:96px"></div>
+              <div class="req" style="left:160px"></div><div class="req" style="left:230px"></div><div class="req" style="left:262px"></div>
+              <div class="req" style="left:330px"></div><div class="req" style="left:395px"></div><div class="req" style="left:470px"></div>
+              <div class="idlebar" id="s4-bar"></div>
+              <div class="stopmark" id="s4-stop"><i></i></div>
+            </div>
+            <div class="tl-foot"><span>agent working</span><span>last request</span><span>stopped</span></div>
+          </div>
+          <div class="bottom">
+            <div class="card state" id="s4-state">
+              <div><div class="lbl">billing</div>
+                <div class="pillwrap" style="margin-top:14px;">
+                  <div class="pill" id="s4-run" style="background:rgba(255,122,77,0.16);color:#FF7A4D;left:0;right:auto;"><span class="dot" style="background:#FF7A4D"></span>RUNNING</div>
+                  <div class="pill" id="s4-stopped" style="background:rgba(92,191,58,0.16);color:#5CBF3A;left:0;right:auto;opacity:0;"><span class="dot" style="background:#5CBF3A"></span>STOPPED</div>
+                </div>
+              </div>
+              <div class="rate"><span id="s4-r1" style="color:#FF7A4D">$0.38/h</span><span id="s4-r2" style="color:#5CBF3A;opacity:0">$0.00/h</span></div>
+            </div>
+            <div class="checks">
+              <div class="check" id="s4-c1"><span class="box">✓</span>the agent forgot</div>
+              <div class="check" id="s4-c2"><span class="box">✓</span>your laptop is closed</div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <!-- ================= SCENE 5: guardrails ================= -->
+      <div id="s5" class="scene"><div class="inner" id="s5i">
+        <div class="glow" id="s5-glow" style="left:-300px;bottom:-500px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(180,224,108,0.16) 0%, rgba(180,224,108,0) 62%);"></div>
+        <div data-layout-ignore class="ghost" style="font-size:300px;right:-40px;top:-30px;">LIMITS</div>
+        <div data-layout-ignore class="corner tl mono">GPU for Agents</div>
+        <div data-layout-ignore class="corner tr mono">VSL · 05/06</div>
+        <div class="content">
+          <div class="eyebrow" id="s5-eb"><span class="rule"></span>Guardrails in jambu.yaml</div>
+          <div class="h" id="s5-h">Limits the agent can't talk its way past.</div>
+          <div class="rows">
+            <div class="row" id="s5-r1"><div class="big">$0.60/h</div><div class="what"><b>Budget</b> per hour and per session</div><div class="cfg">budget.max_hourly_cost_usd</div></div>
+            <div class="row" id="s5-r2"><div class="big">6 h</div><div class="what"><b>Lifetime</b> cap, whatever happens</div><div class="cfg">lifecycle.max_lifetime</div></div>
+            <div class="row" id="s5-r3"><div class="big">10 min</div><div class="what"><b>Stalled host</b> replaced, not waited on</div><div class="cfg">health.pull_stall_timeout</div></div>
+          </div>
+        </div>
+      </div></div>
+
+      <!-- ================= SCENE 6: CTA ================= -->
+      <div id="s6" class="scene"><div class="inner" id="s6i">
+        <div class="grid" id="s6-grid" style="opacity:0.7"></div>
+        <div class="glow" id="s6-glow" style="left:900px;top:-100px;width:1400px;height:1400px;background:radial-gradient(circle, rgba(92,191,58,0.24) 0%, rgba(92,191,58,0) 62%);"></div>
+        <div data-layout-ignore class="corner tl mono">GPU for Agents</div>
+        <div data-layout-ignore class="corner tr mono">VSL · 06/06</div>
+        <svg data-layout-ignore id="s6-mark" viewBox="0 0 100 100" aria-hidden="true" style="position:absolute;right:30px;top:330px;width:460px;height:460px;opacity:0.3">
+          <circle cx="50" cy="15" r="10" fill="none" stroke="#5CBF3A" stroke-width="1.2" />
+          <path d="M50 74 C 24 72 8 52 10 32 C 32 32 50 48 50 74 Z" fill="rgba(92,191,58,0.10)" stroke="#5CBF3A" stroke-width="1.2" />
+          <path d="M50 74 C 54 50 70 34 92 32 C 92 54 74 72 50 74 Z" fill="rgba(180,224,108,0.10)" stroke="#B4E06C" stroke-width="1.2" />
+          <path d="M50 74 V 92 M50 80 C 40 80 30 78 20 70 M50 80 C 60 80 70 78 80 70" stroke="#5CBF3A" stroke-width="1.2" fill="none" />
+        </svg>
+        <div class="content">
+          <div class="brand" id="s6-brand">
+            <svg viewBox="0 0 100 100" aria-hidden="true">
+              <circle cx="50" cy="15" r="10" fill="#5CBF3A" />
+              <path d="M50 74 C 24 72 8 52 10 32 C 32 32 50 48 50 74 Z" fill="#5CBF3A" />
+              <path d="M50 74 C 54 50 70 34 92 32 C 92 54 74 72 50 74 Z" fill="#B4E06C" />
+              <path d="M50 74 V 92 M50 80 C 40 80 30 78 20 70 M50 80 C 60 80 70 78 80 70" stroke="#5CBF3A" stroke-width="4" fill="none" stroke-linecap="round" />
+              <circle cx="20" cy="70" r="5" fill="#0A0F0B" stroke="#5CBF3A" stroke-width="4" />
+              <circle cx="80" cy="70" r="5" fill="#0A0F0B" stroke="#5CBF3A" stroke-width="4" />
+              <circle cx="50" cy="93" r="5" fill="#0A0F0B" stroke="#5CBF3A" stroke-width="4" />
+            </svg>
+            <div><div class="name">GPU for Agents</div><div class="by">by Jambu.ai</div></div>
+          </div>
+          <div>
+            <div class="h" id="s6-h1">Your agent rents the GPU it needs, on its own.</div>
+            <div class="h lf" id="s6-h2">You pay only while it works.</div>
+          </div>
+          <div class="row2">
+            <div class="card term" id="s6-term">
+              <div><span class="p">$</span> pipx install gpu4agents</div>
+              <div><span class="p">$</span> gpu agent install</div>
+            </div>
+            <div class="facts" id="s6-facts">
+              <div><b>Open source</b> · MIT</div>
+              <div>Claude Code · Cursor · Claude Desktop</div>
+              <div><b>gpu4agents.jambu.ai</b></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <div id="flash"></div>
+      <div id="captions" data-layout-allow-overlap></div>
+      <div id="fade"></div>
+
+      <audio id="vo" data-start="0" data-duration="64.47" data-track-index="1" src="assets/vsl-audio.wav" data-volume="1"></audio>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      // ---------- captions (phrase timings come from the narration build, assets/timing.json) ----------
+      const CAPS = [
+        [0.6, 2.7, "Your agent can write the experiment."],
+        [3.0, 6.0, "It can compare the models, and score every answer."],
+        [6.29, 8.34, "But it can't rent its own GPU."],
+        [9.84, 10.81, "Now it can."],
+        [11.11, 15.28, "Ask for a benchmark, and the agent finds a machine under your budget."],
+        [15.58, 18.0, "It serves the model, and gets an endpoint back."],
+        [18.0, 20.62, "No dashboards. No tickets."],
+        [22.12, 23.86, "Then the conversation ends."],
+        [24.16, 26.7, "And the GPU keeps billing. All night."],
+        [29.8, 31.83, "Not with GPU for Agents."],
+        [31.92, 34.32, "A watchdog runs on the machine itself."],
+        [34.62, 38.74, "Fifteen minutes without a request, and it shuts the GPU down."],
+        [39.04, 42.92, "Even if the agent forgot. Even if your laptop is closed."],
+        [44.42, 46.4, "Budgets the agent can't exceed."],
+        [46.4, 48.2, "A maximum lifetime."],
+        [48.2, 50.0, "Stalled hosts, replaced."],
+        [51.5, 53.16, "GPU for Agents."],
+        [53.7, 57.02, "Your agent rents the GPU it needs, on its own."],
+        [57.57, 59.34, "You pay only while it works."],
+        [59.69, 61.72, "Open source. One install."],
+      ];
+      const capBox = document.getElementById("captions");
+      CAPS.forEach(([a, b, text], i) => {
+        const el = document.createElement("div");
+        el.className = "cap"; el.id = "cap" + i; el.textContent = text;
+        capBox.appendChild(el);
+        tl.fromTo(el, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.18, ease: "power2.out" }, a);
+        tl.to(el, { opacity: 0, duration: 0.15, ease: "power1.in" }, b);
+        tl.set(el, { opacity: 0 }, b + 0.16);
+      });
+
+      // ---------- helpers ----------
+      const counter = (el, from, to, t, dur, fmt, ease = "none") => {
+        const o = { v: from };
+        tl.to(o, { v: to, duration: dur, ease, onUpdate: () => { el.textContent = fmt(o.v); } }, t);
+      };
+      const typeLine = (sel, t, dur) => tl.fromTo(sel, { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: dur, ease: "steps(18)" }, t);
+
+      // ================= SCENE 1 (0 – 9.24) =================
+      tl.fromTo("#s1-eb", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out" }, 0.2);
+      tl.fromTo("#s1-h1", { opacity: 0, y: 70 }, { opacity: 1, y: 0, duration: 0.7, ease: "power4.out" }, 0.55);
+      tl.fromTo("#s1-editor", { opacity: 0, x: 120, rotationY: -14, transformPerspective: 1400 }, { opacity: 1, x: 0, rotationY: -6, duration: 0.9, ease: "power3.out" }, 0.7);
+      typeLine("#s1-l1", 1.2, 0.35); typeLine("#s1-l2", 1.6, 0.4); typeLine("#s1-l3", 2.05, 0.45); typeLine("#s1-l4", 2.55, 0.35);
+      tl.fromTo("#s1-l5", { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "sine.out" }, 5.4);
+      tl.fromTo("#s1-h2", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.6, ease: "back.out(1.4)" }, 3.0);
+      tl.fromTo("#s1-scores", { opacity: 0, y: 80, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.65, ease: "expo.out" }, 3.2);
+      tl.fromTo("#s1-f1", { scaleX: 0 }, { scaleX: 1, duration: 1.4, ease: "power2.out" }, 3.6);
+      tl.fromTo("#s1-f2", { scaleX: 0 }, { scaleX: 1, duration: 1.4, ease: "power2.out" }, 3.85);
+      tl.fromTo("#s1-h3", { opacity: 0, scale: 1.25, filter: "blur(10px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.35, ease: "power4.out", transformOrigin: "left center" }, 6.3);
+      tl.fromTo("#s1-gpu", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.4, ease: "circ.out" }, 6.45);
+      tl.to("#s1-gpu", { x: 12, duration: 0.06, repeat: 5, yoyo: true, ease: "sine.inOut" }, 6.9);
+      tl.to("#s1-editor", { opacity: 0.45, duration: 0.6, ease: "sine.inOut" }, 6.6);
+      tl.fromTo("#s1-ghost", { x: 0 }, { x: -180, duration: 9.2, ease: "none" }, 0);
+      tl.fromTo("#s1-grid", { y: 0 }, { y: 96, duration: 9.2, ease: "none" }, 0);
+
+      // transition 1 → 2: zoom through (9.0 – 9.6)
+      tl.to("#s1i", { scale: 1.18, filter: "blur(18px)", opacity: 0, duration: 0.35, ease: "power3.in" }, 8.95);
+      tl.set("#s2", { opacity: 1 }, 9.15);
+      tl.fromTo("#s2i", { scale: 0.82, filter: "blur(18px)", opacity: 0 }, { scale: 1, filter: "blur(0px)", opacity: 1, duration: 0.6, ease: "expo.out" }, 9.15);
+      tl.set("#s1", { opacity: 0 }, 9.4);
+
+      // ================= SCENE 2 (9.24 – 21.52) =================
+      tl.fromTo("#s2-eb", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.45, ease: "power3.out" }, 9.5);
+      tl.fromTo("#s2-h", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }, 9.75);
+      tl.fromTo("#s2-chat", { opacity: 0, x: -100 }, { opacity: 1, x: 0, duration: 0.7, ease: "power4.out" }, 9.6);
+      tl.fromTo("#s2-user", { opacity: 0, y: 30, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.6)" }, 11.1);
+      tl.fromTo("#s2-t1", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.45, ease: "power2.out" }, 12.6);
+      tl.fromTo("#s2-t2", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.45, ease: "power2.out" }, 14.2);
+      tl.fromTo("#s2-prog", { scaleX: 0 }, { scaleX: 1, duration: 3.4, ease: "power1.inOut", transformOrigin: "left center" }, 14.5);
+      tl.fromTo("#s2-st1", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 14.5);
+      tl.to("#s2-st1", { opacity: 0, duration: 0.2 }, 15.9);
+      tl.fromTo("#s2-st2", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 16.0);
+      tl.to("#s2-st2", { opacity: 0, duration: 0.2 }, 17.7);
+      tl.fromTo("#s2-st3", { opacity: 0 }, { opacity: 1, duration: 0.25 }, 17.85);
+      tl.fromTo("#s2-t3", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out" }, 18.0);
+      tl.fromTo("#s2-machine", { opacity: 0, scale: 0.9, y: 40 }, { opacity: 1, scale: 1, y: 0, duration: 0.8, ease: "power3.out" }, 10.4);
+      tl.fromTo("#s2-pill", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(2.2)" }, 17.9);
+      tl.to("#s2-chip", { borderColor: "#5CBF3A", boxShadow: "0 0 80px rgba(92,191,58,0.55)", duration: 0.6, ease: "power2.out" }, 17.85);
+      tl.to("#s2-core", { backgroundColor: "#5CBF3A", duration: 0.6, ease: "power2.out" }, 17.85);
+      tl.fromTo("#s2-tag1", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, 18.6);
+      tl.fromTo("#s2-tag2", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, 19.4);
+      tl.fromTo("#s2-glow", { scale: 0.9, opacity: 0.6 }, { scale: 1.08, opacity: 1, duration: 3, ease: "sine.inOut", yoyo: true, repeat: 3 }, 9.3);
+
+      // transition 2 → 3: push left (21.3 – 21.75)
+      tl.set("#s3", { opacity: 1, x: 1920 }, 21.25);
+      tl.to("#s2", { x: -1920, duration: 0.5, ease: "power3.inOut" }, 21.25);
+      tl.to("#s3", { x: 0, duration: 0.5, ease: "power3.inOut" }, 21.25);
+      tl.set("#s2", { opacity: 0 }, 21.8);
+
+      // ================= SCENE 3 (21.52 – 29.2) =================
+      tl.fromTo("#s3-eb", { opacity: 0, y: -20 }, { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 21.8);
+      tl.fromTo("#s3-ended", { opacity: 0, x: 60 }, { opacity: 0.85, x: 0, duration: 0.5, ease: "expo.out" }, 21.9);
+      tl.fromTo("#s3-h1", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.6, ease: "power4.out" }, 22.1);
+      tl.fromTo("#s3-clock", { opacity: 0, scale: 0.86 }, { opacity: 1, scale: 1, duration: 0.8, ease: "expo.out", transformOrigin: "right center" }, 23.2);
+      tl.fromTo("#s3-h2", { opacity: 0, x: -80, skewX: -8 }, { opacity: 1, x: 0, skewX: 0, duration: 0.45, ease: "back.out(1.8)" }, 24.15);
+      tl.fromTo("#s3-bill", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.55, ease: "circ.out" }, 24.4);
+      counter(document.getElementById("s3-amt"), 1.57, 4.86, 24.6, 4.5, v => "$" + v.toFixed(2), "power1.in");
+      { const o = { m: 47 }; const el = document.getElementById("s3-hh");
+        tl.to(o, { m: 3 * 60 + 12, duration: 4.6, ease: "power1.in",
+          onUpdate: () => { const m = Math.floor(o.m) % 720; const h = Math.floor(m / 60) % 12 || 12;
+            el.textContent = String(h).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); } }, 24.5); }
+      tl.fromTo("#s3-glow", { scale: 0.9, opacity: 0.5 }, { scale: 1.1, opacity: 1, duration: 1.0, ease: "sine.inOut", yoyo: true, repeat: 6 }, 21.6);
+
+      // transition 3 → 4: green flash (29.0 – 29.5)
+      tl.to("#flash", { opacity: 0.85, duration: 0.18, ease: "power2.in" }, 28.95);
+      tl.set("#s4", { opacity: 1 }, 29.13);
+      tl.set("#s3", { opacity: 0 }, 29.14);
+      tl.to("#flash", { opacity: 0, duration: 0.45, ease: "power2.out" }, 29.14);
+      tl.fromTo("#s4i", { scale: 1.06 }, { scale: 1, duration: 0.8, ease: "expo.out" }, 29.14);
+
+      // ================= SCENE 4 (29.2 – 43.82) =================
+      tl.fromTo("#s4-eb", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.45, ease: "power3.out" }, 29.4);
+      tl.fromTo("#s4-h", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }, 29.7);
+      tl.fromTo("#s4-yaml", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(1.7)", transformOrigin: "right center" }, 30.3);
+      tl.fromTo("#s4-tl", { opacity: 0, y: 70 }, { opacity: 1, y: 0, duration: 0.7, ease: "power4.out" }, 31.9);
+      tl.fromTo("#s4 .req", { scaleY: 0 }, { scaleY: 1, duration: 0.3, ease: "back.out(3)", stagger: 0.05 }, 32.3);
+      tl.fromTo("#s4-state", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.55, ease: "circ.out" }, 33.0);
+      tl.fromTo("#s4-bar", { scaleX: 0 }, { scaleX: 1, duration: 3.6, ease: "none" }, 34.6);
+      counter(document.getElementById("s4-idle"), 0, 15 * 60, 34.6, 3.6, v => { const s = Math.floor(v); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); });
+      tl.fromTo("#s4-stop", { scale: 0.6, opacity: 0.3 }, { scale: 1, opacity: 1, duration: 0.45, ease: "back.out(2.6)" }, 38.2);
+      tl.to("#s4-bar", { backgroundColor: "#5CBF3A", duration: 0.3 }, 38.2);
+      tl.to("#s4-run", { opacity: 0, y: -16, duration: 0.2, ease: "power2.in" }, 38.25);
+      tl.fromTo("#s4-stopped", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, 38.4);
+      tl.to("#s4-r1", { opacity: 0, y: -20, duration: 0.2, ease: "power2.in" }, 38.25);
+      tl.fromTo("#s4-r2", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, 38.4);
+      tl.fromTo("#s4-c1", { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.45, ease: "expo.out" }, 39.05);
+      tl.fromTo("#s4-c2", { opacity: 0, x: 60 }, { opacity: 1, x: 0, duration: 0.45, ease: "expo.out" }, 41.0);
+      tl.fromTo("#s4-grid", { x: 0 }, { x: -96, duration: 14.6, ease: "none" }, 29.2);
+
+      // transition 4 → 5: vertical push (43.6 – 44.1)
+      tl.set("#s5", { opacity: 1, y: 1080 }, 43.55);
+      tl.to("#s4", { y: -1080, duration: 0.5, ease: "power3.inOut" }, 43.55);
+      tl.to("#s5", { y: 0, duration: 0.5, ease: "power3.inOut" }, 43.55);
+      tl.set("#s4", { opacity: 0 }, 44.1);
+
+      // ================= SCENE 5 (43.82 – 50.9) =================
+      tl.fromTo("#s5-eb", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4, ease: "power2.out" }, 44.1);
+      tl.fromTo("#s5-h", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.6, ease: "power4.out" }, 44.3);
+      tl.fromTo("#s5-r1", { opacity: 0, x: -80 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out" }, 44.6);
+      tl.fromTo("#s5-r2", { opacity: 0, x: -80 }, { opacity: 1, x: 0, duration: 0.5, ease: "circ.out" }, 46.4);
+      tl.fromTo("#s5-r3", { opacity: 0, x: -80 }, { opacity: 1, x: 0, duration: 0.5, ease: "back.out(1.4)" }, 48.2);
+      tl.fromTo("#s5-glow", { x: 0, y: 0 }, { x: 220, y: -120, duration: 7, ease: "sine.inOut" }, 43.8);
+
+      // transition 5 → 6: blur crossfade (50.6 – 51.3)
+      tl.set("#s6", { opacity: 0 }, 50.5);
+      tl.to("#s5i", { filter: "blur(16px)", duration: 0.6, ease: "sine.inOut" }, 50.6);
+      tl.fromTo("#s6", { opacity: 0 }, { opacity: 1, duration: 0.6, ease: "sine.inOut" }, 50.7);
+      tl.fromTo("#s6i", { filter: "blur(16px)" }, { filter: "blur(0px)", duration: 0.7, ease: "sine.out" }, 50.7);
+      tl.set("#s5", { opacity: 0 }, 51.35);
+
+      // ================= SCENE 6 (50.9 – 64.47) =================
+      tl.fromTo("#s6-brand", { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.6, ease: "back.out(1.8)", transformOrigin: "left center" }, 51.35);
+      tl.fromTo("#s6-h1", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.7, ease: "expo.out" }, 53.65);
+      tl.fromTo("#s6-h2", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.6, ease: "power3.out" }, 57.5);
+      tl.fromTo("#s6-term", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.6, ease: "power4.out" }, 59.6);
+      tl.fromTo("#s6-facts", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.6, ease: "circ.out" }, 60.1);
+      tl.fromTo("#s6-glow", { scale: 0.92 }, { scale: 1.06, duration: 2.6, ease: "sine.inOut", yoyo: true, repeat: 4 }, 51.0);
+      tl.fromTo("#s6-mark", { opacity: 0, scale: 0.85, rotation: -6 }, { opacity: 0.3, scale: 1, rotation: 0, duration: 1.6, ease: "expo.out" }, 51.1);
+      tl.to("#fade", { opacity: 1, duration: 1.2, ease: "power1.in" }, 63.2);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

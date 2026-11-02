@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GPU for Agents</title>
+  <meta name="description" content="Your agent rents the GPU it needs, on its own. You pay only while it works: we watch every machine and shut down the idle ones." />
+  <meta property="og:title" content="GPU for Agents: your agent rents the GPU it needs, on its own." />
+  <meta property="og:description" content="You pay only while it works: we watch every machine and shut down the idle ones. Open source, by Jambu.ai." />
+  <meta property="og:image" content="https://gpu4agents.jambu.ai/media/poster.jpg" />
+  <meta property="og:url" content="https://gpu4agents.jambu.ai/" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#0A0F0B" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preload" href="/fonts/BricolageGrotesque.woff2" as="font" type="font/woff2" crossorigin />
+  <style>
+    @font-face { font-family: "Bricolage Grotesque"; src: url("/fonts/BricolageGrotesque.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+    @font-face { font-family: "JetBrains Mono"; src: url("/fonts/JetBrainsMono.woff2") format("woff2"); font-weight: 400 800; font-display: swap; }
+    :root {
+      --ground: #0A0F0B; --ground-2: #111912; --line: #22302A;
+      --ink: #ECF2E8; --muted: #9CAA9D; --leaf: #5CBF3A; --lime: #B4E06C; --ember: #FF7A4D;
+      --display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --max: 1200px; --gutter: clamp(16px, 4vw, 40px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body { background: var(--ground); color: var(--ink); font-family: var(--display); font-size: 18px; line-height: 1.55; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+    a { color: inherit; }
+    code, .mono { font-family: var(--mono); }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 0 var(--gutter); }
+    .eyebrow { font-family: var(--mono); font-size: 13px; letter-spacing: .18em; text-transform: uppercase; color: var(--leaf); display: inline-flex; align-items: center; gap: 12px; }
+    .eyebrow::before { content: ""; width: 32px; height: 2px; background: currentColor; }
+    h1, h2, h3 { letter-spacing: -0.035em; line-height: 1; font-weight: 800; }
+    h2 { font-size: clamp(36px, 5.2vw, 68px); }
+    .lead { font-size: clamp(18px, 1.6vw, 21px); color: var(--muted); max-width: 640px; font-weight: 300; }
+    .leaf { color: var(--leaf); } .ember { color: var(--ember); }
+
+    /* nav */
+    nav { position: fixed; inset: 0 0 auto; z-index: 20; backdrop-filter: blur(12px); background: rgba(10,15,11,0.6); border-bottom: 1px solid rgba(34,48,42,0.6); }
+    nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+    .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 800; font-size: 19px; letter-spacing: -0.02em; }
+    .logo svg { width: 30px; height: 30px; }
+    nav ul { display: flex; gap: 28px; list-style: none; font-size: 15px; color: var(--muted); }
+    nav ul a { text-decoration: none; transition: color .2s; } nav ul a:hover { color: var(--ink); }
+    .btn { display: inline-flex; align-items: center; gap: 10px; padding: 12px 20px; border-radius: 12px; font-weight: 600; font-size: 16px; text-decoration: none; border: 1px solid var(--line); background: var(--ground-2); cursor: pointer; color: var(--ink); font-family: var(--display); transition: transform .2s, border-color .2s, background .2s; }
+    .btn:hover { transform: translateY(-2px); border-color: var(--leaf); }
+    .btn .gh { width: 18px; height: 18px; flex: none; }
+    footer .ico { display: inline-flex; align-items: center; gap: 8px; } footer .ico .gh { width: 16px; height: 16px; }
+    @media (max-width: 760px) { .gh-btn span { display: none; } .gh-btn { padding: 12px; } }
+    .btn.primary { background: var(--leaf); color: #0A0F0B; border-color: var(--leaf); }
+    .btn.primary:hover { background: var(--lime); border-color: var(--lime); }
+    @media (max-width: 760px) { nav ul { display: none; } }
+
+    /* hero */
+    .hero { position: relative; min-height: min(100svh, 980px); display: flex; align-items: center; overflow: hidden; padding: 120px 0 80px; }
+    #field { position: absolute; inset: 0; width: 100%; height: 100%; }
+    .hero::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse 70% 60% at 25% 50%, rgba(10,15,11,0.92) 0%, rgba(10,15,11,0.55) 55%, rgba(10,15,11,0) 100%),
+                  linear-gradient(180deg, rgba(10,15,11,0) 70%, var(--ground) 100%); }
+    .hero .wrap { position: relative; z-index: 2; width: 100%; }
+    .hero h1 { font-size: clamp(44px, 7.4vw, 104px); letter-spacing: -0.05em; line-height: .95; max-width: 1050px; margin: 22px 0 22px; }
+    .hero .sub { font-size: clamp(22px, 2.4vw, 32px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; color: var(--leaf); max-width: 820px; margin-bottom: 22px; }
+    .hero h1 .line { display: block; }
+    .hero .lead { max-width: 600px; }
+    .cta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 36px; align-items: center; }
+    .copy { font-family: var(--mono); font-size: 15px; }
+    .copy .p { color: var(--leaf); } .btn.primary .p { color: rgba(10,15,11,.55); }
+    .copy .hint { color: rgba(10,15,11,.55); font-size: 12px; margin-left: 4px; }
+    .hud { position: absolute; z-index: 2; right: var(--gutter); bottom: 36px; font-family: var(--mono); font-size: 12px; color: var(--muted); display: flex; gap: 18px; letter-spacing: .06em; }
+    .hud b { color: var(--ink); font-weight: 700; }
+    .hud i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 1px; }
+    @media (max-width: 760px) { .hud { left: var(--gutter); right: auto; flex-wrap: wrap; gap: 10px 14px; } }
+
+    section { padding: clamp(80px, 11vw, 150px) 0; position: relative; }
+    .section-head { display: grid; gap: 22px; margin-bottom: 56px; }
+
+    /* video */
+    .vsl { padding-top: 40px; }
+    .player { position: relative; border-radius: 22px; overflow: hidden; border: 1px solid var(--line); background: #000; box-shadow: 0 40px 120px rgba(0,0,0,.55), 0 0 0 1px rgba(92,191,58,.08); aspect-ratio: 16/9; }
+    .player video { width: 100%; height: 100%; display: block; }
+    .player .play { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(10,15,11,.25); border: 0; cursor: pointer; transition: background .3s; }
+    .player .play:hover { background: rgba(10,15,11,.05); }
+    .player .play span { width: 96px; height: 96px; border-radius: 50%; background: var(--leaf); display: grid; place-items: center; box-shadow: 0 0 0 14px rgba(92,191,58,.18); transition: transform .25s; }
+    .player .play:hover span { transform: scale(1.06); }
+    .player .play svg { width: 34px; height: 34px; margin-left: 6px; }
+    .player .len { position: absolute; left: 20px; bottom: 18px; font-family: var(--mono); font-size: 13px; background: rgba(10,15,11,.75); padding: 6px 12px; border-radius: 8px; pointer-events: none; }
+
+    /* pillars */
+    .pillars { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 900px) { .pillars { grid-template-columns: 1fr; } }
+    .pillar { background: var(--ground-2); border: 1px solid var(--line); border-radius: 24px; padding: clamp(26px, 3.4vw, 44px); display: flex; flex-direction: column; gap: 20px; overflow: hidden; position: relative; }
+    .pillar .num { font-family: var(--mono); font-size: 13px; color: var(--muted); letter-spacing: .12em; }
+    .pillar h3 { font-size: clamp(30px, 3.4vw, 44px); }
+    .pillar p { color: var(--muted); font-weight: 300; }
+    .demo { margin-top: auto; border: 1px solid var(--line); border-radius: 16px; background: var(--ground); padding: 18px; font-family: var(--mono); font-size: 13.5px; display: flex; flex-direction: column; gap: 10px; min-height: 236px; }
+    .msg { align-self: flex-end; background: var(--line); border-radius: 14px 14px 4px 14px; padding: 10px 14px; font-family: var(--display); font-size: 15px; max-width: 85%; }
+    .call { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+    .call b { color: var(--leaf); display: block; font-size: 12.5px; margin-bottom: 4px; }
+    .call .ok { color: var(--leaf); }
+    .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+    .bar i { display: block; height: 100%; width: 100%; background: var(--leaf); transform-origin: left; transform: scaleX(0); }
+    .rail { position: relative; height: 54px; margin: 18px 0 6px; }
+    .rail .base { position: absolute; left: 0; right: 0; top: 26px; height: 2px; background: var(--line); }
+    .rail .req { position: absolute; top: 16px; width: 3px; height: 22px; border-radius: 2px; background: var(--leaf); }
+    .rail .idle { position: absolute; left: 42%; right: 9%; top: 21px; height: 12px; border-radius: 6px; background: var(--ember); transform-origin: left; transform: scaleX(0); }
+    .rail .stop { position: absolute; right: 0; top: 10px; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; }
+    .rail .stop i { width: 10px; height: 10px; border-radius: 2px; background: var(--line); }
+    .rail-foot { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+    .state { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: .08em; }
+    .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .pill.run { color: var(--ember); background: rgba(255,122,77,.14); }
+    .pill.off { color: var(--leaf); background: rgba(92,191,58,.14); }
+    .rate { font-size: 22px; font-weight: 700; }
+
+    /* steps: horizontal slide */
+    .steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; counter-reset: s; }
+    @media (max-width: 1000px) { .steps { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 560px) { .steps { grid-template-columns: 1fr; } }
+    .step { border-top: 2px solid var(--line); padding-top: 22px; display: flex; flex-direction: column; gap: 12px; position: relative; }
+    .step::before { content: ""; position: absolute; left: 0; top: -2px; height: 2px; width: var(--fill, 0%); background: var(--leaf); transition: width 1s cubic-bezier(.2,.8,.2,1); }
+    .step .k { font-family: var(--mono); font-size: 13px; color: var(--leaf); }
+    .step h3 { font-size: 24px; letter-spacing: -0.02em; }
+    .step p { color: var(--muted); font-size: 16px; font-weight: 300; }
+    .step code { font-size: 13px; color: var(--ink); background: var(--ground-2); border: 1px solid var(--line); padding: 2px 6px; border-radius: 6px; }
+
+    /* guardrails */
+    .guard { display: grid; grid-template-columns: 1.1fr .9fr; gap: 40px; align-items: start; }
+    @media (max-width: 900px) { .guard { grid-template-columns: 1fr; } }
+    .rows { border-top: 1px solid var(--line); }
+    .row { display: grid; grid-template-columns: 150px 1fr; gap: 20px; padding: 22px 0; border-bottom: 1px solid var(--line); align-items: baseline; }
+    .row .big { font-family: var(--mono); font-size: 26px; font-weight: 700; color: var(--leaf); letter-spacing: -0.02em; }
+    .row h4 { font-size: 20px; font-weight: 700; margin-bottom: 4px; letter-spacing: -0.01em; }
+    .row p { color: var(--muted); font-size: 16px; font-weight: 300; }
+    .row code { font-size: 13px; color: var(--muted); }
+    @media (max-width: 520px) { .row { grid-template-columns: 1fr; gap: 6px; } }
+    .yaml { position: sticky; top: 100px; background: var(--ground-2); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+    .yaml .bar-top { display: flex; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); align-items: center; }
+    .yaml .bar-top i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+    .yaml .bar-top span { margin-left: 8px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+    .yaml pre { padding: 22px; font-family: var(--mono); font-size: 14px; line-height: 1.75; overflow-x: auto; }
+    .yaml .c { color: var(--muted); } .yaml .v { color: var(--lime); } .yaml .k2 { color: var(--leaf); }
+
+    /* install */
+    .install { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    @media (max-width: 900px) { .install { grid-template-columns: 1fr; } }
+    .term { background: var(--ground-2); border: 1px solid var(--line); border-radius: 18px; padding: 24px; font-family: var(--mono); font-size: 15px; line-height: 1.9; overflow-x: auto; }
+    .term .p { color: var(--leaf); user-select: none; } .term .c { color: var(--muted); }
+    .targets { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    .targets span { font-family: var(--mono); font-size: 13px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); }
+
+    .final { text-align: left; }
+    .final h2 { font-size: clamp(40px, 6.4vw, 92px); letter-spacing: -0.05em; line-height: .96; max-width: 1050px; }
+    .final .sub-final { font-size: clamp(24px, 3vw, 40px); font-weight: 800; letter-spacing: -0.03em; margin-top: 18px; }
+
+    footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--muted); font-size: 15px; }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 20px 40px; justify-content: space-between; align-items: center; }
+    footer nav { position: static; background: none; border: 0; backdrop-filter: none; }
+    footer .links { display: flex; flex-wrap: wrap; gap: 22px; }
+    footer a { text-decoration: none; } footer a:hover { color: var(--ink); }
+
+    /* reveal: hidden only when JS + motion are on */
+    .js .reveal { opacity: 0; }
+    @media (prefers-reduced-motion: reduce) { .js .reveal { opacity: 1; } .step::before { transition: none; } }
+    .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%) translateY(30px); background: var(--leaf); color: #0A0F0B; font-weight: 700; padding: 10px 18px; border-radius: 10px; opacity: 0; transition: .3s; z-index: 30; pointer-events: none; }
+    .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+  <script>document.documentElement.classList.add("js");</script>
+</head>
+<body>
+  <nav aria-label="Main">
+    <div class="wrap">
+      <a class="logo" href="#top" aria-label="GPU for Agents home">
+        <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="15" r="10" fill="#5CBF3A"/><path d="M50 74 C 24 72 8 52 10 32 C 32 32 50 48 50 74 Z" fill="#5CBF3A"/><path d="M50 74 C 54 50 70 34 92 32 C 92 54 74 72 50 74 Z" fill="#B4E06C"/><path d="M50 74 V 92 M50 80 C 40 80 30 78 20 70 M50 80 C 60 80 70 78 80 70" stroke="#5CBF3A" stroke-width="5" fill="none" stroke-linecap="round"/></svg>
+        GPU for Agents
+      </a>
+      <ul>
+        <li><a href="#video">Video</a></li>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="#guardrails">Guardrails</a></li>
+        <li><a href="#install">Install</a></li>
+      </ul>
+      <a class="btn gh-btn" href="https://github.com/jambuai/gpu4agents" rel="noopener" aria-label="GPU for Agents on GitHub"><svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>Star on GitHub</span></a>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <canvas id="field" aria-hidden="true"></canvas>
+    <div class="wrap">
+      <span class="eyebrow reveal">GPU for Agents · open source</span>
+      <h1><span class="line reveal">Your agent rents the GPU it needs, on its own.</span></h1>
+      <p class="sub reveal">You pay only while it works: we watch every machine and shut down the idle ones.</p>
+      <p class="lead reveal">Claude Code, Cursor or any MCP client rents a GPU, serves a model behind an OpenAI-compatible API and runs its experiment. No dashboard, no ticket, no GPU left billing after the conversation ends.</p>
+      <div class="cta reveal">
+        <button class="btn primary copy" data-copy="pipx install gpu4agents && gpu agent install"><span class="p">$</span> pipx install gpu4agents <span class="hint">copy</span></button>
+        <a class="btn" href="#video"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4l14 8-14 8z" fill="currentColor"/></svg> Watch the 1-minute video</a>
+      </div>
+    </div>
+    <div class="hud" aria-hidden="true">
+      <span><i style="background:#5CBF3A"></i>running <b id="hud-run">0</b></span>
+      <span><i style="background:#FF7A4D"></i>idle <b id="hud-idle">0</b></span>
+      <span><i style="background:#22302A"></i>shut down <b id="hud-off">0</b></span>
+    </div>
+  </header>
+
+  <section class="vsl" id="video">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow reveal">The pitch, in one minute</span>
+      </div>
+      <div class="player reveal" id="player">
+        <video id="vsl" preload="metadata" playsinline poster="/media/poster.jpg">
+          <source src="/media/gpu4agents-vsl.mp4" type="video/mp4" />
+        </video>
+        <button class="play" id="play" aria-label="Play the video"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4l14 8-14 8z" fill="#0A0F0B"/></svg></span></button>
+        <span class="len">1:04 · sound on</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="pillars">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow reveal">Two promises</span>
+        <h2 class="reveal">The agent gets the GPU.<br />You pay only for the work.</h2>
+      </div>
+      <div class="pillars">
+        <article class="pillar reveal" id="p1">
+          <span class="num">01 · PROVISION</span>
+          <h3>Your agent rents what it needs.</h3>
+          <p>Ask for a benchmark. The agent checks prices against your budget, rents the machine, serves the model with vLLM and gets an endpoint back. It runs the experiment with any OpenAI SDK. No dashboard, no ticket, no one waiting on a human.</p>
+          <div class="demo" aria-label="Example of an agent provisioning a GPU">
+            <div class="msg">Compare Qwen 7B and Llama 8B on these 50 prompts.</div>
+            <div class="call"><b>gpu_offers</b>RTX 4090 · 24 GB · $0.38/h <span class="ok">✓ under $0.60/h cap</span></div>
+            <div class="call"><b>gpu_setup</b><span id="p1-status">renting the machine…</span><div class="bar"><i id="p1-bar"></i></div></div>
+            <div class="call" id="p1-out" style="opacity:0"><b>ready</b>base_url https://…:8000/v1 · model Qwen/Qwen2.5-7B-Instruct</div>
+          </div>
+        </article>
+        <article class="pillar reveal" id="p2">
+          <span class="num">02 · WATCH</span>
+          <h3>You pay only while it works.</h3>
+          <p>We watch every machine. A watchdog runs on the GPU itself, not on your laptop: after 15 minutes without a request, it shuts the machine down and the billing ends. It works if the agent forgot, if the chat closed, if your laptop is asleep.</p>
+          <div class="demo" aria-label="Idle timeline: requests, then idle, then stopped">
+            <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:12px"><span>requests</span><span>idle <b id="p2-idle" style="color:var(--ink)">00:00</b> / 15:00</span></div>
+            <div class="rail">
+              <div class="base"></div>
+              <div class="req" style="left:2%"></div><div class="req" style="left:7%"></div><div class="req" style="left:10%"></div><div class="req" style="left:17%"></div><div class="req" style="left:24%"></div><div class="req" style="left:28%"></div><div class="req" style="left:35%"></div><div class="req" style="left:40%"></div>
+              <div class="idle" id="p2-bar"></div>
+              <div class="stop" id="p2-stop"><i></i></div>
+            </div>
+            <div class="rail-foot"><span>agent working</span><span>last request</span><span>stop</span></div>
+            <div class="state"><span class="pill run" id="p2-pill">RUNNING</span><span class="rate mono ember" id="p2-rate">$0.38/h</span></div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow reveal">How it works</span>
+        <h2 class="reveal">One request, start to finish.</h2>
+        <p class="lead reveal">The agent drives GPU for Agents through MCP tools (or the CLI with <code>--json</code>). The skill tells it to show you the price and ask before renting.</p>
+      </div>
+      <div class="steps">
+        <div class="step reveal-step"><span class="k">01</span><h3>Ask</h3><p>"Run this eval on Llama 8B." The agent writes <code>jambu.yaml</code> with <code>gpu_init</code>.</p></div>
+        <div class="step reveal-step"><span class="k">02</span><h3>Price</h3><p><code>gpu_offers</code> lists matching GPUs under your cap. You say yes.</p></div>
+        <div class="step reveal-step"><span class="k">03</span><h3>Serve</h3><p><code>gpu_setup</code> rents, boots vLLM and returns <code>base_url</code>, <code>api_key</code>, <code>model</code>. A stalled host is replaced.</p></div>
+        <div class="step reveal-step"><span class="k">04</span><h3>Run, then stop</h3><p><code>gpu_run</code> runs the job. When requests stop, the watchdog stops the GPU.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="guardrails">
+    <div class="wrap guard">
+      <div>
+        <div class="section-head">
+          <span class="eyebrow reveal">Guardrails</span>
+          <h2 class="reveal">Limits the agent can't talk its way past.</h2>
+          <p class="lead reveal">They live in <code>jambu.yaml</code> and on the machine. The agent can't raise them without editing the file, and the skill tells it to ask you first.</p>
+        </div>
+        <div class="rows">
+          <div class="row reveal-row"><span class="big">15 min</span><div><h4>Idle timeout</h4><p>No requests, no GPU. The watchdog on the instance stops it. <code>lifecycle.idle_timeout</code></p></div></div>
+          <div class="row reveal-row"><span class="big">$/h</span><div><h4>Hourly and session budget</h4><p>Offers above the cap are never rented; a session that hits its total stops. <code>budget.max_hourly_cost_usd</code></p></div></div>
+          <div class="row reveal-row"><span class="big">6 h</span><div><h4>Maximum lifetime</h4><p>A hard ceiling, busy or not. <code>lifecycle.max_lifetime</code></p></div></div>
+          <div class="row reveal-row"><span class="big">10 min</span><div><h4>Stalled hosts replaced</h4><p>An image pull that stops moving gets a new host instead of a 30-minute wait. <code>health.pull_stall_timeout</code></p></div></div>
+          <div class="row reveal-row"><span class="big">sweep</span><div><h4>Last line of defense</h4><p><code>gpu ls</code> shows everything billing; <code>gpu sweep --install-timer</code> cleans up orphans.</p></div></div>
+        </div>
+      </div>
+      <div class="yaml reveal">
+        <div class="bar-top"><i></i><i></i><i></i><span>jambu.yaml</span></div>
+<pre><span class="k2">gpu_runtime:</span>
+  provider: {name: <span class="v">vast</span>}
+  model_profile: <span class="v">qwythos-9b</span>
+  lifecycle:
+    idle_timeout: <span class="v">15m</span>   <span class="c"># watchdog stops it</span>
+    max_lifetime: <span class="v">6h</span>
+  budget:
+    max_hourly_cost_usd: <span class="v">0.60</span>
+    max_session_cost_usd: <span class="v">5.00</span>
+  health:
+    pull_stall_timeout: <span class="v">10m</span></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="install">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow reveal">Install</span>
+        <h2 class="reveal">Two commands.</h2>
+        <p class="lead reveal">Python 3.10+, a Vast.ai API key in <code>.env</code> or <code>~/.gpu/credentials</code>. The agent never sees the key.</p>
+      </div>
+      <div class="install">
+        <div class="term reveal">
+          <div><span class="p">$ </span>pipx install gpu4agents</div>
+          <div><span class="p">$ </span>cd your-project</div>
+          <div><span class="p">$ </span>echo "VAST_API_KEY=..." &gt;&gt; .env</div>
+          <div><span class="p">$ </span>gpu agent install <span class="c"># Claude Code</span></div>
+          <div class="targets"><span>-t cursor</span><span>-t desktop</span><span>--global</span></div>
+        </div>
+        <div class="term reveal">
+          <div class="c"># or drive it from any app, any language</div>
+          <div><span class="p">$ </span>gpu --json setup</div>
+          <div class="c">{ "base_url": "https://…/v1",</div>
+          <div class="c">&nbsp;&nbsp;"api_key": "…", "model": "…" }</div>
+          <div><span class="p">$ </span>gpu run python eval.py</div>
+          <div><span class="p">$ </span>gpu destroy <span class="c"># or just walk away</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="final">
+    <div class="wrap">
+      <h2 class="reveal">Your agent rents the GPU it needs, on its own.</h2>
+      <p class="sub-final leaf reveal">You pay only while it works.</p>
+      <div class="cta reveal">
+        <button class="btn primary copy" data-copy="pipx install gpu4agents && gpu agent install"><span class="p">$</span> pipx install gpu4agents <span class="hint">copy</span></button>
+        <a class="btn" href="https://github.com/jambuai/gpu4agents" rel="noopener"><svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>Read the docs on GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <span>GPU for Agents by <a href="https://jambu.ai" rel="noopener">Jambu.ai</a> · created by <a href="https://www.linkedin.com/in/joaogabriellima" rel="noopener">João Gabriel Lima</a> · MIT</span>
+      <div class="links">
+        <a href="https://github.com/jambuai/gpu4agents" rel="noopener" class="ico"><svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+        <a href="https://pypi.org/project/gpu4agents/" rel="noopener">PyPI</a>
+        <a href="https://github.com/jambuai/gpu4agents/blob/main/docs/AGENTS.md" rel="noopener">Agents guide</a>
+      </div>
+    </div>
+  </footer>
+
+  <div class="toast" id="toast" role="status">Copied</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/motion@11.11.17/dist/motion.js"></script>
+  <script>
+  (() => {
+    const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    /* ---------- hero field: GPUs light up when an agent rents them, then shut down when idle ---------- */
+    const cv = document.getElementById("field"), cx = cv.getContext("2d");
+    const C = { off: [34, 48, 42], run: [92, 191, 58], idle: [255, 122, 77] };
+    let W, H, cells = [], S, dpr;
+    const agent = { x: 0, y: 0 };
+    const beams = [];
+    function layout() {
+      dpr = Math.min(devicePixelRatio || 1, 2);
+      W = cv.clientWidth; H = cv.clientHeight;
+      cv.width = W * dpr; cv.height = H * dpr; cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      S = W < 700 ? 34 : 46;
+      const cols = Math.ceil(W / S) + 1, rows = Math.ceil(H / S) + 1;
+      const prev = cells; cells = [];
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const old = prev.find(p => p.c === c && p.r === r);
+        cells.push(old || { c, r, state: "off", t: 0, glow: 0, life: 0, pulses: [] });
+      }
+      agent.x = W * 0.08; agent.y = H * 0.86;
+    }
+    const pick = () => {
+      // prefer the right side, away from the copy
+      for (let i = 0; i < 20; i++) {
+        const cell = cells[(Math.random() * cells.length) | 0];
+        const x = cell.c * S;
+        if (cell.state === "off" && (x > W * 0.5 || Math.random() < 0.15)) return cell;
+      }
+      return null;
+    };
+    const mix = (a, b, k) => a.map((v, i) => Math.round(v + (b[i] - v) * k));
+    let last = performance.now(), spawn = 0;
+    function tick(now) {
+      const dt = Math.min((now - last) / 1000, 0.05); last = now;
+      spawn -= dt;
+      if (spawn <= 0) {
+        spawn = 0.28 + Math.random() * 0.5;
+        const cell = pick();
+        if (cell) { beams.push({ cell, k: 0 }); cell.state = "booking"; }
+      }
+      cx.clearRect(0, 0, W, H);
+      let run = 0, idle = 0, off = 0;
+      for (const cell of cells) {
+        cell.t += dt;
+        if (cell.state === "run") {
+          cell.glow = Math.min(1, cell.glow + dt * 3);
+          if (Math.random() < dt * 2.2 && cell.t < cell.life) cell.pulses.push(0);
+          if (cell.t > cell.life) { cell.state = "idle"; cell.t = 0; }
+        } else if (cell.state === "idle") {
+          if (cell.t > 3.2) { cell.state = "down"; cell.t = 0; }
+        } else if (cell.state === "down") {
+          cell.glow = Math.max(0, cell.glow - dt * 1.4);
+          if (cell.glow === 0) { cell.state = "off"; cell.done = true; }
+        }
+        if (cell.state === "run") run++; else if (cell.state === "idle") idle++; else if (cell.done) off++;
+        const x = cell.c * S, y = cell.r * S, pad = S * 0.16, w = S - pad * 2;
+        let col = C.off, a = 0.55;
+        if (cell.state === "run") { col = mix(C.off, C.run, cell.glow); a = 0.55 + 0.4 * cell.glow; }
+        else if (cell.state === "idle") { col = C.idle; a = 0.75 + 0.2 * Math.sin(cell.t * 8); }
+        else if (cell.state === "down") { col = mix(C.off, C.idle, cell.glow); a = 0.55 + 0.4 * cell.glow; }
+        cx.globalAlpha = a; cx.strokeStyle = `rgb(${col})`; cx.lineWidth = 1.2;
+        cx.beginPath(); cx.roundRect(x + pad, y + pad, w, w, 5); cx.stroke();
+        if (cell.state === "run" || cell.state === "idle" || cell.state === "down") {
+          const k = cell.state === "run" ? cell.glow : cell.state === "idle" ? 1 : cell.glow;
+          cx.globalAlpha = 0.28 * k; cx.fillStyle = `rgb(${col})`; cx.fill();
+          cx.globalAlpha = 0.9 * k; cx.fillRect(x + S / 2 - 3, y + S / 2 - 3, 6, 6);
+          if (cell.state === "idle") { // idle countdown arc
+            cx.globalAlpha = 0.9; cx.beginPath();
+            cx.arc(x + S / 2, y + S / 2, w * 0.36, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * (cell.t / 3.2));
+            cx.stroke();
+          }
+        }
+        cell.pulses = cell.pulses.filter(p => p < 1);
+        for (let i = 0; i < cell.pulses.length; i++) {
+          cell.pulses[i] += dt * 1.6; const p = cell.pulses[i];
+          cx.globalAlpha = (1 - p) * 0.6; cx.strokeStyle = "rgb(180,224,108)";
+          cx.beginPath(); cx.roundRect(x + pad - p * 10, y + pad - p * 10, w + p * 20, w + p * 20, 6 + p * 6); cx.stroke();
+        }
+      }
+      for (let i = beams.length - 1; i >= 0; i--) {
+        const b = beams[i]; b.k += dt * 1.6;
+        const tx = b.cell.c * S + S / 2, ty = b.cell.r * S + S / 2;
+        const k = Math.min(b.k, 1), hx = agent.x + (tx - agent.x) * k, hy = agent.y + (ty - agent.y) * k;
+        const g = cx.createLinearGradient(agent.x, agent.y, hx, hy);
+        g.addColorStop(0, "rgba(92,191,58,0)"); g.addColorStop(1, `rgba(180,224,108,${0.7 * (1 - Math.max(0, b.k - 1))})`);
+        cx.globalAlpha = 1; cx.strokeStyle = g; cx.lineWidth = 1.5;
+        cx.beginPath(); cx.moveTo(agent.x, agent.y); cx.lineTo(hx, hy); cx.stroke();
+        if (b.k >= 1 && b.cell.state === "booking") { b.cell.state = "run"; b.cell.t = 0; b.cell.life = 4 + Math.random() * 7; b.cell.done = false; }
+        if (b.k > 2) beams.splice(i, 1);
+      }
+      cx.globalAlpha = 1;
+      document.getElementById("hud-run").textContent = run;
+      document.getElementById("hud-idle").textContent = idle;
+      document.getElementById("hud-off").textContent = off;
+      if (!reduce) requestAnimationFrame(tick);
+    }
+    layout(); addEventListener("resize", layout);
+    if (reduce) {
+      // one still frame with a few machines in each state
+      cells.forEach((c, i) => { if (c.c * S > W * 0.5 && i % 7 === 0) { c.state = i % 3 ? "run" : "idle"; c.glow = 1; c.life = 99; } });
+      tick(performance.now());
+    } else requestAnimationFrame(tick);
+
+    /* ---------- copy buttons ---------- */
+    const toast = document.getElementById("toast");
+    document.querySelectorAll("[data-copy]").forEach(b => b.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(b.dataset.copy); toast.textContent = "Copied: " + b.dataset.copy; }
+      catch { toast.textContent = b.dataset.copy; }
+      toast.classList.add("on"); setTimeout(() => toast.classList.remove("on"), 2200);
+    }));
+
+    /* ---------- video ---------- */
+    const v = document.getElementById("vsl"), play = document.getElementById("play");
+    play.addEventListener("click", () => { v.controls = true; play.remove(); document.querySelector(".player .len")?.remove(); v.play(); });
+
+    /* ---------- scroll motion ---------- */
+    if (!window.Motion || reduce) { document.documentElement.classList.remove("js"); return; }
+    const { animate, inView, stagger } = Motion;
+    const ease = [0.16, 1, 0.3, 1];
+
+    // hero entrance
+    animate(".hero .reveal", { opacity: [0, 1], y: [40, 0] }, { delay: stagger(0.12, { startDelay: 0.15 }), duration: 0.9, ease });
+
+    // generic reveals: slide up, cards slide in from their side
+    document.querySelectorAll("section .reveal").forEach(el => {
+      inView(el, () => {
+        const from = el.id === "p1" ? { x: [-60, 0] } : el.id === "p2" ? { x: [60, 0] } : { y: [36, 0] };
+        animate(el, { opacity: [0, 1], ...from }, { duration: 0.8, ease });
+      }, { margin: "0px 0px -12% 0px" });
+    });
+
+    // steps: slide in one after another, progress line fills
+    inView(".steps", () => {
+      animate(".step", { opacity: [0, 1], x: [-40, 0] }, { delay: stagger(0.14), duration: 0.7, ease });
+      document.querySelectorAll(".step").forEach((s, i) => setTimeout(() => s.style.setProperty("--fill", "100%"), 300 + i * 220));
+    }, { margin: "0px 0px -15% 0px" });
+
+    // guardrail rows slide from the left
+    inView(".rows", () => animate(".row", { opacity: [0, 1], x: [-50, 0] }, { delay: stagger(0.1), duration: 0.7, ease }), { margin: "0px 0px -10% 0px" });
+
+    // pillar 1 demo: setup progress
+    inView("#p1", () => {
+      const s = document.getElementById("p1-status");
+      animate("#p1-bar", { transform: ["scaleX(0)", "scaleX(1)"] }, { duration: 3.2, ease: "easeInOut", delay: 0.6 });
+      setTimeout(() => s.textContent = "serving Qwen/Qwen2.5-7B-Instruct…", 1900);
+      setTimeout(() => { s.innerHTML = '<span class="ok">ready</span>'; animate("#p1-out", { opacity: [0, 1], y: [12, 0] }, { duration: 0.5 }); }, 3900);
+    }, { margin: "0px 0px -20% 0px" });
+
+    // pillar 2 demo: idle countdown, then stop
+    inView("#p2", () => {
+      const idle = document.getElementById("p2-idle");
+      animate("#p2-bar", { transform: ["scaleX(0)", "scaleX(1)"] }, { duration: 3, ease: "linear", delay: 0.8 });
+      animate(0, 900, { duration: 3, delay: 0.8, ease: "linear", onUpdate: v => { const t = Math.floor(v); idle.textContent = String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); } });
+      setTimeout(() => {
+        document.getElementById("p2-bar").style.background = "var(--leaf)";
+        const st = document.getElementById("p2-stop"); st.style.borderColor = "var(--leaf)"; st.firstElementChild.style.background = "var(--leaf)";
+        animate(st, { scale: [0.6, 1.15, 1] }, { duration: 0.5 });
+        const pill = document.getElementById("p2-pill"); pill.className = "pill off"; pill.textContent = "STOPPED";
+        const r = document.getElementById("p2-rate"); r.className = "rate mono leaf"; r.textContent = "$0.00/h";
+        animate([pill, r], { opacity: [0, 1], y: [10, 0] }, { duration: 0.4 });
+      }, 3900);
+    }, { margin: "0px 0px -20% 0px" });
+  })();
+  </script>
+</body>
+</html>

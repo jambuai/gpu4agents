@@ -1,0 +1,149 @@
+{
+ "total": 64.471,
+ "scenes": [
+  {
+   "scene": 1,
+   "start": 0.0,
+   "end": 9.236,
+   "lines": [
+    {
+     "id": "s1a",
+     "text": "Your agent can write the experiment.",
+     "start": 0.6,
+     "end": 2.701
+    },
+    {
+     "id": "s1b",
+     "text": "It can compare the models, and score every answer.",
+     "start": 3.001,
+     "end": 5.994
+    },
+    {
+     "id": "s1c",
+     "text": "But it can't rent its own GPU.",
+     "start": 6.293,
+     "end": 8.336
+    }
+   ]
+  },
+  {
+   "scene": 2,
+   "start": 9.236,
+   "end": 21.522,
+   "lines": [
+    {
+     "id": "s2a",
+     "text": "Now it can.",
+     "start": 9.836,
+     "end": 10.806
+    },
+    {
+     "id": "s2b",
+     "text": "Ask for a benchmark, and the agent finds a machine under your budget.",
+     "start": 11.107,
+     "end": 15.278
+    },
+    {
+     "id": "s2c",
+     "text": "It serves the model, and gets an endpoint back. No dashboards. No tickets.",
+     "start": 15.577,
+     "end": 20.622
+    }
+   ]
+  },
+  {
+   "scene": 3,
+   "start": 21.522,
+   "end": 29.198,
+   "lines": [
+    {
+     "id": "s3a",
+     "text": "Then the conversation ends.",
+     "start": 22.122,
+     "end": 23.857
+    },
+    {
+     "id": "s3b",
+     "text": "And the GPU keeps billing. All night.",
+     "start": 24.157,
+     "end": 26.698
+    }
+   ]
+  },
+  {
+   "scene": 4,
+   "start": 29.198,
+   "end": 43.819,
+   "lines": [
+    {
+     "id": "s4a",
+     "text": "Not with GPU for Agents.",
+     "start": 29.798,
+     "end": 31.829
+    },
+    {
+     "id": "s4b",
+     "text": "A watchdog runs on the machine itself.",
+     "start": 31.919,
+     "end": 34.317
+    },
+    {
+     "id": "s4c",
+     "text": "Fifteen minutes without a request, and it shuts the GPU down.",
+     "start": 34.617,
+     "end": 38.741
+    },
+    {
+     "id": "s4d",
+     "text": "Even if the agent forgot. Even if your laptop is closed.",
+     "start": 39.04,
+     "end": 42.919
+    }
+   ]
+  },
+  {
+   "scene": 5,
+   "start": 43.819,
+   "end": 50.9,
+   "lines": [
+    {
+     "id": "s5a",
+     "text": "Budgets the agent can't exceed. A maximum lifetime. Stalled hosts, replaced.",
+     "start": 44.419,
+     "end": 50.0
+    }
+   ]
+  },
+  {
+   "scene": 6,
+   "start": 50.9,
+   "end": 64.471,
+   "lines": [
+    {
+     "id": "s6a",
+     "text": "GPU for Agents.",
+     "start": 51.5,
+     "end": 53.155
+    },
+    {
+     "id": "s6b",
+     "text": "Your agent rents the GPU it needs, on its own.",
+     "start": 53.705,
+     "end": 57.017
+    },
+    {
+     "id": "s6c",
+     "text": "You pay only while it works.",
+     "start": 57.567,
+     "end": 59.337
+    },
+    {
+     "id": "s6d",
+     "text": "Open source. One install.",
+     "start": 59.687,
+     "end": 61.721
+    }
+   ]
+  }
+ ]
+}

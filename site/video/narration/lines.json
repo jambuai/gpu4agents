@@ -1,0 +1,70 @@
+[
+{
+"id": "s1a",
+"text": "Your agent can write the experiment."
+},
+{
+"id": "s1b",
+"text": "It can compare the models, and score every answer."
+},
+{
+"id": "s1c",
+"text": "But it can't rent its own GPU."
+},
+{
+"id": "s2a",
+"text": "Now it can."
+},
+{
+"id": "s2b",
+"text": "Ask for a benchmark, and the agent finds a machine under your budget."
+},
+{
+"id": "s2c",
+"text": "It serves the model, and gets an endpoint back. No dashboards. No tickets."
+},
+{
+"id": "s3a",
+"text": "Then the conversation ends."
+},
+{
+"id": "s3b",
+"text": "And the GPU keeps billing. All night."
+},
+{
+"id": "s4a",
+"text": "Not with GPU for Agents."
+},
+{
+"id": "s4b",
+"text": "A watchdog runs on the machine itself."
+},
+{
+"id": "s4c",
+"text": "Fifteen minutes without a request, and it shuts the GPU down."
+},
+{
+"id": "s4d",
+"text": "Even if the agent forgot. Even if your laptop is closed."
+},
+{
+"id": "s5a",
+"text": "Budgets the agent can't exceed. A maximum lifetime. Stalled hosts, replaced."
+},
+{
+"id": "s6a",
+"text": "GPU for Agents."
+},
+{
+"id": "s6b",
+"text": "Your agent rents the GPU it needs, on its own."
+},
+{
+"id": "s6c",
+"text": "You pay only while it works."
+},
+{
+"id": "s6d",
+"text": "Open source. One install."
+}
+]
