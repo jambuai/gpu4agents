@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 API_BASE = "https://console.vast.ai/api/v0"
 API_KEY_ENV = "VAST_API_KEY"
+KEYS_URL = "https://cloud.vast.ai/manage-keys/"
 
 # runtype that gives us sshd plus our own onstart script (the image entrypoint
 # is replaced by Vast's supervisor, so we launch the model server ourselves).

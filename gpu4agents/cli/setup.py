@@ -20,6 +20,11 @@ from ._common import console, fmt_money, get_context, handle, print_json, regist
 def init_command(
     ctx: typer.Context,
     model: str = typer.Option("empero-ai/Qwythos-9B-v2", "--model", help="HuggingFace model id."),
+    provider: str = typer.Option(
+        "vast",
+        "--provider",
+        help="GPU provider. One gpu does not ship is loaded from gpu_providers/NAME.py (gpu providers new NAME).",
+    ),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing config file."),
     flat: bool = typer.Option(
         False,
@@ -31,12 +36,26 @@ def init_command(
     ),
 ) -> None:
     """Write a starter jambu.yaml (and .env.example) in the current directory."""
+    from ..core.errors import ConfigError as _ConfigError
+    from ..providers import scaffold
+    from ..providers.registry import load_builtin_providers
+
+    try:
+        credential_names = list(load_builtin_providers().get_class(provider).required_credentials)
+        plugin = None
+    except _ConfigError:
+        # Not built in or installed: an adapter file in this project.
+        plugin = scaffold.plugin_spec(provider)
+        credential_names = []
+    indent = "  " if flat else "    "
+    provider_block = f"{indent}name: {provider}\n" + (f"{indent}plugin: {plugin}\n" if plugin else "")
     if flat:
         target = Path.cwd() / "config.yml"
         content = DEFAULT_CONFIG_TEMPLATE_FLAT.format(model_id=model)
     else:
         target = Path.cwd() / CONFIG_FILENAMES[0]  # jambu.yaml
         content = DEFAULT_CONFIG_TEMPLATE.format(model_id=model)
+    content = content.replace(f"{indent}name: vast\n", provider_block, 1)
 
     if target.exists() and not force:
         console.print(Text(f"! {target} already exists (use --force)", style="yellow"))
@@ -56,12 +75,18 @@ def init_command(
     if not env_example.exists():
         env_example.write_text(
             "# Credentials never belong in jambu.yaml / config.yml.\n"
-            "VAST_API_KEY=\n"
-            "# Optional, for gated HuggingFace models:\n"
+            "# `gpu login` keeps the provider key in ~/.gpu/credentials instead.\n"
+            + "".join(f"{name}=\n" for name in credential_names)
+            + "# Optional, for gated HuggingFace models:\n"
             "HF_TOKEN=\n"
         )
         console.print(Text(f"+ wrote {env_example}", style="green"))
-    console.print("next: export VAST_API_KEY=... && gpu validate")
+    if plugin and not (Path.cwd() / plugin.split(":")[0]).is_file():
+        console.print(
+            Text(f"! {provider} is not built in: run `gpu providers new {provider}` and fill in the adapter", style="yellow")
+        )
+    login = "gpu login" if provider == "vast" else f"gpu login --provider {provider}"
+    console.print(f"next: {login} && gpu validate")
 
 
 def setup_command(

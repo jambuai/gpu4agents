@@ -52,6 +52,8 @@ class GPUProvider(ABC):
     name: str = "abstract"
     display_name: str = "Abstract"
     required_credentials: list[str] = []
+    # Where the user creates those credentials; `gpu login` prints it.
+    credentials_url: str = ""
     capabilities: ProviderCapabilities = ProviderCapabilities()
     # Runtime engine -> the image to use when compute.image is unset. A
     # provider names the copy its hosts already cache, so a first boot does
@@ -97,6 +99,18 @@ class GPUProvider(ABC):
         """Provider-side logs for the instance."""
 
     # -- optional, capability-gated ----------------------------------------
+
+    @classmethod
+    def verify_credentials(cls, values: dict[str, str]) -> dict[str, Any]:
+        """Check candidate credentials against the provider before `gpu login` saves them.
+
+        ``values`` maps each name in ``required_credentials`` to what the user
+        typed. Raise ``AuthenticationError`` if the provider rejects them.
+        Return what is safe to show about the account, such as
+        ``{"balance_usd": 12.5}``; never the key, an email or a name. The
+        default accepts any non-empty value without a network call.
+        """
+        return {}
 
     def find_offers(self, spec: ComputeSpec, limit: int = 10) -> list[Offer]:
         """Discover purchasable capacity (requires ``capabilities.pricing_query``)."""

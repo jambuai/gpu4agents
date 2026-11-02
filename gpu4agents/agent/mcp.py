@@ -46,7 +46,7 @@ EXIT_MEANINGS = {
     2: ("config error", "fix jambu.yaml; gpu_setup(recreate=true) replaces a machine built from an old config"),
     3: ("no instance or no endpoint", "call gpu_setup"),
     4: ("provider API error", "retry with backoff"),
-    5: ("provider authentication failed", "the user must fix VAST_API_KEY"),
+    5: ("provider authentication failed, or no key", "the user runs `gpu login` in their own terminal"),
     6: ("no capacity matches the config", "retry later, or relax compute.gpu / the budget in jambu.yaml"),
     7: ("provisioning failed", "retry; the failed machine was already destroyed"),
     8: ("provider timed out", "retry with backoff"),
@@ -57,8 +57,9 @@ EXIT_MEANINGS = {
 }
 
 INSTRUCTIONS = """\
-gpu rents a cloud GPU (Vast.ai), serves a model on it with vLLM behind an
-OpenAI-compatible API, and stops it by itself when nobody uses it.
+gpu rents a cloud GPU (Vast.ai built in; other providers through an adapter),
+serves a model on it with vLLM behind an OpenAI-compatible API, and stops it
+by itself when nobody uses it.
 
 Rules:
 - Renting costs the user money. Before the first gpu_setup in a conversation,
@@ -71,7 +72,8 @@ Rules:
 - When the work is done, offer gpu_stop (keeps the disk, cheap) or
   gpu_destroy (nothing billed). gpu_destroy needs confirm=true and the user's
   explicit yes. Finish by checking gpu_ls for anything still running.
-- Never print or ask for VAST_API_KEY. The endpoint api_key is per machine.
+- Never print or ask for the provider's API key; the user runs `gpu login`
+  in a terminal. The endpoint api_key is per machine.
 """
 
 

@@ -1,15 +1,82 @@
-"""`gpu providers` - capability matrix (spec section 7)."""
+"""`gpu providers` - capability matrix (spec section 7), and `gpu providers new`."""
 
 from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.table import Table
 from rich.text import Text
 
 from ..core.credentials import CredentialResolver
-from ..core.errors import ConfigError
+from ..core.errors import ConfigError, JambuError
+from ..providers import scaffold
 from ..providers.registry import load_builtin_providers
-from ._common import get_context, print_json
+from ._common import get_context, handle, print_json
+
+providers_app = typer.Typer(
+    help="List GPU providers, or start an adapter for a new one.",
+    invoke_without_command=True,
+)
+
+
+@providers_app.callback()
+def providers_callback(ctx: typer.Context) -> None:
+    """List available providers and what each one can do.
+
+    Vast.ai is built in. Any other provider plugs in through the provider
+    contract: `gpu providers new NAME` writes the adapter to fill in.
+    """
+    if ctx.invoked_subcommand is None:
+        providers_command(ctx)
+
+
+@providers_app.command("new")
+def new_command(
+    ctx: typer.Context,
+    name: str = typer.Argument(..., help="Short provider name, e.g. runpod or lambda."),
+    display_name: str = typer.Option("", "--display-name", help="Human name, e.g. RunPod."),
+    directory: Optional[Path] = typer.Option(
+        None, "--dir", help="Project directory (default: the jambu.yaml's, else the current one)."
+    ),
+    force: bool = typer.Option(False, "--force", help="Overwrite an existing adapter file."),
+) -> None:
+    """Write gpu_providers/NAME.py, an adapter skeleton for a provider gpu does not ship.
+
+    Fill in its methods from the provider's API docs, then select it in
+    jambu.yaml with provider.name and provider.plugin.
+    """
+    context = get_context(ctx)
+    try:
+        if directory is None:
+            try:
+                directory = context.config().project_dir
+            except ConfigError:
+                directory = Path.cwd()
+        path = scaffold.write_template(name, directory, display_name, force)
+    except JambuError as exc:
+        handle(exc)
+        return
+    result = {
+        "path": str(path),
+        "provider": {"name": name, "plugin": scaffold.plugin_spec(name)},
+        "next": [
+            f"implement every NotImplementedError in {path}",
+            f"jambu.yaml: gpu_runtime.provider.name: {name} and plugin: {scaffold.plugin_spec(name)}",
+            f"gpu login --provider {name}",
+            "gpu validate, then gpu offers (rents nothing)",
+        ],
+    }
+    if context.json:
+        print_json(result)
+        return
+    from ._common import console
+
+    console.print(Text(f"+ wrote {path}", style="green"))
+    console.print("  next:")
+    for step in result["next"]:
+        console.print(f"  - {step}")
 
 
 def providers_command(ctx: typer.Context) -> None:
@@ -27,6 +94,11 @@ def providers_command(ctx: typer.Context) -> None:
         project_dir = None
         profile = "default"
         selected = None
+    if config is not None:
+        try:
+            registry.class_for(config)  # a plugin adapter joins the list
+        except ConfigError as exc:
+            handle(exc)
 
     resolver = CredentialResolver(project_dir, profile=profile)
     rows = []
@@ -90,6 +162,7 @@ def providers_command(ctx: typer.Context) -> None:
             )
     if selected:
         console.print(Text(f"  * selected in jambu.yaml ({selected})", style="dim"))
+    console.print(Text("  another provider: gpu providers new NAME", style="dim"))
 
 
 def _yn(value: bool) -> str:

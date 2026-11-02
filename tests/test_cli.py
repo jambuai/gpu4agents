@@ -315,17 +315,25 @@ def test_env_without_an_endpoint_exits_3(config, monkeypatch):
 
 
 def _fake_account(monkeypatch, seen=None, fail=False):
-    from gpu4agents.cli import account
+    """The Vast account API, answering with a balance and the fields we must not print."""
     from gpu4agents.core.errors import AuthenticationError
+    from gpu4agents.providers.vast import provider as vast_provider
 
-    def check(key):
-        if seen is not None:
-            seen.append(key)
-        if fail:
-            raise AuthenticationError("vast.ai rejected the API key")
-        return {"credit": 12.345, "email": "someone@example.com", "username": "someone"}
+    class Client:
+        def __init__(self, key, **kwargs):
+            self.key = key
 
-    monkeypatch.setattr(account, "_vast_account", check)
+        def whoami(self):
+            if seen is not None:
+                seen.append(self.key)
+            if fail:
+                raise AuthenticationError("vast.ai rejected the API key")
+            return {"credit": 12.345, "email": "someone@example.com", "username": "someone"}
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(vast_provider, "VastClient", Client)
 
 
 def test_login_checks_the_key_then_saves_it_private(tmp_path, monkeypatch):
@@ -347,7 +355,7 @@ def test_login_checks_the_key_then_saves_it_private(tmp_path, monkeypatch):
     assert result.exit_code == 0, result.output
     assert seen == ["new-key"]
     payload = json.loads(result.stdout)
-    assert payload == {"ok": True, "saved": str(creds), "balance_usd": 12.35}
+    assert payload == {"ok": True, "provider": "vast", "saved": str(creds), "balance_usd": 12.35}
     assert "new-key" not in result.output and "someone" not in result.output
     assert creds.read_text() == "HF_TOKEN=hf_x\nVAST_API_KEY=new-key\n"
     assert stat.S_IMODE(os.stat(creds).st_mode) == 0o600
@@ -382,4 +390,149 @@ def test_login_check_reports_where_the_key_is(tmp_path, monkeypatch):
     monkeypatch.setenv("VAST_API_KEY", "from-env")
     found = runner.invoke(app, ["--json", "login", "--check"])
     assert found.exit_code == 0, found.output
-    assert json.loads(found.stdout) == {"ok": True, "source": "environment", "balance_usd": 12.35}
+    assert json.loads(found.stdout) == {
+        "ok": True,
+        "provider": "vast",
+        "source": "environment",
+        "balance_usd": 12.35,
+    }
+
+
+# -- other providers: plugins ---------------------------------------------------
+
+ACME_PLUGIN = """
+from tests.fakes import FakeProvider
+
+
+class AcmeProvider(FakeProvider):
+    name = "acme"
+    display_name = "Acme Cloud"
+    required_credentials = ["ACME_API_KEY"]
+    credentials_url = "https://acme.example/keys"
+
+    @classmethod
+    def verify_credentials(cls, values):
+        if values["ACME_API_KEY"] != "good":
+            from gpu4agents.core.errors import AuthenticationError
+
+            raise AuthenticationError("acme rejected the key")
+        return {"balance_usd": 3.0}
+"""
+
+
+def _acme_project(tmp_path, monkeypatch):
+    from gpu4agents.providers.registry import registry
+
+    monkeypatch.setattr(registry, "_providers", dict(registry._providers))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ACME_API_KEY", raising=False)
+    monkeypatch.delenv("GPU_PROVIDER", raising=False)
+    assert runner.invoke(app, ["init", "--provider", "acme", "--model", "Qwen/Qwen2.5-0.5B-Instruct"]).exit_code == 0
+    (tmp_path / "gpu_providers").mkdir()
+    (tmp_path / "gpu_providers" / "acme.py").write_text(ACME_PLUGIN)
+
+
+def test_init_with_an_unknown_provider_points_jambu_yaml_at_its_adapter_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["init", "--provider", "acme"])
+    assert result.exit_code == 0, result.output
+    text = (tmp_path / "jambu.yaml").read_text()
+    assert "    name: acme\n    plugin: ./gpu_providers/acme.py:AcmeProvider\n" in text
+    assert "gpu providers new acme" in " ".join(result.output.split())
+    assert "VAST_API_KEY" not in (tmp_path / ".env.example").read_text()
+
+
+def test_providers_new_writes_an_adapter_that_loads(tmp_path, monkeypatch):
+    from gpu4agents.providers.base import GPUProvider
+    from gpu4agents.providers.registry import load_plugin
+
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["--json", "providers", "new", "my-cloud", "--display-name", "My Cloud"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["provider"] == {"name": "my-cloud", "plugin": "./gpu_providers/my-cloud.py:MyCloudProvider"}
+    cls = load_plugin(payload["provider"]["plugin"], tmp_path)
+    assert issubclass(cls, GPUProvider)
+    assert (cls.name, cls.display_name, cls.required_credentials) == ("my-cloud", "My Cloud", ["MY_CLOUD_API_KEY"])
+    import sys
+
+    actions = sys.modules[cls.__module__].WATCHDOG_ACTIONS
+    compile(actions, "watchdog_actions", "exec")
+    assert "def provider_stop(ctx)" in actions and "def provider_destroy(ctx)" in actions
+    again = runner.invoke(app, ["providers", "new", "my-cloud"])
+    assert again.exit_code == 2  # refuses to overwrite
+    assert runner.invoke(app, ["providers", "new", "vast"]).exit_code == 2
+
+
+def test_a_plugin_provider_drives_the_cli_like_a_built_in_one(tmp_path, monkeypatch):
+    _acme_project(tmp_path, monkeypatch)
+    listed = json.loads(runner.invoke(app, ["--json", "providers"]).stdout)
+    acme = next(row for row in listed["providers"] if row["provider"] == "acme")
+    assert acme["selected"] and acme["missing_credentials"] == ["ACME_API_KEY"]
+
+    missing = runner.invoke(app, ["login", "--check"])
+    assert missing.exit_code == 5
+    assert "ACME_API_KEY" in missing.output
+
+    bad = runner.invoke(app, ["login", "--stdin"], input="nope\n")
+    assert bad.exit_code == 5
+    good = runner.invoke(app, ["--json", "login", "--stdin"], input="good\n")
+    assert good.exit_code == 0, good.output
+    assert json.loads(good.stdout)["provider"] == "acme"
+    found = runner.invoke(app, ["--json", "login", "--check"])
+    assert json.loads(found.stdout)["balance_usd"] == 3.0
+
+    from gpu4agents.core.config import load_config
+    from gpu4agents.core.engine import Engine
+
+    engine = Engine(load_config(tmp_path / "jambu.yaml"))
+    assert engine.provider.name == "acme"
+
+
+def test_a_plugin_whose_name_differs_from_the_config_is_refused(tmp_path, monkeypatch):
+    _acme_project(tmp_path, monkeypatch)
+    text = (tmp_path / "jambu.yaml").read_text().replace("name: acme", "name: other")
+    (tmp_path / "jambu.yaml").write_text(text)
+    result = runner.invoke(app, ["login", "--check"])
+    assert result.exit_code == 2
+    assert "make them the same" in " ".join(result.output.split())
+
+
+def test_login_with_provider_makes_it_the_default_outside_projects(tmp_path, monkeypatch):
+    from gpu4agents.core.paths import gpu_home
+    from gpu4agents.providers.registry import registry
+    from tests.fakes import FakeProvider
+
+    class Acme(FakeProvider):
+        name = "acme2"
+        display_name = "Acme"
+        required_credentials = ["ACME2_KEY"]
+
+    monkeypatch.setitem(registry._providers, "acme2", Acme)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GPU_PROVIDER", raising=False)
+    result = runner.invoke(app, ["login", "--provider", "acme2", "--stdin"], input="k\n")
+    assert result.exit_code == 0, result.output
+    text = (gpu_home() / "credentials").read_text()
+    assert "ACME2_KEY=k\n" in text and "GPU_PROVIDER=acme2\n" in text
+    from gpu4agents.cli.account import default_provider_name
+
+    assert default_provider_name() == "acme2"
+
+
+def test_entry_point_providers_are_registered(monkeypatch):
+    import importlib
+
+    registry_mod = importlib.import_module("gpu4agents.providers.registry")
+    from tests.fakes import FakeProvider
+
+    class Installed(FakeProvider):
+        name = "installed"
+
+    class Entry:
+        def load(self):
+            return Installed
+
+    monkeypatch.setattr(registry_mod.registry, "_providers", dict(registry_mod.registry._providers))
+    monkeypatch.setattr(registry_mod.metadata, "entry_points", lambda group=None: [Entry()])
+    assert "installed" in registry_mod.load_builtin_providers().names()

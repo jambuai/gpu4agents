@@ -62,7 +62,7 @@ def main_callback(
 app.command("init")(setup.init_command)
 app.command("inspect-model")(inspect_cli.inspect_model_command)
 app.command("profiles")(inspect_cli.profiles_command)
-app.command("providers")(providers.providers_command)
+app.add_typer(providers.providers_app, name="providers")
 app.command("validate")(validate.validate_command)
 app.command("offers")(setup.offers_command)
 app.command("setup")(setup.setup_command)

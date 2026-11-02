@@ -385,7 +385,8 @@ def test_skill_frontmatter_and_tool_names_match_the_server(tmp_path):
     front = yaml.safe_load(text.split("---")[1])
     assert front["name"] == "gpu4agents"
     assert 0 < len(front["description"]) <= 1024
-    mentioned = set(re.findall(r"\bgpu_[a-z]+\b", text))
+    # gpu_providers/ is the adapter folder, not a tool
+    mentioned = set(re.findall(r"\bgpu_[a-z]+\b", text)) - {"gpu_providers"}
     assert "gpu login" in text and "install.sh" in text
     assert mentioned <= set(Server(project=tmp_path).tools), mentioned - set(Server(project=tmp_path).tools)
 
@@ -428,3 +429,16 @@ def test_the_published_copies_of_the_skill_and_installer_match_the_sources():
     if site.is_dir():
         assert (site / "install.sh").read_text() == (root / "install.sh").read_text()
         assert (site / "install.md").read_text() == (root / "INSTALL.md").read_text()
+        assert (site / "providers.md").read_text() == (root / "PROVIDERS.md").read_text()
+
+
+def test_plugin_manifests_carry_the_package_version():
+    from gpu4agents import __version__
+
+    root = Path(__file__).resolve().parents[1]
+    for manifest in (".claude-plugin/plugin.json", ".cursor-plugin/plugin.json"):
+        data = json.loads((root / manifest).read_text())
+        assert data["name"] == "gpu4agents"
+        assert data["version"] == __version__, manifest
+    market = json.loads((root / ".claude-plugin" / "marketplace.json").read_text())
+    assert [p["name"] for p in market["plugins"]] == ["gpu4agents"]

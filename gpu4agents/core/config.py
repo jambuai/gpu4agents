@@ -71,6 +71,10 @@ def _duration(field_name: str):
 class ProviderConfig(_Base):
     name: str = "vast"
     profile: str = "default"
+    # An adapter that does not ship with gpu4agents: "./providers/acme.py:AcmeProvider"
+    # (a file, relative to the config file) or "acme_gpu.provider:AcmeProvider"
+    # (an importable module). Its class's `name` must equal `name` above.
+    plugin: Optional[str] = None
     options: dict[str, Any] = Field(default_factory=dict)
 
 

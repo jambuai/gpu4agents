@@ -21,6 +21,14 @@ from . import timer
 from ._common import Context, console, fmt_money, get_context, handle, print_json, state_text
 
 DEFAULT_PROVIDER = "vast"
+# Names the provider for commands run outside a project; `gpu login --provider`
+# writes it to ~/.gpu/credentials.
+PROVIDER_SETTING = "GPU_PROVIDER"
+
+
+def default_provider_name(credentials: Optional[CredentialResolver] = None) -> str:
+    resolver = credentials or CredentialResolver(Path.cwd())
+    return resolver.get(PROVIDER_SETTING) or DEFAULT_PROVIDER
 
 
 class Account:
@@ -39,7 +47,7 @@ class Account:
             # No project: a placeholder config only carries the provider name.
             project_dir = Path.cwd()
             profile = "default"
-            name = provider_name or DEFAULT_PROVIDER
+            name = provider_name or default_provider_name(account_credentials(project_dir))
             config = RuntimeConfig.model_validate(
                 {"provider": {"name": name}, "model": {"id": "jambu/account"}}
             )
@@ -84,7 +92,7 @@ def make_engine(config: RuntimeConfig, echo=None) -> Engine:
 def ls_command(
     ctx: typer.Context,
     provider: Optional[str] = typer.Option(
-        None, "--provider", help="Provider to list (default: jambu.yaml's, else vast)."
+        None, "--provider", help="Provider to list (default: jambu.yaml's, else GPU_PROVIDER, else vast)."
     ),
 ) -> None:
     """List every jambu instance in the provider account."""
@@ -139,7 +147,7 @@ def sweep_command(
         "24h", "--stopped-ttl", help="Destroy an untracked instance stopped longer than this."
     ),
     provider: Optional[str] = typer.Option(
-        None, "--provider", help="Provider to look for orphans on (default: jambu.yaml's, else vast)."
+        None, "--provider", help="Provider to look for orphans on (default: jambu.yaml's, else GPU_PROVIDER, else vast)."
     ),
     config: Optional[Path] = typer.Option(
         None, "--config", "-c", help="Also guard this project for this run, registered or not."
@@ -175,21 +183,22 @@ def sweep_command(
 
 def _require_file_credentials(context: Context) -> None:
     """The unit runs without the shell's environment: refuse what it cannot see."""
-    checks: list[tuple[str, CredentialResolver, str]] = []
+    registry = load_builtin_providers()
+    checks: list[tuple[type, CredentialResolver, str]] = []
     if context.config_path is not None or find_config() is not None:
         cfg = context.config()
         checks.append(
             (
-                cfg.provider.name,
+                registry.class_for(cfg),
                 CredentialResolver(cfg.project_dir, profile=cfg.provider.profile),
                 str(cfg.source_path),
             )
         )
     # The unit runs from ~ with no project: the orphan sweep's own lookup.
-    checks.append((DEFAULT_PROVIDER, account_credentials(Path.home()), "the orphan sweep"))
-    registry = load_builtin_providers()
-    for provider_name, resolver, who in checks:
-        for name in registry.get_class(provider_name).required_credentials:
+    home = account_credentials(Path.home())
+    checks.append((registry.get_class(default_provider_name(home)), home, "the orphan sweep"))
+    for provider_cls, resolver, who in checks:
+        for name in provider_cls.required_credentials:
             if resolver.file_source(name):
                 continue
             where = "only in your shell environment" if resolver.get(name) else "not set anywhere"
@@ -330,80 +339,102 @@ def _sweep(
         raise typer.Exit(1)
 
 
-VAST_KEYS_URL = "https://cloud.vast.ai/manage-keys/"
+def _login_target(context: Context, provider_name: Optional[str]):
+    """The adapter class to log in to, and where its credentials are looked up.
 
-
-def _vast_account(key: str) -> dict:
-    """Check a key against the account API. Seam for tests."""
-    from ..providers.vast.client import VastClient
-
-    client = VastClient(key)
-    try:
-        return client.whoami()
-    finally:
-        client.close()
-
-
-def _account_summary(user: dict) -> dict:
-    """What is safe to print about the account: no email, no name, no key."""
-    balance = user.get("credit", user.get("balance"))
-    try:
-        balance = round(float(balance), 2)
-    except (TypeError, ValueError):
-        balance = None
-    return {"balance_usd": balance}
+    --provider wins; then the project's jambu.yaml (plugins included); then
+    the default provider outside a project.
+    """
+    registry = load_builtin_providers()
+    config = None
+    if context.config_path is not None or find_config() is not None:
+        config = context.config()
+    if config is not None:
+        credentials = account_credentials(config.project_dir, config.provider.profile)
+        if provider_name is None or provider_name == config.provider.name:
+            return registry.class_for(config), credentials
+    else:
+        credentials = account_credentials(Path.cwd())
+    return registry.get_class(provider_name or default_provider_name(credentials)), credentials
 
 
 def login_command(
     ctx: typer.Context,
+    provider: Optional[str] = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help="Provider to log in to (default: jambu.yaml's, else GPU_PROVIDER, else vast).",
+    ),
     from_stdin: bool = typer.Option(
-        False, "--stdin", help="Read the key from stdin instead of a hidden prompt."
+        False, "--stdin", help="Read the key from stdin (one line per credential) instead of a hidden prompt."
     ),
     check: bool = typer.Option(
-        False, "--check", help="Only check the key gpu already finds; write nothing."
+        False, "--check", help="Only check the credentials gpu already finds; write nothing."
     ),
 ) -> None:
-    """Save your Vast.ai API key in ~/.gpu/credentials, after checking it works.
+    """Save your GPU provider's API key in ~/.gpu/credentials, after checking it works.
 
     Run it in your own terminal: the key is typed into a hidden prompt, never
-    into an agent's chat. `gpu login --check` tells whether a working key is
-    found, and where.
+    into an agent's chat. `gpu login --check` tells whether working
+    credentials are found, and where. With --provider, that provider also
+    becomes the default for commands run outside a project.
     """
     import getpass
     import sys
 
     from ..core.credentials import save_user_credential
     from ..core.errors import AuthenticationError
-    from ..providers.vast.config import API_KEY_ENV
 
     context = get_context(ctx)
     try:
+        cls, credentials = _login_target(context, provider)
+        names = list(cls.required_credentials)
+        where_to_get = f" (create one at {cls.credentials_url})" if cls.credentials_url else ""
         if check:
-            credentials = account_credentials(Path.cwd())
-            key = credentials.get(API_KEY_ENV)
-            if not key:
+            missing = [name for name in names if not credentials.get(name)]
+            if missing:
                 raise AuthenticationError(
-                    f"no {API_KEY_ENV} found; run `gpu login` in a terminal "
-                    f"(create a key at {VAST_KEYS_URL})"
+                    f"no {cls.display_name} credentials found ({', '.join(missing)}); "
+                    f"run `gpu login{'' if provider is None else ' --provider ' + cls.name}` "
+                    f"in a terminal{where_to_get}"
                 )
-            source = credentials.file_source(API_KEY_ENV) or "environment"
-            summary = {"ok": True, "source": source, **_account_summary(_vast_account(key))}
+            values = {name: credentials.get(name) or "" for name in names}
+            source = (credentials.file_source(names[0]) or "environment") if names else "none needed"
+            summary = {
+                "ok": True,
+                "provider": cls.name,
+                "source": source,
+                **cls.verify_credentials(values),
+            }
         else:
+            if not names:
+                raise ConfigError(f"{cls.display_name} needs no credentials; nothing to save")
+            values = {}
             if from_stdin:
-                key = sys.stdin.readline().strip()
+                for name in names:
+                    values[name] = sys.stdin.readline().strip()
             else:
                 if not sys.stdin.isatty():
                     raise ConfigError(
                         "gpu login needs a terminal for the hidden prompt; "
                         "run it in your own terminal, or pipe the key with --stdin"
                     )
-                typer.echo(f"Create a key at {VAST_KEYS_URL}", err=True)
-                key = getpass.getpass("Vast.ai API key (input hidden): ").strip()
-            if not key:
-                raise ConfigError("no key given")
-            summary = _account_summary(_vast_account(key))
-            path = save_user_credential(API_KEY_ENV, key)
-            summary = {"ok": True, "saved": str(path), **summary}
+                if cls.credentials_url:
+                    typer.echo(f"Create a key at {cls.credentials_url}", err=True)
+                for name in names:
+                    values[name] = getpass.getpass(
+                        f"{cls.display_name} {name} (input hidden): "
+                    ).strip()
+            empty = [name for name, value in values.items() if not value]
+            if empty:
+                raise ConfigError(f"no value given for {', '.join(empty)}")
+            summary = cls.verify_credentials(values)
+            for name, value in values.items():
+                path = save_user_credential(name, value)
+            if provider is not None:
+                save_user_credential(PROVIDER_SETTING, cls.name)
+            summary = {"ok": True, "provider": cls.name, "saved": str(path), **summary}
     except JambuError as exc:
         handle(exc)
         return
@@ -412,6 +443,6 @@ def login_command(
         return
     where = summary.get("saved") or summary.get("source")
     balance = summary.get("balance_usd")
-    console.print(Text(f"Vast.ai key works ({where})", style="green"))
+    console.print(Text(f"{cls.display_name} credentials work ({where})", style="green"))
     if balance is not None:
         console.print(Text(f"balance: ${balance:.2f}", style="dim"))

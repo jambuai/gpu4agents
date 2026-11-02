@@ -285,7 +285,7 @@ def install(
         done.append({"what": "skill zip (Claude Desktop)", "path": str(archive), "action": write_skill_zip(archive)})
         notes.append(f"Claude Desktop: restart it, then upload {archive} under Settings > Capabilities > Skills")
         notes.append(
-            "Claude Desktop does not get your shell's environment: keep VAST_API_KEY in "
+            "Claude Desktop does not get your shell's environment: keep the provider key in "
             "~/.gpu/credentials (gpu login) or the project .env"
         )
 

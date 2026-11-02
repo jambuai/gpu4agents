@@ -40,7 +40,7 @@ from ...core.models import (
 from ..base import GPUProvider, WatchdogSpec
 from . import mapper
 from .client import VastClient, VastNotFound
-from .config import API_KEY_ENV, ONSTART_MAX_BYTES, VastOptions
+from .config import API_KEY_ENV, KEYS_URL, ONSTART_MAX_BYTES, VastOptions
 
 # Executed inside the remote watchdog; stdlib only, no package imports.
 WATCHDOG_ACTIONS = '''
@@ -106,6 +106,7 @@ class VastProvider(GPUProvider):
     name = "vast"
     display_name = "Vast.ai"
     required_credentials = [API_KEY_ENV]
+    credentials_url = KEYS_URL
     capabilities = ProviderCapabilities(
         stop=True,
         destroy=True,
@@ -132,6 +133,21 @@ class VastProvider(GPUProvider):
         self.options = VastOptions.from_mapping(config.provider.options)
         self._client: Optional[VastClient] = None
 
+    @classmethod
+    def verify_credentials(cls, values: dict[str, str]) -> dict[str, Any]:
+        client = VastClient(values[API_KEY_ENV])
+        try:
+            user = client.whoami()
+        finally:
+            client.close()
+        # Only the balance: the account payload also carries email and name.
+        balance = user.get("credit", user.get("balance"))
+        try:
+            balance = round(float(balance), 2)
+        except (TypeError, ValueError):
+            balance = None
+        return {"balance_usd": balance}
+
     # -- plumbing -----------------------------------------------------------
 
     @property
@@ -143,7 +159,7 @@ class VastProvider(GPUProvider):
 
                 raise AuthenticationError(
                     f"{API_KEY_ENV} is not set. Export it or add it to .env "
-                    "(get one at https://cloud.vast.ai/account/)."
+                    f"(get one at {KEYS_URL}), or run `gpu login`."
                 )
             self._client = VastClient(key, api_base=self.options.api_base)
         return self._client
