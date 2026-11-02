@@ -2,16 +2,18 @@
 
 > Your agent rents the GPU it needs, on its own. You pay only while it works: we watch every machine and shut down the idle ones. Open source (MIT), by Jambu.ai.
 
-GPU for Agents (`gpu4agents`, the `gpu` command) lets a coding agent rent a cloud GPU on Vast.ai, serve an open-weights model with vLLM behind an OpenAI-compatible API, run experiments, and monitor cost. A watchdog on the machine shuts it down after `idle_timeout` (15 min by default).
+GPU for Agents (`gpu4agents`, the `gpu` command) lets a coding agent rent a cloud GPU (Vast.ai built in, any other provider through an adapter), serve an open-weights model with vLLM behind an OpenAI-compatible API, run experiments, and monitor cost. A watchdog on the machine shuts it down after `idle_timeout` (15 min by default).
 
 ## Install (for agents)
 
 - [install.md](https://gpu4agents.jambu.ai/install.md): step-by-step setup an agent can follow: install, connect the account, learn the rules
 - [install.sh](https://gpu4agents.jambu.ai/install.sh): `curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent claude|codex|gemini|cursor|auto`
+- [providers.md](https://gpu4agents.jambu.ai/providers.md): add a GPU provider gpu does not ship, by writing an adapter against the provider contract
 
 ## Use
 
 - [The skill (SKILL.md)](https://raw.githubusercontent.com/jambuai/gpu4agents/main/skills/gpu4agents/SKILL.md): rules, commands, monitoring, exit codes
 - [Agents guide](https://github.com/jambuai/gpu4agents/blob/main/docs/AGENTS.md)
+- [Provider contract](https://github.com/jambuai/gpu4agents/blob/main/docs/ADDING_A_PROVIDER.md)
 - [Integration contract for apps](https://github.com/jambuai/gpu4agents/blob/main/docs/INTEGRATION.md)
 - [Source](https://github.com/jambuai/gpu4agents)

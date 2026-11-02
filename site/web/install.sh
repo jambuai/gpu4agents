@@ -7,22 +7,22 @@
 # Installs the `gpu` command with uv, which downloads a suitable Python by
 # itself, so nothing but curl is needed. Then gives the agent runtimes found on
 # this machine (Claude Code, Codex, Gemini CLI, Cursor) the gpu4agents skill and
-# the gpu MCP server. It never asks for or touches your provider key: run
-# `gpu login` afterwards.
+# the gpu MCP server. It never asks for or touches your GPU provider's key:
+# run `gpu login` afterwards.
 #
 # Options:
 #   --agent NAME   claude | codex | gemini | cursor | auto (default) | none
 #   --no-modify-path  do not add ~/.local/bin to your shell profile
 #
 # Environment:
-#   GPU4AGENTS_SPEC  what to install (default: gpu4agents>=0.6.0); a version pin or a wheel path
+#   GPU4AGENTS_SPEC  what to install (default: gpu4agents>=0.7.0); a version pin or a wheel path
 #   GPU4AGENTS_PYTHON  Python version uv uses for the tool (default: 3.12)
 
 set -eu
 
 AGENT="auto"
 MODIFY_PATH=1
-SPEC="${GPU4AGENTS_SPEC:-gpu4agents>=0.6.0}"
+SPEC="${GPU4AGENTS_SPEC:-gpu4agents>=0.7.0}"
 PYVER="${GPU4AGENTS_PYTHON:-3.12}"
 
 while [ $# -gt 0 ]; do
@@ -91,11 +91,12 @@ esac
 # 4. What is left for the user.
 echo
 if "$GPU" login --check >/dev/null 2>&1; then
-  say "Your Vast.ai key works. Ask your agent for a GPU experiment."
+  say "Your GPU provider account is connected. Ask your agent for a GPU experiment."
 else
-  say "One step left: connect your GPU account."
-  echo "    1. Create a key at https://cloud.vast.ai/manage-keys/ and add credit."
-  echo "    2. In a terminal, run:  gpu login"
+  say "One step left: connect a GPU provider account."
+  echo "    In a terminal, run:  gpu login"
+  echo "    It asks for a Vast.ai key (built in). For another provider, ask your agent"
+  echo "    to add it: https://gpu4agents.jambu.ai/providers.md"
 fi
 case ":$ORIG_PATH:" in
   *":$BIN:"*) ;;

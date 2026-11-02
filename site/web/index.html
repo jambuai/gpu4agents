@@ -138,7 +138,7 @@
     .yaml { position: sticky; top: 100px; background: var(--ground-2); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
     .yaml .bar-top { display: flex; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); align-items: center; }
     .yaml .bar-top i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
-    .yaml .bar-top span { margin-left: 8px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
+    .yaml .bar-top > span { margin-left: 8px; font-family: var(--mono); font-size: 12px; color: var(--muted); }
     .yaml pre { padding: 22px; font-family: var(--mono); font-size: 14px; line-height: 1.75; overflow-x: auto; }
     .yaml .c { color: var(--muted); } .yaml .v { color: var(--lime); } .yaml .k2 { color: var(--leaf); }
 
@@ -196,6 +196,16 @@
     .alt .term { overflow-x: hidden; }
     @media (prefers-reduced-motion: reduce) { .agent-tab .icon, .works .mark, .agent-term .caret { animation: none; } .agent-tab[aria-selected="true"] .icon::after { animation: none; } }
 
+    /* providers */
+    .prov { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; }
+    @media (max-width: 900px) { .prov { grid-template-columns: 1fr; } }
+    .prov > * { min-width: 0; }
+    .prov-name { display: flex; align-items: center; gap: 10px; margin-top: 12px; font: 13px var(--mono); color: var(--muted); }
+    .prov-name input { flex: 1; min-width: 0; max-width: 260px; background: var(--ground); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; color: var(--ink); font: 15px var(--display); }
+    .prov-name input:focus { outline: none; border-color: var(--leaf); }
+    .contract pre { font-size: 13px; line-height: 1.7; white-space: pre; }
+    .contract-foot { padding: 14px 22px; border-top: 1px solid var(--line); font: 12.5px/1.6 var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+
     /* install */
     .install { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
     @media (max-width: 900px) { .install { grid-template-columns: 1fr; } }
@@ -234,6 +244,7 @@
         <li><a href="#how">How it works</a></li>
         <li><a href="#guardrails">Guardrails</a></li>
         <li><a href="#install">Install</a></li>
+        <li><a href="#providers">Providers</a></li>
       </ul>
       <a class="btn gh-btn" href="https://github.com/jambuai/gpu4agents" rel="noopener" aria-label="GPU for Agents on GitHub"><svg class="gh" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg><span>Star on GitHub</span></a>
     </div>
@@ -245,7 +256,7 @@
       <span class="eyebrow reveal">GPU for Agents · open source</span>
       <h1><span class="line reveal">Your agent rents the GPU it needs, on its own.</span></h1>
       <p class="sub reveal">You pay only while it works: we watch every machine and shut down the idle ones.</p>
-      <p class="lead reveal">Claude Code, Codex, Gemini CLI, Cursor or any MCP client rents a GPU, serves a model behind an OpenAI-compatible API and runs its experiment. No dashboard, no ticket, no GPU left billing after the conversation ends.</p>
+      <p class="lead reveal">Claude Code, Codex, Gemini CLI or Cursor rents a GPU from the provider you pick, serves a model behind an OpenAI-compatible API and runs its experiment. The machine stops when the work does, even after the conversation ends.</p>
       <div class="cta reveal">
         <a class="btn primary" href="#install">Install in your agent</a>
         <a class="btn" href="#video"><svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4l14 8-14 8z" fill="currentColor"/></svg> Watch the 1-minute video</a>
@@ -284,7 +295,7 @@
         <article class="pillar reveal" id="p1">
           <span class="num">01 · PROVISION</span>
           <h3>Your agent rents what it needs.</h3>
-          <p>Ask for a benchmark. The agent checks prices against your budget, rents the machine, serves the model with vLLM and gets an endpoint back. It runs the experiment with any OpenAI SDK. No dashboard, no ticket, no one waiting on a human.</p>
+          <p>Ask for a benchmark. The agent checks prices against your budget, rents the machine, serves the model with vLLM and gets an endpoint back, then runs the experiment with any OpenAI SDK. Nobody has to open a dashboard or file a ticket.</p>
           <div class="demo" aria-label="Example of an agent provisioning a GPU">
             <div class="msg">Compare Qwen 7B and Llama 8B on these 50 prompts.</div>
             <div class="call"><b>gpu_offers</b>RTX 4090 · 24 GB · $0.38/h <span class="ok">✓ under $0.60/h cap</span></div>
@@ -295,7 +306,7 @@
         <article class="pillar reveal" id="p2">
           <span class="num">02 · WATCH</span>
           <h3>You pay only while it works.</h3>
-          <p>We watch every machine. A watchdog runs on the GPU itself, not on your laptop: after 15 minutes without a request, it shuts the machine down and the billing ends. It works if the agent forgot, if the chat closed, if your laptop is asleep.</p>
+          <p>A watchdog runs on the rented machine itself. After 15 minutes without a request it shuts the machine down and billing ends, even if the agent forgot about it, the chat closed or your laptop is asleep.</p>
           <div class="demo" aria-label="Idle timeline: requests, then idle, then stopped">
             <div style="display:flex;justify-content:space-between;color:var(--muted);font-size:12px"><span>requests</span><span>idle <b id="p2-idle" style="color:var(--ink)">00:00</b> / 15:00</span></div>
             <div class="rail">
@@ -317,7 +328,7 @@
       <div class="section-head">
         <span class="eyebrow reveal">How it works</span>
         <h2 class="reveal">One request, start to finish.</h2>
-        <p class="lead reveal">The agent drives GPU for Agents through MCP tools (or the CLI with <code>--json</code>). The skill tells it to show you the price and ask before renting.</p>
+        <p class="lead reveal">The agent uses MCP tools, or the CLI with <code>--json</code>. The skill tells it to show you the price and ask before renting.</p>
       </div>
       <div class="steps">
         <div class="step reveal-step"><span class="k">01</span><h3>Ask</h3><p>"Run this eval on Llama 8B." The agent writes <code>jambu.yaml</code> with <code>gpu_init</code>.</p></div>
@@ -334,20 +345,20 @@
         <div class="section-head">
           <span class="eyebrow reveal">Guardrails</span>
           <h2 class="reveal">Limits the agent can't talk its way past.</h2>
-          <p class="lead reveal">They live in <code>jambu.yaml</code> and on the machine. The agent can't raise them without editing the file, and the skill tells it to ask you first.</p>
+          <p class="lead reveal">They live in <code>jambu.yaml</code> and on the machine, and they work the same with every provider. The agent would have to edit the file to raise them, and the skill tells it to ask you first.</p>
         </div>
         <div class="rows">
-          <div class="row reveal-row"><span class="big">15 min</span><div><h4>Idle timeout</h4><p>No requests, no GPU. The watchdog on the instance stops it. <code>lifecycle.idle_timeout</code></p></div></div>
-          <div class="row reveal-row"><span class="big">$/h</span><div><h4>Hourly and session budget</h4><p>Offers above the cap are never rented; a session that hits its total stops. <code>budget.max_hourly_cost_usd</code></p></div></div>
-          <div class="row reveal-row"><span class="big">6 h</span><div><h4>Maximum lifetime</h4><p>A hard ceiling, busy or not. <code>lifecycle.max_lifetime</code></p></div></div>
-          <div class="row reveal-row"><span class="big">10 min</span><div><h4>Stalled hosts replaced</h4><p>An image pull that stops moving gets a new host instead of a 30-minute wait. <code>health.pull_stall_timeout</code></p></div></div>
-          <div class="row reveal-row"><span class="big">sweep</span><div><h4>Last line of defense</h4><p><code>gpu ls</code> shows everything billing; <code>gpu sweep --install-timer</code> cleans up orphans.</p></div></div>
+          <div class="row reveal-row"><span class="big">15 min</span><div><h4>Idle timeout</h4><p>The watchdog on the machine stops it once requests stop. <code>lifecycle.idle_timeout</code></p></div></div>
+          <div class="row reveal-row"><span class="big">$/h</span><div><h4>Hourly and session budget</h4><p>Offers above the cap are never rented, and a session that reaches its total stops. <code>budget.max_hourly_cost_usd</code></p></div></div>
+          <div class="row reveal-row"><span class="big">6 h</span><div><h4>Maximum lifetime</h4><p>The machine stops at this age, busy or not. <code>lifecycle.max_lifetime</code></p></div></div>
+          <div class="row reveal-row"><span class="big">10 min</span><div><h4>Stalled hosts replaced</h4><p>If the image download stops moving, gpu rents another host instead of waiting 30 minutes. <code>health.pull_stall_timeout</code></p></div></div>
+          <div class="row reveal-row"><span class="big">sweep</span><div><h4>Account sweep</h4><p><code>gpu ls</code> shows everything billing, and <code>gpu sweep --install-timer</code> cleans up machines no project owns.</p></div></div>
         </div>
       </div>
       <div class="yaml reveal">
         <div class="bar-top"><i></i><i></i><i></i><span>jambu.yaml</span></div>
 <pre><span class="k2">gpu_runtime:</span>
-  provider: {name: <span class="v">vast</span>}
+  provider: {name: <span class="v">vast</span>}  <span class="c"># or your adapter</span>
   model_profile: <span class="v">qwythos-9b</span>
   lifecycle:
     idle_timeout: <span class="v">15m</span>   <span class="c"># watchdog stops it</span>
@@ -366,7 +377,7 @@
       <div class="section-head">
         <span class="eyebrow reveal">Install</span>
         <h2 class="reveal">Paste one line into your agent.</h2>
-        <p class="lead reveal">The agent installs GPU for Agents itself: the <code>gpu</code> command, the Python it needs, the skill that teaches it the rules, and its tools. You only connect your GPU account, in your own terminal, so the agent never sees the key.</p>
+        <p class="lead reveal">The agent installs the <code>gpu</code> command, the Python it needs, the skill with the rules, and its tools. You connect your GPU provider in your own terminal, so the agent never sees the key.</p>
       </div>
       <div class="agents-tabs reveal" role="tablist" aria-label="Choose your agent"><button class="agent-tab" role="tab" id="tab-claude" data-agent="claude" aria-selected="false" aria-controls="agent-panel"><span class="icon"><svg class="agent-logo" viewBox="0 0 24 24" role="img" aria-label="Claude Code" style="--brand:#D97757"><path pathLength="100" d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg></span>Claude Code</button><button class="agent-tab" role="tab" id="tab-codex" data-agent="codex" aria-selected="false" aria-controls="agent-panel"><span class="icon"><svg class="agent-logo" viewBox="0 0 24 24" role="img" aria-label="Codex" style="--brand:#ECF2E8"><path pathLength="100" d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg></span>Codex</button><button class="agent-tab" role="tab" id="tab-gemini" data-agent="gemini" aria-selected="false" aria-controls="agent-panel"><span class="icon"><svg class="agent-logo" viewBox="0 0 24 24" role="img" aria-label="Gemini CLI" style="--brand:#8E9BF5"><path pathLength="100" d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg></span>Gemini CLI</button><button class="agent-tab" role="tab" id="tab-cursor" data-agent="cursor" aria-selected="false" aria-controls="agent-panel"><span class="icon"><svg class="agent-logo" viewBox="0 0 24 24" role="img" aria-label="Cursor" style="--brand:#ECF2E8"><path pathLength="100" d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23"/></svg></span>Cursor</button></div>
       <div class="agent-panel reveal" id="agent-panel" role="tabpanel">
@@ -375,7 +386,7 @@
             <li><b>Paste this into <span class="agent-name">Claude Code</span>.</b>
               <div class="prompt"><span id="prompt-text"></span><br /><button class="copy-btn" id="copy-prompt" type="button">Copy prompt</button></div>
             </li>
-            <li><b>When it asks, connect your GPU account.</b> Create a key at <a href="https://cloud.vast.ai/manage-keys/" rel="noopener">cloud.vast.ai</a>, then run <code>gpu login</code> in your terminal and paste it into the hidden prompt.</li>
+            <li><b>When it asks, connect your GPU provider.</b> Run <code>gpu login</code> in your terminal and paste your API key into the hidden prompt. Vast.ai works out of the box. <a href="#providers">Any other provider</a> takes one adapter, and the agent can write it.</li>
             <li><b>Restart <span class="agent-name">Claude Code</span> and ask for an experiment.</b> It shows the price and asks before renting anything.</li>
           </ol>
         </div>
@@ -391,15 +402,55 @@
           <p>Installs uv, Python and <code>gpu</code>, then sets up every agent it finds. Linux and macOS (Windows: WSL).</p>
         </div>
         <div class="term reveal">
-          <h4>Just the skill</h4>
-          <div><span class="p">$ </span>npx skills add jambuai/gpu4agents</div>
-          <p>With the <a href="https://skills.sh" rel="noopener">skills</a> CLI. The skill installs the <code>gpu</code> command on first use.</p>
+          <h4>Install the skill in <span class="agent-name">Claude Code</span></h4>
+          <div id="native-cmd"></div>
+          <p>The way <span class="agent-name">Claude Code</span> installs other skills. The skill installs the <code>gpu</code> command the first time it runs.</p>
         </div>
         <div class="term reveal">
           <h4>From an app, any language</h4>
           <div><span class="p">$ </span>gpu --json setup</div>
           <div class="c">{ "base_url": "…/v1", "api_key": "…", "model": "…" }</div>
-          <p>Any OpenAI SDK, then walk away: the idle timeout shuts it down.</p>
+          <p>Works with any OpenAI SDK. When your app stops sending requests, the idle timeout shuts the machine down.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="providers">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow reveal">Any GPU provider</span>
+        <h2 class="reveal">Use the provider you already pay for.</h2>
+        <p class="lead reveal">Vast.ai is built in. For RunPod, Lambda, your company's cluster or anything else with an API, your agent writes an adapter: one Python file that implements our provider contract. The watchdog, budgets, CLI and MCP tools work the same with every provider.</p>
+      </div>
+      <div class="prov">
+        <div class="steps3 reveal">
+          <ol>
+            <li><b>Name the provider and paste this into your agent.</b>
+              <label class="prov-name"><span>Provider</span><input id="prov-input" type="text" value="RunPod" maxlength="40" autocomplete="off" spellcheck="false" aria-label="Provider name" /></label>
+              <div class="prompt"><span id="prov-prompt"></span><br /><button class="copy-btn" id="copy-prov" type="button">Copy prompt</button></div>
+            </li>
+            <li><b>The agent writes and checks the adapter.</b> It runs <code>gpu providers new</code>, fills in each method from the provider's API docs, then checks prices with <code>gpu offers</code> without renting anything.</li>
+            <li><b>You connect the account.</b> <code>gpu login --provider <span class="prov-slug">runpod</span></code> in your terminal. The agent asks before one small test rental.</li>
+          </ol>
+        </div>
+        <div class="yaml contract reveal">
+          <div class="bar-top"><i></i><i></i><i></i><span>gpu_providers/<span class="prov-slug">runpod</span>.py</span></div>
+<pre><span class="k2">class</span> <span class="v"><span class="prov-class">Runpod</span>Provider</span>(GPUProvider):
+    name = <span class="v">"<span class="prov-slug">runpod</span>"</span>
+    required_credentials = [<span class="v">"<span class="prov-env">RUNPOD</span>_API_KEY"</span>]
+
+    <span class="k2">def</span> find_offers(spec)   <span class="c"># GPUs that fit, cheapest first</span>
+    <span class="k2">def</span> setup(spec)         <span class="c"># rent one, run the boot script</span>
+    <span class="k2">def</span> status(instance)    <span class="c"># map states and ports</span>
+    <span class="k2">def</span> stop(instance)
+    <span class="k2">def</span> destroy(instance)
+    <span class="k2">def</span> list_instances()    <span class="c"># only jambu-* machines</span>
+
+<span class="c"># runs on the machine: stops it when idle</span>
+<span class="k2">def</span> provider_stop(ctx)
+<span class="k2">def</span> provider_destroy(ctx)</pre>
+          <div class="contract-foot"><span class="c">jambu.yaml</span> provider: {name: <span class="v prov-slug">runpod</span>, plugin: <span class="v">./gpu_providers/<span class="prov-slug">runpod</span>.py:<span class="prov-class">Runpod</span>Provider</span>}</div>
         </div>
       </div>
     </div>
@@ -539,10 +590,14 @@
     const ORIGIN = /^https?:/.test(location.origin) && !/^http:\/\/(127\.0\.0\.1|localhost)/.test(location.origin)
       ? location.origin : "https://gpu4agents.jambu.ai";
     const AGENTS = {
-      claude: { name: "Claude Code", skill: "~/.claude/skills/gpu4agents/SKILL.md", mcp: "claude mcp add --scope user gpu" },
-      codex: { name: "Codex", skill: "~/.agents/skills/gpu4agents/SKILL.md", mcp: "~/.codex/config.toml" },
-      gemini: { name: "Gemini CLI", skill: "~/.agents/skills/gpu4agents/SKILL.md", mcp: "~/.gemini/settings.json" },
-      cursor: { name: "Cursor", skill: "~/.agents/skills/gpu4agents/SKILL.md", mcp: "~/.cursor/mcp.json" },
+      claude: { name: "Claude Code", skill: "~/.claude/skills/gpu4agents/SKILL.md", mcp: "claude mcp add --scope user gpu",
+        native: [["> ", "/plugin marketplace add jambuai/gpu4agents"], ["> ", "/plugin install gpu4agents@gpu4agents"]] },
+      codex: { name: "Codex", skill: "~/.agents/skills/gpu4agents/SKILL.md", mcp: "~/.codex/config.toml",
+        native: [["$ ", "npx skills add jambuai/gpu4agents -g -a codex"]] },
+      gemini: { name: "Gemini CLI", skill: "~/.agents/skills/gpu4agents/SKILL.md", mcp: "~/.gemini/settings.json",
+        native: [["$ ", "npx skills add jambuai/gpu4agents -g -a gemini-cli"]] },
+      cursor: { name: "Cursor", skill: "~/.agents/skills/gpu4agents/SKILL.md", mcp: "~/.cursor/mcp.json",
+        native: [["$ ", "npx skills add jambuai/gpu4agents -g -a cursor"]] },
     };
     const promptFor = a => `Set up GPU for Agents for me. I'm using ${AGENTS[a].name}. Fetch ${ORIGIN}/install.md with curl and follow its steps.`;
     document.querySelectorAll(".origin-cmd").forEach(el => el.textContent = `curl -fsSL ${ORIGIN}/install.sh | sh`);
@@ -553,12 +608,12 @@
       ["", `$ curl -fsSL ${ORIGIN}/install.sh | sh -s -- --agent ${a}`],
       ["ok", "==> Installing uv"],
       ["ok", "==> Installing gpu4agents (Python 3.12 via uv)"],
-      ["ok", "==> Installed 0.6.0 at ~/.local/bin/gpu"],
+      ["ok", "==> Installed 0.7.0 at ~/.local/bin/gpu"],
       ["", `+ skill (${AGENTS[a].name}): ${AGENTS[a].skill}`],
       ["", `+ MCP server (${AGENTS[a].name}): ${AGENTS[a].mcp}`],
       ["", "$ gpu login --check"],
-      ["warn", "error: no VAST_API_KEY found (exit 5)"],
-      ["me", "● Installed. One step for you: create a key at cloud.vast.ai, then run `gpu login` in your terminal. I'll check again when you're done."],
+      ["", "no GPU provider connected yet"],
+      ["me", "● Installed. Which GPU provider do you use? Vast.ai works now: run `gpu login` in your terminal and paste your key. For any other provider, I can write its adapter first."],
     ];
     const term = document.getElementById("agent-term"), who = document.getElementById("term-who");
     const promptText = document.getElementById("prompt-text"), copyBtn = document.getElementById("copy-prompt");
@@ -580,6 +635,8 @@
       });
       document.querySelectorAll(".agent-name").forEach(el => el.textContent = AGENTS[a].name);
       promptText.textContent = promptFor(a);
+      document.getElementById("native-cmd").innerHTML = AGENTS[a].native
+        .map(([p, c]) => `<div><span class="p">${esc(p)}</span>${esc(c)}</div>`).join("");
       const svg = document.querySelector(`#tab-${a} svg`).cloneNode(true); svg.removeAttribute("aria-label");
       who.innerHTML = ""; who.append(svg, document.createTextNode(AGENTS[a].name.toLowerCase()));
       render(a, animate && !reduce);
@@ -609,6 +666,26 @@
       }), { threshold: 0.3 });
       document.querySelectorAll(".works, .agents-tabs, #agent-panel").forEach(el => io.observe(el));
     }
+
+    /* ---------- providers: the prompt for the provider the user names ---------- */
+    const provInput = document.getElementById("prov-input"), provPrompt = document.getElementById("prov-prompt"), provCopy = document.getElementById("copy-prov");
+    const provName = () => provInput.value.trim() || "RunPod";
+    const provPromptText = () => `Add ${provName()} as a GPU provider to GPU for Agents. Fetch ${ORIGIN}/providers.md with curl and follow its steps.`;
+    function syncProv() {
+      const name = provName();
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "runpod";
+      const cls = slug.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("");
+      provPrompt.textContent = provPromptText();
+      document.querySelectorAll(".prov-slug").forEach(el => el.textContent = slug);
+      document.querySelectorAll(".prov-class").forEach(el => el.textContent = cls);
+      document.querySelectorAll(".prov-env").forEach(el => el.textContent = slug.toUpperCase().replace(/-/g, "_"));
+    }
+    provInput.addEventListener("input", syncProv); syncProv();
+    provCopy.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(provPromptText()); provCopy.textContent = "Copied"; }
+      catch { provCopy.textContent = "Select and copy"; }
+      provCopy.classList.add("done"); setTimeout(() => { provCopy.textContent = "Copy prompt"; provCopy.classList.remove("done"); }, 2000);
+    });
 
     /* ---------- copy buttons ---------- */
     const toast = document.getElementById("toast");
