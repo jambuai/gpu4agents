@@ -26,22 +26,35 @@
 
 Ask Claude Code, Cursor or any MCP client to "compare Qwen 7B and Llama 8B on these 50 prompts". The agent finds a GPU under your budget, serves the model behind an OpenAI-compatible API with vLLM, and runs the experiment. A watchdog runs on the machine itself, so when nothing uses it for `idle_timeout` (15 minutes by default) it shuts down, even if the agent forgot, the chat closed or your laptop is asleep.
 
-- **Self-service GPUs for agents.** A skill and local MCP tools (`gpu_offers`, `gpu_setup`, `gpu_run`, `gpu_status`, `gpu_destroy`, ...) give the agent the whole lifecycle. The skill tells it to show you the price and ask before renting.
+- **Self-service GPUs for agents.** Claude Code, Codex, Gemini CLI and Cursor install it themselves from one pasted line. A skill and local MCP tools (`gpu_offers`, `gpu_setup`, `gpu_run`, `gpu_status`, `gpu_destroy`, ...) give the agent the whole lifecycle. The skill tells it to show you the price and ask before renting.
 - **Billing that ends when the work does.** Idle timeout, maximum lifetime, hourly and session budgets, and a sweep that cleans up anything left behind.
 - **Any app, any language.** `gpu --json setup` returns `base_url`, `api_key` and `model` for any OpenAI SDK.
 
 Vast.ai is the first provider; another provider is a new adapter, and the lifecycle rule stays the same.
 
-## Quickstart: give your agent a GPU
+## Quickstart: let your agent install it
 
-```bash
-pipx install gpu4agents            # or: uv tool install gpu4agents
-cd your-project
-echo "VAST_API_KEY=..." >> .env    # or ~/.gpu/credentials; never in jambu.yaml
-gpu agent install                  # Claude Code; -t cursor, -t desktop, --global
+Paste this into Claude Code, Codex, Gemini CLI or Cursor (say which one you use):
+
+```text
+Set up GPU for Agents for me. I'm using Claude Code. Fetch https://gpu4agents.jambu.ai/install.md with curl and follow its steps.
 ```
 
-Then ask the agent for an experiment. See [Letting a coding agent rent GPUs](docs/AGENTS.md).
+The agent installs the `gpu` command (with [uv](https://docs.astral.sh/uv/), which brings its own Python), the `gpu4agents` skill and the `gpu` MCP tools. Then you connect your GPU account in your own terminal, so the agent never sees the key:
+
+```bash
+gpu login        # paste your Vast.ai key (https://cloud.vast.ai/manage-keys/) into the hidden prompt
+```
+
+Restart the agent and ask for an experiment. It shows the price and asks before renting anything. See [Letting a coding agent rent GPUs](docs/AGENTS.md).
+
+Prefer a terminal? These do the same:
+
+```bash
+curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh          # uv + Python + gpu, then every agent it finds
+npx skills add jambuai/gpu4agents                              # just the skill; it installs gpu on first use
+uv tool install gpu4agents && gpu agent install -t codex --global   # by hand: claude | codex | gemini | cursor | auto
+```
 
 ## Quickstart: from a shell or an app
 
@@ -75,11 +88,11 @@ gpu_runtime:
 
 A full example is [`jambu.example.yaml`](jambu.example.yaml). As a last line of defense, `gpu ls` shows every machine billing in the account and `gpu sweep --install-timer` guards every project on the machine and cleans up orphans. See [Keeping the account clean](docs/USAGE.md#keeping-the-account-clean).
 
-The API key is read from the environment, a project `.env`, or `~/.gpu/credentials`. It never goes in the manifest, and the agent never sees it.
+`gpu login` saves the API key in `~/.gpu/credentials` (mode 600) after checking it; the environment and a project `.env` work too. It never goes in the manifest, and the agent never sees it.
 
 ## Docs
 
-- [Letting a coding agent rent GPUs (Claude Code, Cursor, Claude Desktop)](docs/AGENTS.md)
+- [Letting a coding agent rent GPUs (Claude Code, Codex, Gemini CLI, Cursor, Claude Desktop)](docs/AGENTS.md)
 - [Integrating into an application (any language)](docs/INTEGRATION.md)
 - [Commands, workloads, and agents](docs/USAGE.md)
 - [Every config field](docs/CONFIG.md)

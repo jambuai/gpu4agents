@@ -2,6 +2,19 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-11-02
+
+### Added
+- **Agents install it themselves.** Paste one line into Claude Code, Codex, Gemini CLI or Cursor; the agent follows [`INSTALL.md`](INSTALL.md) (served at `gpu4agents.jambu.ai/install.md`) and sets everything up, without renting anything.
+- `install.sh`: needs only `curl`. Installs uv if missing and `gpu4agents` with a Python uv downloads when needed, removes an old `jambu-gpu` tool, and runs `gpu agent install` for the runtimes it finds (`--agent` to pick one).
+- `gpu login`: the user types the Vast.ai key into a hidden prompt; it is checked against the API, then saved in `~/.gpu/credentials` (mode 600). `--check` reports whether a working key is found and where; `--stdin` reads it from a pipe.
+- `gpu agent install -t codex` (skill in `.agents/skills/`, MCP server in `~/.codex/config.toml`), `-t gemini` (skill in `.agents/skills/`, MCP server in `.gemini/settings.json`) and `-t auto` (every runtime found).
+- The skill is published at `skills/gpu4agents/SKILL.md`, so `npx skills add jambuai/gpu4agents` installs it, and it now covers installation, connecting the account, monitoring (`status`, `logs`, `events`, `ls`, `sweep`) and the exit codes.
+
+### Changed
+- The skill is named `gpu4agents` (it was `gpu`). `gpu agent install` replaces the old `gpu` skill folder it wrote before; a folder of the same name from someone else is left alone.
+- Cursor now gets the skill in `.agents/skills/` instead of `.claude/skills/`.
+
 ## [0.5.0] - 2026-11-02
 
 ### Changed
@@ -52,6 +65,7 @@ All notable changes to this project. The format follows [Keep a Changelog](https
 - A per-instance endpoint key; `gpu --json setup` / `gpu env` return `base_url`, `api_key` and `model`.
 - [docs/INTEGRATION.md](docs/INTEGRATION.md) and a one-file TypeScript client.
 
+[0.6.0]: https://github.com/jambuai/gpu4agents/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/jambuai/gpu4agents/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/jambuai/gpu4agents/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/jambuai/gpu4agents/compare/v0.3.1...v0.4.0

@@ -1,31 +1,57 @@
 # Letting a coding agent rent GPUs
 
-`gpu` ships a skill and a local MCP server, so Claude Code, Cursor or Claude Desktop can rent a GPU, serve a model, run an experiment against it and shut it down, from a request like "compare Qwen 7B and Llama 8B on these 50 prompts".
+`gpu` ships a skill and a local MCP server, so Claude Code, Codex, Gemini CLI, Cursor or Claude Desktop can rent a GPU, serve a model, run an experiment against it and shut it down, from a request like "compare Qwen 7B and Llama 8B on these 50 prompts".
 
 The watchdog on the machine is what makes this safe to hand to an agent: a machine the agent forgets, or a conversation that ends mid-experiment, stops by itself after `lifecycle.idle_timeout`.
 
-## Install
+## Install: let the agent do it
+
+Paste into the agent, naming it:
+
+```text
+Set up GPU for Agents for me. I'm using Codex. Fetch https://gpu4agents.jambu.ai/install.md with curl and follow its steps.
+```
+
+[`INSTALL.md`](../INSTALL.md) (served at `/install.md`) tells the agent to run [`install.sh`](../install.sh) with `--agent <runtime>`, check the account with `gpu login --check`, send the user to `gpu login` if there is no key, read the skill with `gpu agent skill`, and stop there: nothing is rented during installation.
+
+`install.sh` needs only `curl` on Linux or macOS (Windows: WSL). It installs [uv](https://docs.astral.sh/uv/) if missing and runs `uv tool install --upgrade --python 3.12 gpu4agents`, so uv downloads a Python when the machine has no suitable one. It removes an old `jambu-gpu` tool, then runs `gpu agent install -t <runtime> --global` (`auto` by default: every runtime it finds). Options: `--agent claude|codex|gemini|cursor|auto|none`, `--no-modify-path`; `GPU4AGENTS_SPEC` installs a pinned version or a wheel.
+
+With the [skills](https://skills.sh) CLI, `npx skills add jambuai/gpu4agents` installs only the skill (from [`skills/gpu4agents/`](../skills/gpu4agents/SKILL.md)); its first section installs the `gpu` command when it is missing.
+
+## Connect the account: `gpu login`
+
+The user, in their own terminal:
 
 ```bash
-pipx install gpu4agents            # or: uv tool install gpu4agents
-cd your-project
-echo "VAST_API_KEY=..." >> .env   # or ~/.gpu/credentials; never in jambu.yaml
-gpu agent install                 # Claude Code
-gpu agent install -t cursor       # Cursor
-gpu agent install -t desktop      # Claude Desktop
+gpu login            # hidden prompt; checks the key against Vast.ai, then saves it
+gpu login --check    # exit 0 and where the key was found, or exit 5
+echo "$KEY" | gpu login --stdin
+```
+
+The key goes to `~/.gpu/credentials` (mode 600, directory 700); other lines in the file are kept. A key in the environment or a project `.env` still works and wins over the file. The skill tells the agent never to ask for the key in chat, read those files, or print it.
+
+## Install by hand
+
+```bash
+uv tool install --python 3.12 gpu4agents    # or: pipx install gpu4agents
+gpu agent install -t claude                 # this project; add --global for every project
+gpu agent install -t auto --global          # every runtime on this machine
 ```
 
 | Target | Skill | MCP server |
 | --- | --- | --- |
-| `claude` (default) | `.claude/skills/gpu/SKILL.md` | `.mcp.json` (Claude Code asks once to approve it) |
-| `cursor` | the same `.claude/skills/gpu/` (Cursor reads Claude's skill directories) | `.cursor/mcp.json`, with `--project ${workspaceFolder}` |
+| `claude` | `.claude/skills/gpu4agents/SKILL.md` | `.mcp.json` (Claude Code asks once to approve it); `--global`: `claude mcp add --scope user` |
+| `codex` | `.agents/skills/gpu4agents/SKILL.md` | `[mcp_servers.gpu]` in `$CODEX_HOME/config.toml` (`~/.codex`), always user-wide |
+| `gemini` | `.agents/skills/gpu4agents/SKILL.md` | `mcpServers.gpu` in `.gemini/settings.json` |
+| `cursor` | `.agents/skills/gpu4agents/SKILL.md` | `.cursor/mcp.json`, with `--project ${workspaceFolder}` |
 | `desktop` | `~/.gpu/gpu-skill.zip`, to upload under Settings > Capabilities > Skills | `claude_desktop_config.json`, pinned to this project |
+| `auto` | every runtime found: its command on `PATH` or its config directory | |
 
-`--global` installs for every project of the user instead: the skill in `~/.claude/skills/gpu/`, the MCP server through `claude mcp add --scope user` and in `~/.cursor/mcp.json`. Existing config files are merged; only the `gpu` entry is written. Re-running is safe.
+`.agents/skills/` is the shared directory Codex, Gemini CLI and Cursor all read. `--global` puts skills and settings under the home directory instead of the project. Existing config files are merged; only the `gpu` entry is written, and a skill installed by an older version under the name `gpu` is replaced. Re-running is safe. Restart the agent afterwards so it loads the skill and the tools.
 
-Claude Desktop and Cursor do not get your shell's environment. Keep `VAST_API_KEY` in the project `.env` or `~/.gpu/credentials`, not only in an `export`.
+Claude Desktop and Cursor do not get your shell's environment. Keep `VAST_API_KEY` in `~/.gpu/credentials` (`gpu login`) or the project `.env`, not only in an `export`.
 
-Another agent that reads `SKILL.md` files: `gpu agent skill > path/to/skills/gpu/SKILL.md`. Any MCP client: run `gpu mcp --project /path/to/project` over stdio.
+Another agent that reads `SKILL.md` files: `gpu agent skill > path/to/skills/gpu4agents/SKILL.md`. Any MCP client: run `gpu mcp --project /path/to/project` over stdio.
 
 ## The MCP tools
 
