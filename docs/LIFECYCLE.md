@@ -42,12 +42,12 @@ Traffic only feeds the idle timer. It does not override `max_lifetime`, the sess
 
 ## Sessions and restarts
 
-A Vast.ai stop keeps the container disk, and the onstart script runs again on every container start. The watchdog state in `/var/lib/jambu/activity.json` therefore survives a stop/start, including the flag that says the instance was already stopped.
+On the built-in provider (Vast.ai), a stop keeps the container disk, and the onstart script runs again on every container start. The watchdog state in `/var/lib/jambu/activity.json` therefore survives a stop/start, including the flag that says the instance was already stopped.
 
 The onstart script sets `JAMBU_SESSION_STARTED_AT=$(date +%s)` once per container start and passes it to the watchdog. On boot the watchdog compares it with the stored `session_started_at`:
 
-- **Different** (the instance was restarted): new session. The guard is re-armed, startup grace starts over, `last_activity` is now, workloads left running or queued are marked failed, and retry counters reset. Logged as `session_started`.
-- **Equal** (the supervisor respawned a crashed watchdog in the same container start): state is kept.
+- Different (the instance was restarted): new session. The guard is re-armed, startup grace starts over, `last_activity` is now, workloads left running or queued are marked failed, and retry counters reset. Logged as `session_started`.
+- Equal (the supervisor respawned a crashed watchdog in the same container start): state is kept.
 
 `max_lifetime`, the session budget (`hourly_cost × session_age`) and startup grace are measured from the session start, not from creation. A restarted instance gets a fresh lease and is not killed the moment it boots. `GET /state` reports both `age_seconds` (since creation) and `session_age_seconds`.
 
@@ -91,7 +91,7 @@ The runtime start command writes the model server's pid to `/var/run/jambu/vllm.
 
 ## The watchdog credential
 
-The watchdog stops its own machine, so it needs provider API access. `VAST_API_KEY` is written on the instance at `/etc/jambu/watchdog.json` (mode 600).
+The watchdog stops its own machine, so it needs provider API access. With the built-in provider (Vast.ai), `VAST_API_KEY` is written on the instance at `/etc/jambu/watchdog.json` (mode 600).
 
 Use a dedicated, restricted Vast.ai key for this, not a personal key. Set `lifecycle.watchdog.enabled: false` to opt out. Shutdown then depends on `gpu guard` or on the CLI staying alive, and `validate` warns you.
 

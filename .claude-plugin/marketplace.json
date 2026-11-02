@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "gpu4agents",
+  "owner": {
+    "name": "Jambu.ai",
+    "url": "https://github.com/jambuai"
+  },
+  "description": "Install GPU for Agents as a Claude Code plugin.",
+  "plugins": [
+    {
+      "name": "gpu4agents",
+      "source": "./",
+      "description": "Your agent rents the GPU it needs, serves a model on it and runs the experiment. You pay only while it works.",
+      "license": "MIT",
+      "keywords": ["gpu", "llm", "vllm", "mcp", "experiments", "cloud"]
+    }
+  ]
+}

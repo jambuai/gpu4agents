@@ -54,7 +54,7 @@ with the right reason.
 
 The core must not branch on a provider name. Branch on `provider.capabilities`.
 If a provider feature requires an `if provider == "..."` in `core/`, the contract
-is wrong — extend the contract instead.
+is wrong. Extend the contract instead.
 
 Out of scope: multi-instance scheduling, multi-GPU
 orchestration, Kubernetes, distributed inference, automatic provider selection,

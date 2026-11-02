@@ -1,0 +1,4 @@
+interface:
+  display_name: "GPU for Agents"
+  short_description: "Rent a GPU, serve a model, run the experiment"
+  default_prompt: "Use $gpu4agents to set up GPU for Agents, then show me the price before renting anything."

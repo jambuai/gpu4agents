@@ -23,8 +23,8 @@ gpu sweep --install-timer         # optional safety net, see USAGE.md
 Requirements:
 
 - `gpu4agents` (or `jambu-gpu` 0.3.0 or later), on Python 3.10+. The app can be in any language.
-- The directory holding `jambu.yaml` must be **persistent**. `gpu` keeps what it rented in `.gpu/state.json` next to it. In a container, mount it as a volume: a container that loses `.gpu/` forgets its instance, rents a second one, and leaves the first to the watchdog and the sweep.
-- Before 0.3.0 these directories were `.jambu/` and `~/.jambu`. The first command after an upgrade renames them, so an instance already rented is kept, not rented again.
+- The directory holding `jambu.yaml` must be persistent. `gpu` keeps what it rented in `.gpu/state.json` next to it. In a container, mount it as a volume: a container that loses `.gpu/` forgets its instance, rents a second one, and leaves the first to the watchdog and the sweep.
+- Before 0.3.0 these directories were `.jambu/` and `~/.jambu`. The first command after an upgrade renames them, so an instance already rented is kept and is not rented again.
 - `.gpu/state.json` holds the endpoint key and the watchdog token. It is written `0600`. Add `.gpu/` and `.env` to `.gitignore` and keep them out of images.
 
 Tune the lifecycle in `jambu.yaml` for the app. For a service with bursty traffic, a longer idle timeout avoids paying a restart on every burst:
@@ -117,9 +117,9 @@ gpu env --format dotenv > .env.gpu
 
 | Event | What the app sees | What it does |
 | --- | --- | --- |
-| first `setup` | blocks while a machine is rented, the image pulled and the model downloaded: usually 5–15 minutes. A bad host (stalled image pull, broken network) is destroyed and replaced automatically, each costing up to `health.pull_stall_timeout` (10 min) when its pull stalls, or `health.boot_timeout` (30 min) when it crawls, at most `compute.host_attempts` (3) times | wait; do not put a short timeout on `setup`, it bounds itself |
+| first `setup` | blocks while a machine is rented, the image pulled and the model downloaded: usually 5 to 15 minutes. A bad host (stalled image pull, broken network) is destroyed and replaced automatically, each costing up to `health.pull_stall_timeout` (10 min) when its pull stalls, or `health.boot_timeout` (30 min) when it crawls, at most `compute.host_attempts` (3) times | wait; do not put a short timeout on `setup`, it bounds itself |
 | idle for `idle_timeout` | the watchdog stops the machine; requests fail with connection refused or a timeout | call `setup` again and retry the request |
-| `setup` on a stopped machine | it is restarted: no new rent, no model download, under a minute for a small model (41 s measured) | wait, then use the **new** `base_url`: the provider may assign a new IP and port on restart |
+| `setup` on a stopped machine | it is restarted: no new rent, no model download, under a minute for a small model (41 s measured) | wait, then use the new `base_url`: the provider may assign a new IP and port on restart |
 | stopped for `stopped_ttl` | the machine is destroyed to stop the storage bill | the next `setup` rents a new one (and a new key) |
 | `max_lifetime` reached | stopped even under traffic | same as idle |
 
@@ -141,11 +141,11 @@ gpu run python score.py --input data.jsonl
 ### A long-running service: ensure, then heal
 
 1. On the first request (or at boot), call `gpu --json setup` and keep the result.
-2. Send requests with any OpenAI client, with a client timeout that is not too long (1–2 minutes), so a stopped machine fails fast.
-3. When a request fails with a **connection** error (refused, reset, timeout), call `gpu --json setup` again and retry once with the new result. Do not do this for HTTP errors like `400` or `401`: those come from a live server.
+2. Send requests with any OpenAI client, with a client timeout that is not too long (1 to 2 minutes), so a stopped machine fails fast.
+3. When a request fails with a connection error (refused, reset, timeout), call `gpu --json setup` again and retry once with the new result. Do not do this for HTTP errors like `400` or `401`: those come from a live server.
 4. Share one in-flight `setup` between concurrent requests.
 
-The TypeScript helper below does exactly this.
+The TypeScript helper below does this.
 
 ### A batch that must not be interrupted
 
@@ -217,9 +217,9 @@ Run `gpu --json setup` as a subprocess, parse the JSON, and point the language's
 
 ## 5. Security
 
-- **The endpoint requires a key.** Unless `runtime.api_key` is set, `setup` generates one per machine (43 random URL-safe characters) and starts vLLM with it. Requests without it get `401`. `/health` and `/metrics` stay open: they reveal no data and the watchdog reads `/metrics`. Instances provisioned before this existed run without a key until they are recreated.
-- **The endpoint is plain HTTP** on a public IP and port. The key and the prompts travel unencrypted. For sensitive data, put the app and the GPU on a private network or a tunnel, or front the endpoint with a TLS proxy.
-- **The watchdog holds the provider key** on the instance so it can stop its own machine. A restricted key is the safer choice; see [LIFECYCLE.md](LIFECYCLE.md).
+- The endpoint requires a key. Unless `runtime.api_key` is set, `setup` generates one per machine (43 random URL-safe characters) and starts vLLM with it. Requests without it get `401`. `/health` and `/metrics` stay open: they reveal no data and the watchdog reads `/metrics`. Instances provisioned before this existed run without a key until they are recreated.
+- The endpoint is plain HTTP on a public IP and port. The key and the prompts travel unencrypted. For sensitive data, put the app and the GPU on a private network or a tunnel, or front the endpoint with a TLS proxy.
+- The watchdog holds the provider key on the instance so it can stop its own machine. A restricted key is the safer choice; see [LIFECYCLE.md](LIFECYCLE.md).
 - `jambu.yaml` never holds credentials. `.env` and `.gpu/` do not belong in version control.
 
 ## 6. Troubleshooting

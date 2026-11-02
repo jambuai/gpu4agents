@@ -73,10 +73,10 @@ The instance is not stopped after each command. `idle_timeout` governs reuse, so
 
 ## Agents
 
-vLLM already speaks the agent APIs. gpu does not add an orchestration layer. It turns on the right vLLM flags and hands the workload the same endpoint.
+vLLM already serves the agent APIs, so gpu adds no orchestration layer. It turns on the right vLLM flags and gives the workload the same endpoint.
 
-- `/v1/chat/completions` with `tools=[...]` — the OpenAI tool-calling shape used by LangChain, LangGraph, CrewAI, and others.
-- `/v1/responses` — the OpenAI Responses API, including MCP tool routing done by vLLM when `runtime.tool_server` is set.
+- `/v1/chat/completions` with `tools=[...]`: the OpenAI tool-calling shape used by LangChain, LangGraph, CrewAI, and others.
+- `/v1/responses`: the OpenAI Responses API, including MCP tool routing done by vLLM when `runtime.tool_server` is set.
 
 ```yaml
 runtime:
@@ -116,8 +116,8 @@ Vast.ai instances
 
 `gpu setup` (and `gpu run`, which can provision) registers the project's absolute config path in `~/.gpu/projects.json` (`$GPU_HOME` overrides `~/.gpu`; a `~/.jambu` from before 0.3.0 is renamed to `~/.gpu` on first use, and `$JAMBU_HOME` is still read). `gpu sweep` then works in two steps:
 
-1. **Tracked instances.** For every registered project whose config still loads, it runs that project's own `gpu guard`: its own `jambu.yaml` and `.gpu/state.json`, so its own `max_lifetime`, lock, session start, `stopped_ttl` and budget. The project's events land in its own log. A registered project whose config file is gone is dropped from the registry. The project in the current directory, or the one given with `--config`, is guarded too for that run.
-2. **Orphans.** An instance no project tracks has no known policy and nobody knows whether it is in use, so the rules are blunt but never destroy a running machine:
+1. Tracked instances. For every registered project whose config still loads, it runs that project's own `gpu guard`: its own `jambu.yaml` and `.gpu/state.json`, so its own `max_lifetime`, lock, session start, `stopped_ttl` and budget. The project's events land in its own log. A registered project whose config file is gone is dropped from the registry. The project in the current directory, or the one given with `--config`, is guarded too for that run.
+2. Orphans. An instance no project tracks has no known policy, and nobody knows whether it is in use. The rules for it are simple, and they never destroy a running machine:
 
 | Orphan | Rule | Action |
 | --- | --- | --- |
@@ -146,7 +146,7 @@ gpu sweep --install-timer            # every 5m; --every 15m to change
 systemctl --user daemon-reload && systemctl --user enable --now jambu-gpu-sweep.timer
 ```
 
-`--install-timer` writes `~/.config/systemd/user/jambu-gpu-sweep.service` and `.timer`, and registers the current project if there is one. The service is a single `ExecStart=<python> -m gpu4agents sweep --apply` with the interpreter that installed it, run from `~`: which projects get guarded comes from the registry, not from the working directory, so installing from a second project changes nothing in the unit. The oneshot has a 10 minute start timeout, a failing sweep shows as a failed unit, and `GPU_HOME` is passed through when it is set. A unit written by an older version, with one `guard` line per project, is rewritten and those projects are registered.
+`--install-timer` writes `~/.config/systemd/user/jambu-gpu-sweep.service` and `.timer`, and registers the current project if there is one. The service is a single `ExecStart=<python> -m gpu4agents sweep --apply` with the interpreter that installed it, run from `~`. The registry decides which projects get guarded, and the working directory plays no part, so installing from a second project changes nothing in the unit. The oneshot has a 10 minute start timeout, a failing sweep shows as a failed unit, and `GPU_HOME` is passed through when it is set. A unit written by an older version, with one `guard` line per project, is rewritten and those projects are registered.
 
 A user unit does not inherit your shell's environment. `--install-timer` therefore refuses unless the provider key is in a file: the project `.env` or `~/.gpu/credentials`. A key that is only exported in your shell is not enough. A user timer needs no root, but it stops at logout unless lingering is on (`loginctl enable-linger $USER`).
 

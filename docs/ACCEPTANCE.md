@@ -1,4 +1,4 @@
-# Acceptance criteria — where each one is implemented and tested
+# Acceptance criteria: where each one is implemented and tested
 
 Eighteen guarantees, mapped to the code and the test that holds each one.
 
@@ -36,7 +36,7 @@ On 2026-10-24 the lifecycle ran end to end on Vast.ai (RTX 3090, Qwen2.5-0.5B, `
 | Failed setups leave nothing | An image built for a newer CUDA, a model server that died at import, a host whose network dropped the weights download, a 30-minute image pull, and a Ctrl-C each ended with the instance destroyed. |
 | Bad hosts are skipped | Hosts that could not pull the image were destroyed, excluded and replaced, with never two instances alive at once. |
 
-The run also found what unit tests could not, and each of these is fixed and covered by a test:
+The run also found problems the unit tests had missed. Each is fixed and covered by a test:
 - the boot script was over Vast's 16 KB onstart limit;
 - `latest` had moved to CUDA 13;
 - the `-cu129` image variant could not load torchcodec;
@@ -70,7 +70,7 @@ On 2026-11-02 the self-install was checked the same way. In an empty home direct
 | Cancel | Over MCP (official Python SDK client), `gpu_destroy` during a setup interrupted it like Ctrl-C: the booting machine was destroyed and `gpu_ls` came back empty, 2.3 s after the call. |
 | Protocol | The official MCP Python SDK (2.3.0) client initializes, lists the 13 tools and calls them. |
 
-The first attempt found what the unit tests had not, each fixed and tested:
+The first attempt found problems the unit tests had missed. Each is fixed and tested:
 - during a setup, `gpu status`, `gpu logs`, `gpu stop` and `gpu destroy` failed on the project lock (reported as "no instance"). Now `status` and `logs` report the last saved state with `busy: true`, the MCP `gpu_stop` / `gpu_destroy` cancel the setup first, and a held lock is its own exit code, 12;
 - the host that failed last when setup gave up was not remembered as bad, so the next setup rented it again;
 - on Vast, three hosts in a row stalled 30 minutes each pulling the 12 GB Docker Hub image, and setup gave up after 90 minutes with nothing left billing. Vast now defaults to `vastai/vllm:v0.32.0-cuda-13.0`, the same vLLM that Vast's hosts cache: in the cancel test the container was running within a minute.
@@ -79,8 +79,8 @@ The first attempt found what the unit tests had not, each fixed and tested:
 
 `jambu.yaml` schema, CLI, provider contract, provider registry, Vast.ai adapter,
 vLLM runtime, `setup`, `run`, `status`, `stop`, `destroy`, `lock`/`unlock`, idle
-timeout, max lifetime, remote watchdog, structured logs — all present. On top of
-it, `ls` and `sweep` for account-wide orphan control.
+timeout, max lifetime, remote watchdog and structured logs are all present. On top
+of that, `ls` and `sweep` handle orphan control across the account.
 
 Deliberately not implemented: multi-instance scheduling, multi-GPU
 orchestration, Kubernetes, distributed inference, provider optimization, automatic

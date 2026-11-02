@@ -2,6 +2,20 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-11-02
+
+### Added
+- Any GPU provider. An adapter can live in the project (`provider.plugin: ./gpu_providers/acme.py:AcmeProvider` in `jambu.yaml`) or in an installed package that declares a `gpu4agents.providers` entry point. Neither needs a change to gpu4agents. Vast.ai stays built in.
+- `gpu providers new NAME` writes an adapter skeleton with every method that needs the provider's API marked. `gpu init --provider NAME` writes a `jambu.yaml` that loads it.
+- [`PROVIDERS.md`](PROVIDERS.md), served at `gpu4agents.jambu.ai/providers.md`: the steps an agent follows to add a provider, from the skeleton to one test rental with the user's approval.
+- The provider contract has `credentials_url` and `verify_credentials()`, which `gpu login` uses for every provider.
+- Plugin manifests in the style of [Humanizer](https://github.com/blader/humanizer): a Claude Code marketplace (`/plugin marketplace add jambuai/gpu4agents`), a Cursor plugin, and Codex metadata in `skills/gpu4agents/agents/openai.yaml`. Each release attaches `gpu4agents-skill.zip` for Claude.ai and Claude Desktop.
+
+### Changed
+- `gpu login` works with any provider: `--provider NAME` picks it (default: the project's, else `GPU_PROVIDER`, else Vast.ai), it prompts for each credential the adapter declares, and it saves `GPU_PROVIDER` so account-wide commands outside a project use that provider. `--json` output now includes `provider`.
+- The skill, `INSTALL.md`, the MCP server's instructions and the installer no longer assume Vast.ai. When no account is connected, the agent asks which provider the user wants.
+- Docs and the website were edited for plain language.
+
 ## [0.6.0] - 2026-11-02
 
 ### Added

@@ -1,9 +1,8 @@
 # Where jambu.yaml's model-specific values come from
 
-Every value in `model:`/`compute.gpu:`/`runtime:` that depends on *which model*
-you're deploying (VRAM, dtype, context length, tool-call parser,
-`trust_remote_code`) has a real source. This is that source, and the command
-that reads it for you.
+Every value in `model:`/`compute.gpu:`/`runtime:` that depends on the model
+you deploy (VRAM, dtype, context length, tool-call parser, `trust_remote_code`)
+has a source. This page lists those sources and the command that reads them.
 
 ## `gpu inspect-model`
 
@@ -39,71 +38,71 @@ gpu_runtime:
     tool_calling: auto  # resolves to hermes automatically
 ```
 
-Paste the snippet under `gpu_runtime:` in your `jambu.yaml`, adjust
-`lifecycle`/`health`/`budget` for your situation, and you have a starting
-config. Add `--json` for machine-readable output, `--revision` for a
-non-`main` branch/tag, `--hf-token-env` if the repo is gated and your token
-lives under a different env var than `HF_TOKEN`.
+Paste the snippet under `gpu_runtime:` in your `jambu.yaml` and adjust
+`lifecycle`/`health`/`budget` to get a starting config. Add `--json` for
+machine-readable output, `--revision` for a non-`main` branch/tag, and
+`--hf-token-env` if the repo is gated and your token lives under a different
+env var than `HF_TOKEN`.
 
-**This is a starting point, not an oracle.** It never talks to Vast.ai and
-never boots anything — it only reads two public HuggingFace documents and does
-arithmetic. Confirm the real number with `gpu offers` (finds actual
-capacity at that size) and a real `gpu setup` (the only way to know a
-model genuinely boots and serves).
+The output is a starting point. The command never calls the provider API and
+never boots anything. It reads two public HuggingFace documents and does
+arithmetic. Confirm the numbers with `gpu offers`, which finds available
+capacity at that size, and with a real `gpu setup`, which is the only way to
+know that a model boots and serves.
 
-## The two documents, and exactly what each field feeds
+## The two documents, and what each field feeds
 
-### 1. `https://huggingface.co/api/models/<repo>` — the Hub API
+### 1. `https://huggingface.co/api/models/<repo>`: the Hub API
 
-The **real, on-disk** shape of the checkpoint — more reliable than anything in
-prose, because it's read from the actual safetensors file headers, not
-declared by the model's author.
-
-| JSON field | Feeds | Notes |
-| --- | --- | --- |
-| `safetensors.total` | `compute.gpu.min_vram_gb` (via weight size) | Total parameter count. Absent for GGUF-only repos — size manually if so. |
-| `safetensors.parameters` | `runtime.dtype`, byte width for the VRAM estimate | `{"BF16": N, "F8_E4M3": M}` style breakdown. `inspect-model` picks the dtype with the most parameters — a few embedding/norm tensors often stay bf16 even in an FP8 release. |
-| `gated` | whether you need `model.hf_token_env` | `false` / `"auto"` / `"manual"` — any non-`false` value means a real token is required, not just recommended. |
-| `tags`, `pipeline_tag` | sanity check | Confirms it's actually a text-generation checkpoint before you provision a GPU for it. |
-
-### 2. `https://huggingface.co/<repo>/raw/<revision>/config.json` — the model's own HF config
-
-The architecture's own declaration of itself — what `transformers`/vLLM read
-to know how to load it.
+The on-disk shape of the checkpoint. It is read from the safetensors file
+headers, so it is more reliable than what the model's author declares in
+prose.
 
 | JSON field | Feeds | Notes |
 | --- | --- | --- |
-| `architectures` | recognizing the model family | e.g. `Qwen3_5ForConditionalGeneration`. Cross-reference against [vLLM's supported models](https://docs.vllm.ai/en/latest/models/supported_models/) — an unlisted architecture will fail to load regardless of VRAM. |
-| `model_type` | hybrid-attention detection | gpu flags known linear-attention families (`qwen3_5`/`qwen3_6`/`qwen3_8`, `jamba`, `mamba`, `bamba`, `deltanet`/`gdn` in the string, ...) — these need an **Ampere-or-newer** GPU for their Triton/FLA kernels. Confirmed the hard way: a Turing card (Quadro RTX 8000) failed to boot vLLM at all for a `qwen3_5` model; Ampere (RTX A6000) worked immediately. |
-| `torch_dtype` | `runtime.dtype`, VRAM estimate (fallback) | Used only when the Hub API's `safetensors.parameters` is absent — the API's real on-disk dtype is preferred when both exist, since a repo can ship a different dtype than it trained in. |
+| `safetensors.total` | `compute.gpu.min_vram_gb` (via weight size) | Total parameter count. Absent for GGUF-only repos, which you size manually. |
+| `safetensors.parameters` | `runtime.dtype`, byte width for the VRAM estimate | `{"BF16": N, "F8_E4M3": M}` style breakdown. `inspect-model` picks the dtype with the most parameters, since a few embedding/norm tensors often stay bf16 even in an FP8 release. |
+| `gated` | whether you need `model.hf_token_env` | `false` / `"auto"` / `"manual"`. Any non-`false` value means a token is required. |
+| `tags`, `pipeline_tag` | sanity check | Confirms it is a text-generation checkpoint before you provision a GPU for it. |
+
+### 2. `https://huggingface.co/<repo>/raw/<revision>/config.json`: the model's own HF config
+
+The architecture's declaration of itself. `transformers` and vLLM read it to
+know how to load the model.
+
+| JSON field | Feeds | Notes |
+| --- | --- | --- |
+| `architectures` | recognizing the model family | e.g. `Qwen3_5ForConditionalGeneration`. Cross-reference against [vLLM's supported models](https://docs.vllm.ai/en/latest/models/supported_models/). An unlisted architecture fails to load regardless of VRAM. |
+| `model_type` | hybrid-attention detection | gpu flags known linear-attention families (`qwen3_5`/`qwen3_6`/`qwen3_8`, `jamba`, `mamba`, `bamba`, `deltanet`/`gdn` in the string, ...). These need an Ampere or newer GPU for their Triton/FLA kernels. In a live run, a Turing card (Quadro RTX 8000) failed to boot vLLM at all for a `qwen3_5` model, and an Ampere card (RTX A6000) worked immediately. |
+| `torch_dtype` | `runtime.dtype`, VRAM estimate (fallback) | Used only when the Hub API's `safetensors.parameters` is absent. When both exist, the API's on-disk dtype is preferred, since a repo can ship a different dtype than it trained in. |
 | `quantization_config.quant_method` | VRAM estimate, `runtime.dtype: auto` | `fp8`/`awq`/`gptq`/`bitsandbytes_4bit` change the byte width per parameter; when present, set `runtime.dtype: auto` and let vLLM read the quantization from the checkpoint instead of forcing a dtype that fights it. |
-| `max_position_embeddings` | `runtime.context_length` | The model's *native* window. `inspect-model` suggests `min(native, 32768)` — the native number is often a YaRN-extended marketing ceiling (e.g. 1,048,576), not a sane default: allocating KV cache for the full window is neither necessary nor cheap for typical agentic/tool-use turns. |
-| `auto_map` | `model.trust_remote_code` | Its *presence* (regardless of value) is the actual signal `transformers` uses to know a repo ships custom modeling code. Absence doesn't guarantee you never need `trust_remote_code: true` — some very new architectures need it even with native library support during a transition period — but presence is a reliable "you definitely do." |
-| `rope_scaling` | context length ceiling sanity-check | Confirms whether a large `max_position_embeddings` is native or extended (YaRN/linear/dynamic) — extended windows cost more KV cache per token than the base architecture would suggest. |
+| `max_position_embeddings` | `runtime.context_length` | The model's native window. `inspect-model` suggests `min(native, 32768)`. The native number is often a YaRN-extended marketing ceiling (e.g. 1,048,576), and allocating KV cache for the full window is neither necessary nor cheap for typical agentic/tool-use turns. |
+| `auto_map` | `model.trust_remote_code` | Its presence, regardless of value, is the signal `transformers` uses to know a repo ships custom modeling code. If it is present, you need `trust_remote_code: true`. If it is absent, you may still need it: some very new architectures need it during a transition period even with native library support. |
+| `rope_scaling` | context length ceiling sanity-check | Confirms whether a large `max_position_embeddings` is native or extended (YaRN/linear/dynamic). Extended windows cost more KV cache per token than the base architecture would suggest. |
 
 ### Tool-call parser: a third, unwritten source
 
-There is no machine-readable field anywhere that says "use `--tool-call-parser
-X`" — this is `gpu4agents/core/tool_parsers.py`'s own hand-maintained table,
-matched against vLLM's [tool calling
-docs](https://docs.vllm.ai/en/latest/features/tool_calling/) and, sometimes,
-empirical testing when the docs don't cover a model family yet (the Qwen3.5+
-`qwen3_xml` entry was added after a live test showed `hermes` left the model's
-tool call as inert text in `content` instead of a parsed `tool_calls` array).
+No machine-readable field says "use `--tool-call-parser X`". The parser comes
+from a hand-maintained table in `gpu4agents/core/tool_parsers.py`, matched
+against vLLM's [tool calling
+docs](https://docs.vllm.ai/en/latest/features/tool_calling/) and sometimes
+against live tests when the docs don't cover a model family yet. The Qwen3.5+
+`qwen3_xml` entry came from a live test where `hermes` left the model's tool
+call as inert text in `content` instead of a parsed `tool_calls` array.
 
 Consequences:
 
-- It only matches on **repo name substrings** (`"qwen3.5"`, `"llama-3"`, ...).
+- It only matches on repo name substrings (`"qwen3.5"`, `"llama-3"`, ...).
   A fine-tune with a custom name (`empero-ai/Qwythos-9B-v2`, based on Qwen3.5)
-  won't be recognized even though the underlying format is known — set
+  is not recognized even though the underlying format is known. Set
   `runtime.tool_call_parser` explicitly once you know the base model.
-- It can be wrong or incomplete for anything genuinely new. If `inspect-model`
-  reports no parser guessed, **or an explicit one you set doesn't actually
-  produce a `tool_calls` array**, the fix is the same: pick a candidate
-  parser (start from the model's base-architecture family, e.g. Qwen3.8 → try
-  what worked for Qwen3.5), restart the server with `--enable-auto-tool-choice
-  --tool-call-parser <candidate>`, and send one real tool-calling request —
-  a working parser puts the call in `message.tool_calls`, not `message.content`.
+- It can be wrong or incomplete for new models. If `inspect-model` reports no
+  parser guessed, or an explicit parser you set does not produce a
+  `tool_calls` array, the fix is the same. Pick a candidate parser (start from
+  the model's base-architecture family, e.g. Qwen3.8 → try what worked for
+  Qwen3.5), restart the server with `--enable-auto-tool-choice
+  --tool-call-parser <candidate>`, and send one real tool-calling request.
+  A working parser puts the call in `message.tool_calls`, not `message.content`.
   See [`docs/ADDING_A_PROVIDER.md`](ADDING_A_PROVIDER.md) for how the fingerprint
   interacts with runtime-only changes like this if you're doing it through
   `gpu setup` rather than by hand.
@@ -113,15 +112,14 @@ Consequences:
 
 ## Don't write a new jambu.yaml per model - use the catalog
 
-Every model you add this way is tempting to just copy the whole file: same
-provider, same lifecycle, same budget, only `model:`/`compute.gpu:` actually
-differ. Do that a handful of times and a repo ends up with
-`jambu.qwythos.yaml`, `jambu.model-b.yaml`, `jambu.model-c.yaml`... duplicated
-again in every sub-project directory that wants one - a pile of near-identical
-files where changing a lifecycle default means editing all of them.
+For each new model it is tempting to copy the whole file, since the provider,
+lifecycle and budget stay the same and only `model:`/`compute.gpu:` differ.
+After a few models a repo has `jambu.qwythos.yaml`, `jambu.model-b.yaml`,
+`jambu.model-c.yaml`..., duplicated again in every sub-project directory that
+wants one. Changing a lifecycle default then means editing all of them.
 
-The fix: split "what varies by model" (the catalog) from "what varies by
-project" (the active `jambu.yaml`), and reference the former by name.
+Instead, keep what varies by model in the catalog and what varies by project
+in the active `jambu.yaml`, and reference the catalog entry by name.
 
 ```yaml
 # jambu.models.yaml - one entry per model, shared by every project in the
@@ -147,32 +145,29 @@ gpu_runtime:
   budget: {max_hourly_cost_usd: 1.50}
 ```
 
-The project's own fields always win over the profile's - a profile is a set
-of defaults, not a lock, so a project can still override just one leaf
-(`compute.gpu.min_vram_gb: 80`, say) without redeclaring the whole model.
+The project's own fields always win over the profile's. A profile is a set of
+defaults, so a project can override one leaf (`compute.gpu.min_vram_gb: 80`,
+say) without redeclaring the whole model.
 
-`gpu inspect-model <repo> --add-profile <name>` writes straight into
-the catalog (creating it if it doesn't exist) instead of printing a snippet
-to paste into a new file - the research and the config land in the same
-command. `gpu profiles` lists what's in it.
+`gpu inspect-model <repo> --add-profile <name>` writes straight into the
+catalog, creating it if it doesn't exist, instead of printing a snippet to
+paste into a new file. `gpu profiles` lists what's in the catalog.
 
 This is the same base+overlay pattern as docker-compose's `extends`, Helm
-`values.yaml`, or Kustomize overlays - one place owns "what", each consumer
-only says "which one, and what's different here."
+`values.yaml`, or Kustomize overlays. One place defines the models, and each
+project names the one it uses and what it changes.
 
-**When a full standalone file still makes sense:** a genuinely one-off
-experiment nobody else will reuse, or a config for a completely different
-project that will never share this repo's catalog. Most "I need to try model
-X" situations are the catalog case, not this one.
+A full standalone file still makes sense for a one-off experiment nobody else
+will reuse, or for a config in a different project that will never share this
+repo's catalog. Trying a new model is usually a catalog case.
 
 ## Dynamic / un-modeled vLLM flags
 
-`jambu.yaml`'s schema deliberately models the fields that affect *lifecycle,
-cost, and provider portability* — it does not, and cannot, keep up with every
-flag vLLM ships (vLLM adds flags faster than any fixed contract could track).
-For everything else, `runtime:` has two escape hatches, applied in this order
-(later wins on conflict, matching how vLLM's own argparse takes the last
-occurrence of a repeated flag):
+`jambu.yaml`'s schema models the fields that affect lifecycle, cost, and
+provider portability. It does not try to cover every vLLM flag, since vLLM adds
+flags faster than a fixed contract could track. For everything else, `runtime:`
+has two escape hatches, applied in this order. The later one wins on conflict,
+matching how vLLM's own argparse takes the last occurrence of a repeated flag:
 
 ```yaml
 runtime:
@@ -191,8 +186,8 @@ runtime:
   extra_args: ["--kv-cache-dtype", "fp8"]
 ```
 
-Setting a flag gpu already manages through another field (`--model`,
-`--port`, `--enable-auto-tool-choice`, ...) via `vllm_args` still works — it
-wins, since it's applied after those — but `gpu validate` warns about it,
-because the config field that's supposed to control that behavior (e.g.
-`runtime.tool_calling`) will silently stop reflecting what's actually running.
+You can set a flag that gpu already manages through another field (`--model`,
+`--port`, `--enable-auto-tool-choice`, ...) via `vllm_args`. It wins, since it
+is applied after those. `gpu validate` warns about it, because the config field
+meant to control that behavior (e.g. `runtime.tool_calling`) then silently stops
+reflecting what is running.
