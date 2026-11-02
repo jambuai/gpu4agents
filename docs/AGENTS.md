@@ -7,7 +7,7 @@ The watchdog on the machine is what makes this safe to hand to an agent: a machi
 ## Install
 
 ```bash
-pipx install jambu-gpu            # or: uv tool install jambu-gpu
+pipx install gpu4agents            # or: uv tool install gpu4agents
 cd your-project
 echo "VAST_API_KEY=..." >> .env   # or ~/.gpu/credentials; never in jambu.yaml
 gpu agent install                 # Claude Code

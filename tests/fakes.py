@@ -5,8 +5,8 @@ from __future__ import annotations
 import time
 from typing import Callable, Optional
 
-from jambu_gpu.core.errors import CapacityUnavailableError, ProvisioningError
-from jambu_gpu.core.models import (
+from gpu4agents.core.errors import CapacityUnavailableError, ProvisioningError
+from gpu4agents.core.models import (
     ComputeSpec,
     Endpoint,
     Execution,
@@ -20,7 +20,7 @@ from jambu_gpu.core.models import (
     Workload,
     is_jambu_label,
 )
-from jambu_gpu.providers.base import GPUProvider, WatchdogSpec
+from gpu4agents.providers.base import GPUProvider, WatchdogSpec
 
 FAKE_ACTIONS = '''
 def provider_stop(ctx):

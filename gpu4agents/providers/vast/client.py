@@ -64,7 +64,7 @@ class VastClient:
                     "Authorization": f"Bearer {self.api_key}",
                     "Accept": "application/json",
                     "Content-Type": "application/json",
-                    "User-Agent": f"jambu-gpu/{__version__}",
+                    "User-Agent": f"gpu4agents/{__version__}",
                 },
             )
         return self._client

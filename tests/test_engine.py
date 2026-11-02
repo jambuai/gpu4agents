@@ -5,11 +5,11 @@ from __future__ import annotations
 import pytest
 from fakes import FakeProvider
 
-from jambu_gpu.core.credentials import CredentialResolver
-from jambu_gpu.core.engine import Engine
-from jambu_gpu.core.errors import BudgetExceededError, ConfigError, ProvisioningError
-from jambu_gpu.core.models import InstanceState
-from jambu_gpu.core.state import utc_now
+from gpu4agents.core.credentials import CredentialResolver
+from gpu4agents.core.engine import Engine
+from gpu4agents.core.errors import BudgetExceededError, ConfigError, ProvisioningError
+from gpu4agents.core.models import InstanceState
+from gpu4agents.core.state import utc_now
 
 
 @pytest.fixture
@@ -89,7 +89,7 @@ def test_status_repairs_state_when_the_instance_vanished(engine):
 def test_reconciliation_marks_orphaned_workloads_failed(engine):
     state = engine.setup(wait=False)
     with engine.store.transaction() as stored:
-        from jambu_gpu.core.state import WorkloadRecord
+        from gpu4agents.core.state import WorkloadRecord
 
         stored.workloads["w1"] = WorkloadRecord(id="w1", state="running")
     engine.provider.stop(engine.provider.instances[state.instance_id])
@@ -292,7 +292,7 @@ def test_connection_is_what_a_client_needs(write_config):
 
 
 def test_connection_without_an_instance_has_no_key(engine):
-    from jambu_gpu.core.state import RuntimeState
+    from gpu4agents.core.state import RuntimeState
 
     conn = engine.connection(RuntimeState())
     assert conn["state"] == "none"
@@ -305,7 +305,7 @@ def test_connection_without_an_instance_has_no_key(engine):
 def test_the_core_never_branches_on_a_provider_name():
     import pathlib
 
-    core = pathlib.Path(__file__).resolve().parents[1] / "jambu_gpu" / "core"
+    core = pathlib.Path(__file__).resolve().parents[1] / "gpu4agents" / "core"
     offenders = []
     for path in core.rglob("*.py"):
         text = path.read_text()
@@ -349,7 +349,7 @@ def test_run_executes_the_command_and_records_the_workload(engine, monkeypatch):
 
 
 def test_a_failing_workload_propagates_its_exit_code(engine, monkeypatch):
-    from jambu_gpu.core.errors import WorkloadFailed
+    from gpu4agents.core.errors import WorkloadFailed
 
     state = engine.setup(wait=False)
     monkeypatch.setattr(engine, "ensure_ready", lambda: state)
@@ -488,7 +488,7 @@ def test_validate_previews_offers_with_the_image_cuda_floor(write_config):
 
     def _validate(config):
         seen["cuda_min"] = config.compute.gpu.cuda_min
-        from jambu_gpu.core.models import ValidationResult
+        from gpu4agents.core.models import ValidationResult
 
         return ValidationResult()
 
@@ -555,7 +555,7 @@ class _DeadRuntimeWatchdog:
 def test_a_dead_model_server_aborts_setup_with_its_log_and_cleans_up(engine, monkeypatch):
     import time as _time
 
-    from jambu_gpu.core.errors import RuntimeStartupError
+    from gpu4agents.core.errors import RuntimeStartupError
 
     watchdog = _DeadRuntimeWatchdog()
     monkeypatch.setattr(engine, "beacon", lambda _state: watchdog)
@@ -598,7 +598,7 @@ def test_logs_default_to_the_runtime_log_when_the_watchdog_answers(engine, monke
 
 
 def test_logs_fall_back_to_the_provider_when_the_watchdog_is_unreachable(engine):
-    from jambu_gpu.core.errors import StateError
+    from gpu4agents.core.errors import StateError
 
     engine.setup(wait=False)  # the fake's watchdog endpoint refuses connections
     assert engine.read_logs() == ("provider", ["line one", "line two"])
@@ -630,8 +630,8 @@ def _booting(write_config, monkeypatch, lifecycle=None, **overrides):
     def _healthy(url, timeout, **_kwargs):
         health_waits.append(timeout)
 
-    monkeypatch.setattr("jambu_gpu.core.engine.wait_for_healthy", _healthy)
-    monkeypatch.setattr("jambu_gpu.core.engine.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("gpu4agents.core.engine.wait_for_healthy", _healthy)
+    monkeypatch.setattr("gpu4agents.core.engine.time.sleep", lambda _seconds: None)
     return engine, lines, health_waits
 
 
@@ -666,7 +666,7 @@ def test_a_host_that_fails_to_boot_is_replaced_by_another_machine(write_config, 
 def test_setup_gives_up_after_host_attempts_and_leaves_nothing_running(
     write_config, monkeypatch
 ):
-    from jambu_gpu.core.errors import HostFailure
+    from gpu4agents.core.errors import HostFailure
 
     engine, _, _ = _booting(write_config, monkeypatch)
     engine.provider.fail_first_hosts(3)
@@ -683,7 +683,7 @@ def test_setup_gives_up_after_host_attempts_and_leaves_nothing_running(
     assert engine.provider.rented_hosts == ["m1", "m2", "m3"]
     assert [r["attempt"] for r in _events(engine, "host_failed")] == [1, 2, 3]
     assert _events(engine, "setup_failed")
-    from jambu_gpu.core.hosts import BadHosts
+    from gpu4agents.core.hosts import BadHosts
 
     # The last host too, not only the two that were replaced.
     assert sorted(BadHosts().recent("fake")) == ["m1", "m2", "m3"]
@@ -723,9 +723,9 @@ def test_a_stuck_image_pull_times_out_on_boot_timeout_not_startup_timeout(
 def _with_clock(monkeypatch, start=1_000_000.0):
     """Make the boot wait's sleeps advance a fake clock: minutes in no time."""
     clock = [start]
-    monkeypatch.setattr("jambu_gpu.core.engine.time.time", lambda: clock[0])
+    monkeypatch.setattr("gpu4agents.core.engine.time.time", lambda: clock[0])
     monkeypatch.setattr(
-        "jambu_gpu.core.engine.time.sleep",
+        "gpu4agents.core.engine.time.sleep",
         lambda seconds: clock.__setitem__(0, clock[0] + seconds),
     )
     return clock
@@ -793,7 +793,7 @@ def test_pull_stall_detection_can_be_turned_off(write_config, monkeypatch):
 
 
 def test_a_model_server_that_dies_is_not_blamed_on_the_host(engine, monkeypatch):
-    from jambu_gpu.core.errors import HostFailure, RuntimeStartupError
+    from gpu4agents.core.errors import HostFailure, RuntimeStartupError
 
     monkeypatch.setattr(engine, "beacon", lambda _state: _DeadRuntimeWatchdog())
     with pytest.raises(RuntimeStartupError) as caught:
@@ -820,7 +820,7 @@ def test_each_replacement_offer_is_held_to_the_budget(write_config, monkeypatch)
 
 
 def test_without_cleanup_a_failed_host_is_kept_and_not_retried(write_config, monkeypatch):
-    from jambu_gpu.core.errors import HostFailure
+    from gpu4agents.core.errors import HostFailure
 
     engine, _, _ = _booting(
         write_config, monkeypatch, lifecycle={"cleanup_on_setup_failure": False}
@@ -861,7 +861,7 @@ class _NetworkDeadRuntimeWatchdog(_DeadRuntimeWatchdog):
 
 
 def test_a_model_download_killed_by_the_host_network_moves_to_another_host(engine, monkeypatch):
-    from jambu_gpu.core.errors import HostFailure
+    from gpu4agents.core.errors import HostFailure
 
     monkeypatch.setattr(engine, "beacon", lambda _state: _NetworkDeadRuntimeWatchdog())
     with pytest.raises(HostFailure, match="Server disconnected"):
@@ -873,8 +873,8 @@ def test_a_model_download_killed_by_the_host_network_moves_to_another_host(engin
 
 
 def test_failed_hosts_are_remembered_by_the_next_setup(write_config, monkeypatch):
-    from jambu_gpu.core.errors import HostFailure
-    from jambu_gpu.core.hosts import BadHosts
+    from gpu4agents.core.errors import HostFailure
+    from gpu4agents.core.hosts import BadHosts
 
     engine, _, _ = _booting(write_config, monkeypatch)
     engine.provider.fail_first_hosts(1)
@@ -890,7 +890,7 @@ def test_failed_hosts_are_remembered_by_the_next_setup(write_config, monkeypatch
 
 
 def test_bad_hosts_expire(tmp_path):
-    from jambu_gpu.core.hosts import BadHosts
+    from gpu4agents.core.hosts import BadHosts
 
     memory = BadHosts(tmp_path / "bad.json", ttl_s=60)
     memory.mark("vast", "150616", "image pull timed out", now=1000.0)
@@ -902,9 +902,9 @@ def test_bad_hosts_expire(tmp_path):
 
 def test_status_reads_through_a_setup_holding_the_lock(engine, monkeypatch):
     """A setup holds the lock for the whole boot; status must not fail for 15 minutes."""
-    from jambu_gpu.core import engine as engine_mod
-    from jambu_gpu.core.errors import LockBusy
-    from jambu_gpu.core.state import StateStore
+    from gpu4agents.core import engine as engine_mod
+    from gpu4agents.core.errors import LockBusy
+    from gpu4agents.core.state import StateStore
 
     engine.setup(wait=False)
     monkeypatch.setattr(engine_mod, "READ_LOCK_WAIT_S", 0.2)

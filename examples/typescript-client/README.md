@@ -2,11 +2,11 @@
 
 Any Node/TypeScript application using a GPU that `gpu` rents and guards, through the official [OpenAI SDK](https://www.npmjs.com/package/openai).
 
-[`src/jambuGpu.ts`](src/jambuGpu.ts) is the whole integration: one file, no dependencies beyond Node 18+, that runs `gpu --json setup` and heals the connection when the watchdog stopped the idle GPU. Copy it into your app. The contract it relies on is [docs/INTEGRATION.md](../../docs/INTEGRATION.md).
+[`src/gpu.ts`](src/gpu.ts) is the whole integration: one file, no dependencies beyond Node 18+, that runs `gpu --json setup` and heals the connection when the watchdog stopped the idle GPU. Copy it into your app. The contract it relies on is [docs/INTEGRATION.md](../../docs/INTEGRATION.md).
 
 ## Run it
 
-From the directory that holds `jambu.yaml` and `VAST_API_KEY` (in `.env` or the environment), with `jambu-gpu` 0.3.0 or later on `PATH`:
+From the directory that holds `jambu.yaml` and `VAST_API_KEY` (in `.env` or the environment), with `gpu4agents` (or `jambu-gpu` 0.3.0 or later) on `PATH`:
 
 ```bash
 npm --prefix examples/typescript-client install
@@ -19,7 +19,7 @@ The first call rents a machine and waits for the model, which takes a few minute
 
 ```ts
 import OpenAI from "openai";
-import { Gpu } from "./jambuGpu.ts";
+import { Gpu } from "./gpu.ts";
 
 const gpu = new Gpu({ cwd: "/srv/my-app" });
 

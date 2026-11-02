@@ -1,6 +1,6 @@
 // Straight from Mastra's own docs on defining tools:
 // https://github.com/mastra-ai/mastra/blob/main/docs/src/content/en/docs/agents/tools.mdx
-// Nothing jambu-gpu-specific here - this is a normal Mastra tool.
+// Nothing gpu4agents-specific here - this is a normal Mastra tool.
 
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";

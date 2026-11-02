@@ -5,10 +5,10 @@ from __future__ import annotations
 import pytest
 from fakes import FakeProvider
 
-from jambu_gpu.core.credentials import CredentialResolver
-from jambu_gpu.core.engine import Engine
-from jambu_gpu.core.models import InstanceState, ProviderCapabilities
-from jambu_gpu.core.state import utc_now
+from gpu4agents.core.credentials import CredentialResolver
+from gpu4agents.core.engine import Engine
+from gpu4agents.core.models import InstanceState, ProviderCapabilities
+from gpu4agents.core.state import utc_now
 
 
 def make_engine(config):
@@ -357,7 +357,7 @@ def test_validate_warns_when_nothing_removes_a_billing_stopped_instance(write_co
 
 
 def _captured_agent_config(engine, monkeypatch):
-    import jambu_gpu.core.engine as engine_module
+    import gpu4agents.core.engine as engine_module
 
     captured = {}
     real = engine_module.build_agent_config

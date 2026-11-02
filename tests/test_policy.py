@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from jambu_gpu.core import policy as p
+from gpu4agents.core import policy as p
 
 NOW = 10_000.0
 

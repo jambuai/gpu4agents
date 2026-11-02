@@ -1,6 +1,6 @@
-// The whole integration with jambu-gpu, for any Node/TypeScript app.
+// The whole integration with gpu4agents, for any Node/TypeScript app.
 // Copy this file into your project: it needs nothing but Node 18+ and the
-// `gpu` command on PATH (pipx install jambu-gpu / uv tool install jambu-gpu).
+// `gpu` command on PATH (pipx install gpu4agents / uv tool install gpu4agents).
 //
 // `gpu --json setup` is the one call that matters. It rents a GPU when there
 // is none, restarts it when the watchdog stopped it for being idle, waits until

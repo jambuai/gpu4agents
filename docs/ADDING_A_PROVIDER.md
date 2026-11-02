@@ -1,13 +1,13 @@
 # Adding a provider
 
-Adding a provider means adding `jambu_gpu/providers/<name>/` and one line in the
+Adding a provider means adding `gpu4agents/providers/<name>/` and one line in the
 registry. **No lifecycle, execution or CLI code changes.** If you find yourself
 editing `core/`, the contract is leaking.
 
 ## 1. Implement the contract
 
 ```python
-# jambu_gpu/providers/runpod/provider.py
+# gpu4agents/providers/runpod/provider.py
 from ...core.models import ProviderCapabilities
 from ..base import GPUProvider, WatchdogSpec
 

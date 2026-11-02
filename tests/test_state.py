@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from jambu_gpu.core.errors import StateError
-from jambu_gpu.core.models import Endpoint, Instance, InstanceState
-from jambu_gpu.core.state import RuntimeState, StateStore, WorkloadRecord, utc_now
+from gpu4agents.core.errors import StateError
+from gpu4agents.core.models import Endpoint, Instance, InstanceState
+from gpu4agents.core.state import RuntimeState, StateStore, WorkloadRecord, utc_now
 
 
 @pytest.fixture

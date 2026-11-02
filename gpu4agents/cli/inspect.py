@@ -2,7 +2,7 @@
 
 Fetches the two public HuggingFace documents that answer "what should
 compute.gpu / runtime look like for this model" (see
-jambu_gpu/core/model_inspect.py for exactly which fields), and prints a
+gpu4agents/core/model_inspect.py for exactly which fields), and prints a
 ready-to-paste gpu_runtime: snippet plus the reasoning behind each value.
 
 `--add-profile` closes the loop: instead of hand-writing a new full jambu.yaml

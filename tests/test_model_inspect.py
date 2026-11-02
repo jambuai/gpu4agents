@@ -9,8 +9,8 @@ import httpx
 import pytest
 import respx
 
-from jambu_gpu.core.errors import JambuError
-from jambu_gpu.core.model_inspect import (
+from gpu4agents.core.errors import JambuError
+from gpu4agents.core.model_inspect import (
     HF_API_BASE,
     HF_HUB_BASE,
     inspect_model,

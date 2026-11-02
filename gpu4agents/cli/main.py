@@ -19,7 +19,8 @@ from ._common import Context, err_console, get_context, print_json
 app = typer.Typer(
     name="gpu",
     help=(
-        "Provider-agnostic CLI for provisioning and managing temporary GPU runtimes.\n\n"
+        "GPU for Agents: rent a GPU, serve a model, run the work; the machine stops "
+        "when nothing uses it.\n\n"
         "jambu.yaml is the desired-state source of truth; .gpu/state.json is what "
         "was last observed."
     ),
@@ -27,6 +28,14 @@ app = typer.Typer(
     add_completion=False,
     rich_markup_mode="rich",
 )
+
+
+def _print_version(value: bool) -> None:
+    if value:
+        from .. import __version__
+
+        print(__version__)
+        raise typer.Exit()
 
 
 @app.callback()
@@ -39,6 +48,9 @@ def main_callback(
         False, "--json", help="Machine-readable output on stdout."
     ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose diagnostics."),
+    version: bool = typer.Option(
+        False, "--version", callback=_print_version, is_eager=True, help="Print the version and exit."
+    ),
 ) -> None:
     context = Context()
     context.config_path = config

@@ -26,10 +26,10 @@ from pathlib import Path
 import pytest
 from fakes import FakeProvider
 
-from jambu_gpu.core.credentials import CredentialResolver
-from jambu_gpu.core.engine import Engine
-from jambu_gpu.core.models import Endpoint, Instance, InstanceState
-from jambu_gpu.providers.base import WatchdogSpec
+from gpu4agents.core.credentials import CredentialResolver
+from gpu4agents.core.engine import Engine
+from gpu4agents.core.models import Endpoint, Instance, InstanceState
+from gpu4agents.providers.base import WatchdogSpec
 
 MARKER_ACTIONS = '''
 import json as _json
@@ -279,7 +279,7 @@ def test_a_runtime_that_never_becomes_healthy_is_cleaned_up(booted):
     server.healthy = False  # the model server never answers
     engine.config.health.startup_timeout = "8s"
 
-    from jambu_gpu.core.errors import RuntimeStartupError
+    from gpu4agents.core.errors import RuntimeStartupError
 
     with pytest.raises(RuntimeStartupError):
         engine.setup()

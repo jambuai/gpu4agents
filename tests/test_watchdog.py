@@ -21,10 +21,10 @@ from pathlib import Path
 
 import pytest
 
-from jambu_gpu.core.beacon import WatchdogClient
-from jambu_gpu.core.policy import PolicyConfig
-from jambu_gpu.watchdog import agent_body
-from jambu_gpu.watchdog.builder import (
+from gpu4agents.core.beacon import WatchdogClient
+from gpu4agents.core.policy import PolicyConfig
+from gpu4agents.watchdog import agent_body
+from gpu4agents.watchdog.builder import (
     build_agent_config,
     build_agent_source,
     build_onstart_script,

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from jambu_gpu.core.models import ComputeSpec, GpuSpec, InstanceState
-from jambu_gpu.providers.vast import mapper
-from jambu_gpu.providers.vast.config import VastOptions
+from gpu4agents.core.models import ComputeSpec, GpuSpec, InstanceState
+from gpu4agents.providers.vast import mapper
+from gpu4agents.providers.vast.config import VastOptions
 
 RUNNING = {
     "id": 19384723,
@@ -192,7 +192,7 @@ def test_a_gpu_too_old_for_the_image_is_rejected_client_side():
 
 
 def test_find_offers_applies_the_effective_floor(monkeypatch):
-    from jambu_gpu.providers.vast.provider import VastProvider
+    from gpu4agents.providers.vast.provider import VastProvider
 
     provider = VastProvider.__new__(VastProvider)
     provider.options = VastOptions(min_cuda=12.1)
@@ -239,7 +239,7 @@ def test_the_search_asks_for_a_fast_pipe_by_default():
 
 
 def test_find_offers_drops_excluded_machines_even_if_the_server_returns_them(monkeypatch):
-    from jambu_gpu.providers.vast.provider import VastProvider
+    from gpu4agents.providers.vast.provider import VastProvider
 
     provider = VastProvider.__new__(VastProvider)
     provider.options = VastOptions()

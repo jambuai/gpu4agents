@@ -15,22 +15,22 @@ from conftest import BASE_CONFIG, _deep_merge
 from fakes import FakeProvider
 from typer.testing import CliRunner
 
-import jambu_gpu
-from jambu_gpu.cli import _common
-from jambu_gpu.cli import account as account_cli
-from jambu_gpu.cli import timer as timer_mod
-from jambu_gpu.cli.main import app
-from jambu_gpu.core import sweep as sweep_mod
-from jambu_gpu.core.config import load_config
-from jambu_gpu.core.credentials import CredentialResolver
-from jambu_gpu.core.engine import Engine
-from jambu_gpu.core.errors import ProviderError, UnsupportedCapabilityError
-from jambu_gpu.core.events import EventLog
-from jambu_gpu.core.models import Instance, InstanceState, ProviderCapabilities
-from jambu_gpu.core.state import utc_now
-from jambu_gpu.providers.base import GPUProvider
-from jambu_gpu.providers.vast.config import API_BASE
-from jambu_gpu.providers.vast.provider import VastProvider
+import gpu4agents
+from gpu4agents.cli import _common
+from gpu4agents.cli import account as account_cli
+from gpu4agents.cli import timer as timer_mod
+from gpu4agents.cli.main import app
+from gpu4agents.core import sweep as sweep_mod
+from gpu4agents.core.config import load_config
+from gpu4agents.core.credentials import CredentialResolver
+from gpu4agents.core.engine import Engine
+from gpu4agents.core.errors import ProviderError, UnsupportedCapabilityError
+from gpu4agents.core.events import EventLog
+from gpu4agents.core.models import Instance, InstanceState, ProviderCapabilities
+from gpu4agents.core.state import utc_now
+from gpu4agents.providers.base import GPUProvider
+from gpu4agents.providers.vast.config import API_BASE
+from gpu4agents.providers.vast.provider import VastProvider
 
 runner = CliRunner()
 HOUR = 3600.0
@@ -567,7 +567,7 @@ def test_install_timer_writes_one_unit_independent_of_the_project(
     service = (unit_dir / "jambu-gpu-sweep.service").read_text()
     timer = (unit_dir / "jambu-gpu-sweep.timer").read_text()
     execs = [line for line in service.splitlines() if line.startswith("ExecStart")]
-    assert execs == [f"ExecStart={sys.executable} -m jambu_gpu sweep --apply"]  # no "-"
+    assert execs == [f"ExecStart={sys.executable} -m gpu4agents sweep --apply"]  # no "-"
     assert "WorkingDirectory=~" in service
     assert "TimeoutStartSec=10min" in service
     assert f'Environment="GPU_HOME={jambu_home}"' in service
@@ -604,8 +604,8 @@ def test_install_timer_migrates_old_per_project_guard_lines(
     unit_dir.mkdir(parents=True)
     legacy = write_project(tmp_path / "legacy dir")
     (unit_dir / "jambu-gpu-sweep.service").write_text(
-        "[Service]\nExecStart=-/usr/bin/python3 -m jambu_gpu sweep --apply\n"
-        f'ExecStart=-/usr/bin/python3 -m jambu_gpu --config "{legacy.source_path}" guard\n'
+        "[Service]\nExecStart=-/usr/bin/python3 -m gpu4agents sweep --apply\n"
+        f'ExecStart=-/usr/bin/python3 -m gpu4agents --config "{legacy.source_path}" guard\n'
     )
     empty = tmp_path / "nowhere"
     empty.mkdir()
@@ -640,7 +640,7 @@ def test_unit_values_escape_percent_and_dollar_and_quote_spaces():
     service, _ = timer_mod.render_units(
         every_s=300, python="/opt/my env/100%/py$thon", jambu_home="/data/50% \"x\""
     )
-    assert 'ExecStart="/opt/my env/100%%/py$$thon" -m jambu_gpu sweep --apply' in service
+    assert 'ExecStart="/opt/my env/100%%/py$$thon" -m gpu4agents sweep --apply' in service
     assert 'Environment="GPU_HOME=/data/50%% \\"x\\""' in service
     assert "Environment" not in timer_mod.render_units(every_s=300, python="/p")[0]
 
@@ -671,10 +671,10 @@ def test_uninstall_timer_removes_the_units(config, home, credentials_file, monke
 def test_the_module_entrypoint_the_timer_runs_works():
     repo = Path(__file__).resolve().parents[1]
     out = subprocess.run(
-        [sys.executable, "-m", "jambu_gpu", "version"],
+        [sys.executable, "-m", "gpu4agents", "version"],
         cwd=repo,
         capture_output=True,
         text=True,
         check=True,
     )
-    assert out.stdout.strip() == jambu_gpu.__version__
+    assert out.stdout.strip() == gpu4agents.__version__

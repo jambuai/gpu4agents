@@ -4,8 +4,8 @@ import json
 
 from typer.testing import CliRunner
 
-import jambu_gpu
-from jambu_gpu.cli.main import app
+import gpu4agents
+from gpu4agents.cli.main import app
 
 runner = CliRunner()
 
@@ -15,6 +15,13 @@ def test_help_lists_the_spec_commands():
     assert result.exit_code == 0
     for command in ("providers", "validate", "setup", "run", "status", "lock", "stop", "destroy"):
         assert command in result.stdout
+
+
+def test_version_flag_and_command_print_the_package_version():
+    for args in (["--version"], ["version"]):
+        result = runner.invoke(app, args)
+        assert result.exit_code == 0
+        assert result.stdout.strip() == gpu4agents.__version__
 
 
 def test_init_writes_a_valid_config(tmp_path, monkeypatch):
@@ -109,13 +116,13 @@ def test_run_requires_a_command(config, monkeypatch):
 def test_version():
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert result.stdout.strip() == jambu_gpu.__version__
+    assert result.stdout.strip() == gpu4agents.__version__
 
 
 def test_inspect_model_json(monkeypatch, tmp_path):
     import httpx
     import respx
-    from jambu_gpu.core.model_inspect import HF_API_BASE, HF_HUB_BASE
+    from gpu4agents.core.model_inspect import HF_API_BASE, HF_HUB_BASE
 
     monkeypatch.chdir(tmp_path)
     with respx.mock:
@@ -151,7 +158,7 @@ def test_inspect_model_does_not_require_a_project_config(monkeypatch, tmp_path):
     """No jambu.yaml anywhere - inspect-model must still work standalone."""
     import httpx
     import respx
-    from jambu_gpu.core.model_inspect import HF_API_BASE, HF_HUB_BASE
+    from gpu4agents.core.model_inspect import HF_API_BASE, HF_HUB_BASE
 
     monkeypatch.chdir(tmp_path)
     with respx.mock:
@@ -168,7 +175,7 @@ def test_inspect_model_does_not_require_a_project_config(monkeypatch, tmp_path):
 def test_inspect_model_add_profile_writes_the_catalog(monkeypatch, tmp_path):
     import httpx
     import respx
-    from jambu_gpu.core.model_inspect import HF_API_BASE, HF_HUB_BASE
+    from gpu4agents.core.model_inspect import HF_API_BASE, HF_HUB_BASE
 
     monkeypatch.chdir(tmp_path)
     with respx.mock:
@@ -242,7 +249,7 @@ def test_profiles_command_with_no_catalog_is_not_an_error(monkeypatch, tmp_path)
 
 
 def test_logs_takes_a_source_and_a_line_count(config, monkeypatch):
-    from jambu_gpu.core.engine import Engine
+    from gpu4agents.core.engine import Engine
 
     monkeypatch.chdir(config.project_dir)
     seen = {}
@@ -267,7 +274,7 @@ def test_logs_takes_a_source_and_a_line_count(config, monkeypatch):
 
 
 def _saved_endpoint(config, api_key="k-123"):
-    from jambu_gpu.core.state import RuntimeState, StateStore
+    from gpu4agents.core.state import RuntimeState, StateStore
 
     store = StateStore(config.state_dir)
     state = RuntimeState(

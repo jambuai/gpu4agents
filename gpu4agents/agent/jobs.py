@@ -88,7 +88,7 @@ class Job:
         self.dir.mkdir(parents=True, exist_ok=True)
         for path in (self.out_path, self.err_path, self.rc_path):
             path.unlink(missing_ok=True)
-        runner = [sys.executable, "-m", "jambu_gpu.agent.jobs", str(self.dir), self.name, "--", *argv]
+        runner = [sys.executable, "-m", "gpu4agents.agent.jobs", str(self.dir), self.name, "--", *argv]
         kwargs: dict[str, Any] = {}
         if os.name == "nt":
             kwargs["creationflags"] = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
@@ -168,7 +168,7 @@ class Job:
 
 
 def _main(argv: list[str]) -> int:
-    """``python -m jambu_gpu.agent.jobs DIR NAME -- CMD...``: run CMD, record its exit code."""
+    """``python -m gpu4agents.agent.jobs DIR NAME -- CMD...``: run CMD, record its exit code."""
     directory, name = Path(argv[0]), argv[1]
     command = argv[3:] if len(argv) > 2 and argv[2] == "--" else argv[2:]
     # A cancel sends SIGINT to the whole group. The runner must outlive it to

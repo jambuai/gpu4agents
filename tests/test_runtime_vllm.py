@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from jambu_gpu.runtime.vllm import VllmRuntime, guess_tool_call_parser
+from gpu4agents.runtime.vllm import VllmRuntime, guess_tool_call_parser
 
 
 @pytest.mark.parametrize(
@@ -113,7 +113,7 @@ def test_qwythos_needs_an_explicit_override_since_its_name_hides_the_family():
 
 # -- runtime.vllm_args: structured passthrough for un-modeled vLLM flags ----
 
-from jambu_gpu.runtime.vllm import flatten_vllm_args
+from gpu4agents.runtime.vllm import flatten_vllm_args
 
 
 def test_flatten_vllm_args_covers_every_value_shape():
@@ -179,7 +179,7 @@ def test_activity_probe_reads_vllm_metrics_on_loopback(write_config):
 
 
 def test_runtimes_without_a_traffic_signal_have_no_probe(write_config):
-    from jambu_gpu.runtime.base import NoRuntime
+    from gpu4agents.runtime.base import NoRuntime
 
     assert NoRuntime(write_config(runtime={"engine": "none"})).activity_probe() is None
 
@@ -228,7 +228,7 @@ def test_vllm_declares_where_its_pid_and_log_live(config):
 
 
 def test_a_runtime_without_liveness_declares_nothing(write_config):
-    from jambu_gpu.runtime.base import NoRuntime
+    from gpu4agents.runtime.base import NoRuntime
 
     runtime = NoRuntime(write_config(runtime={"engine": "none"}))
     assert runtime.runtime_pid_path() is None

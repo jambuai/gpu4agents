@@ -3,9 +3,9 @@ from __future__ import annotations
 import yaml
 import pytest
 
-from jambu_gpu.core.config import CONFIG_FILENAMES, find_config, load_config
-from jambu_gpu.core.durations import format_duration, parse_duration
-from jambu_gpu.core.errors import ConfigError
+from gpu4agents.core.config import CONFIG_FILENAMES, find_config, load_config
+from gpu4agents.core.durations import format_duration, parse_duration
+from gpu4agents.core.errors import ConfigError
 
 from conftest import BASE_CONFIG
 
@@ -270,7 +270,7 @@ def test_no_model_profile_means_no_catalog_lookup_at_all(write_config):
 
 
 def test_deep_merge_replaces_lists_wholesale_not_concatenated():
-    from jambu_gpu.core.config import deep_merge
+    from gpu4agents.core.config import deep_merge
 
     base = {"runtime": {"extra_args": ["--a"], "port": 8000}}
     override = {"runtime": {"extra_args": ["--b", "--c"]}}
@@ -346,7 +346,7 @@ def test_traffic_counts_as_activity_by_default(write_config):
 def test_init_templates_spell_out_the_new_lifecycle_defaults():
     import yaml
 
-    from jambu_gpu.core.config import DEFAULT_CONFIG_TEMPLATE, DEFAULT_CONFIG_TEMPLATE_FLAT
+    from gpu4agents.core.config import DEFAULT_CONFIG_TEMPLATE, DEFAULT_CONFIG_TEMPLATE_FLAT
 
     nested = yaml.safe_load(DEFAULT_CONFIG_TEMPLATE.format(model_id="org/m"))["gpu_runtime"]
     flat = yaml.safe_load(DEFAULT_CONFIG_TEMPLATE_FLAT.format(model_id="org/m"))

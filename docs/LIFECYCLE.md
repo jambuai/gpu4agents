@@ -14,7 +14,7 @@ CLI ──provisions──> instance
                       └── vLLM :8000
 ```
 
-The watchdog script is generated at provision time. The lifecycle policy source is inlined from `jambu_gpu/core/policy.py`, so the remote guard and `gpu status` apply the same rule. The provider adapter injects only the two calls that stop or destroy the machine.
+The watchdog script is generated at provision time. The lifecycle policy source is inlined from `gpu4agents/core/policy.py`, so the remote guard and `gpu status` apply the same rule. The provider adapter injects only the two calls that stop or destroy the machine.
 
 An instance stays billable only while:
 
@@ -117,7 +117,7 @@ gpu
 Four concerns stay independent: model, inference runtime, lifecycle policy, infrastructure provider. The core never branches on a provider name. It branches on `provider.capabilities`.
 
 ```
-jambu_gpu/
+gpu4agents/
 ├── cli/          setup, run, status, lifecycle, providers, validate
 ├── core/         config, models, policy, state, events, engine, execution, health
 ├── providers/    base, registry, vast/

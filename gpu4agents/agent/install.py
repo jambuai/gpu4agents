@@ -53,7 +53,7 @@ def gpu_command(portable: bool) -> list[str]:
         return ["gpu"]
     if found:
         return [str(Path(found).resolve())]
-    return [sys.executable, "-m", "jambu_gpu"]
+    return [sys.executable, "-m", "gpu4agents"]
 
 
 def desktop_config_path() -> Path:

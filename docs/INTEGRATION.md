@@ -12,7 +12,7 @@ The app never has to stop the GPU. The watchdog on the machine stops it once not
 ## 1. Prepare the host the app runs on
 
 ```bash
-pipx install jambu-gpu            # or: uv tool install jambu-gpu / pip install jambu-gpu
+pipx install gpu4agents            # or: uv tool install gpu4agents / pip install gpu4agents
 cd /srv/my-app                    # the directory the app runs gpu from
 gpu init --model Qwen/Qwen2.5-7B-Instruct
 echo "VAST_API_KEY=..." >> .env   # or export it, or ~/.gpu/credentials
@@ -22,7 +22,7 @@ gpu sweep --install-timer         # optional safety net, see USAGE.md
 
 Requirements:
 
-- `jambu-gpu` 0.3.0 or later, on Python 3.10+. The app can be in any language.
+- `gpu4agents` (or `jambu-gpu` 0.3.0 or later), on Python 3.10+. The app can be in any language.
 - The directory holding `jambu.yaml` must be **persistent**. `gpu` keeps what it rented in `.gpu/state.json` next to it. In a container, mount it as a volume: a container that loses `.gpu/` forgets its instance, rents a second one, and leaves the first to the watchdog and the sweep.
 - Before 0.3.0 these directories were `.jambu/` and `~/.jambu`. The first command after an upgrade renames them, so an instance already rented is kept, not rented again.
 - `.gpu/state.json` holds the endpoint key and the watchdog token. It is written `0600`. Add `.gpu/` and `.env` to `.gitignore` and keep them out of images.
@@ -155,11 +155,11 @@ The TypeScript helper below does exactly this.
 
 ### TypeScript / Node
 
-[`examples/typescript-client/src/jambuGpu.ts`](../examples/typescript-client/src/jambuGpu.ts) is a single file with no dependencies beyond Node 18+. Copy it into the app.
+[`examples/typescript-client/src/gpu.ts`](../examples/typescript-client/src/gpu.ts) is a single file with no dependencies beyond Node 18+. Copy it into the app.
 
 ```ts
 import OpenAI from "openai";
-import { Gpu } from "./jambuGpu.ts";
+import { Gpu } from "./gpu.ts";
 
 const gpu = new Gpu({ cwd: "/srv/my-app" });   // where jambu.yaml lives
 

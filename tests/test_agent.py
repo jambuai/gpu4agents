@@ -10,10 +10,10 @@ import pytest
 import yaml
 from typer.testing import CliRunner
 
-from jambu_gpu.agent import install as install_mod
-from jambu_gpu.agent.jobs import Job
-from jambu_gpu.agent.mcp import PROTOCOL_VERSIONS, Server
-from jambu_gpu.cli.main import app
+from gpu4agents.agent import install as install_mod
+from gpu4agents.agent.jobs import Job
+from gpu4agents.agent.mcp import PROTOCOL_VERSIONS, Server
+from gpu4agents.cli.main import app
 
 
 def _call(server: Server, name: str, **arguments):
@@ -288,7 +288,7 @@ def test_global_claude_install_uses_claude_mcp_add(tmp_path, home, monkeypatch):
 
 def test_install_refuses_a_broken_config_instead_of_overwriting_it(tmp_path, home):
     (tmp_path / ".mcp.json").write_text("{not json")
-    from jambu_gpu.core.errors import ConfigError
+    from gpu4agents.core.errors import ConfigError
 
     with pytest.raises(ConfigError):
         install_mod.install(["claude"], tmp_path)

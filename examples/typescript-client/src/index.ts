@@ -3,7 +3,7 @@
 //   node --experimental-strip-types examples/typescript-client/src/index.ts "Say hi"
 
 import OpenAI from "openai";
-import { Gpu, type GpuConnection } from "./jambuGpu.ts";
+import { Gpu, type GpuConnection } from "./gpu.ts";
 
 const gpu = new Gpu({ cwd: process.env.JAMBU_PROJECT_DIR ?? process.cwd() });
 

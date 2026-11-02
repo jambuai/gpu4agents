@@ -84,7 +84,7 @@ to know how to load it.
 ### Tool-call parser: a third, unwritten source
 
 There is no machine-readable field anywhere that says "use `--tool-call-parser
-X`" — this is `jambu_gpu/core/tool_parsers.py`'s own hand-maintained table,
+X`" — this is `gpu4agents/core/tool_parsers.py`'s own hand-maintained table,
 matched against vLLM's [tool calling
 docs](https://docs.vllm.ai/en/latest/features/tool_calling/) and, sometimes,
 empirical testing when the docs don't cover a model family yet (the Qwen3.5+
@@ -108,7 +108,7 @@ Consequences:
   interacts with runtime-only changes like this if you're doing it through
   `gpu setup` rather than by hand.
 - When you do confirm one empirically, add it to `_TOOL_PARSER_HINTS` in
-  `jambu_gpu/core/tool_parsers.py` (a one-line PR) so `tool_calling: auto`
+  `gpu4agents/core/tool_parsers.py` (a one-line PR) so `tool_calling: auto`
   picks it up for everyone next time, the same way the Qwen3.5+ finding did.
 
 ## Don't write a new jambu.yaml per model - use the catalog

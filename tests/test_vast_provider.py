@@ -8,15 +8,15 @@ import httpx
 import pytest
 import respx
 
-from jambu_gpu.core.credentials import CredentialResolver
-from jambu_gpu.core.errors import (
+from gpu4agents.core.credentials import CredentialResolver
+from gpu4agents.core.errors import (
     AuthenticationError,
     CapacityUnavailableError,
     UnsupportedCapabilityError,
 )
-from jambu_gpu.core.models import InstanceState
-from jambu_gpu.providers.vast.config import API_BASE
-from jambu_gpu.providers.vast.provider import VastProvider
+from gpu4agents.core.models import InstanceState
+from gpu4agents.providers.vast.config import API_BASE
+from gpu4agents.providers.vast.provider import VastProvider
 
 OFFER = {
     "id": 777,
@@ -133,7 +133,7 @@ def test_status_reports_destroyed_when_the_instance_is_gone(provider):
     respx.get(f"{API_BASE}/instances/").mock(
         return_value=httpx.Response(200, json={"instances": []})
     )
-    from jambu_gpu.core.models import Instance
+    from gpu4agents.core.models import Instance
 
     status = provider.status(Instance(id="19384723", provider="vast"))
     assert status.exists is False
@@ -142,7 +142,7 @@ def test_status_reports_destroyed_when_the_instance_is_gone(provider):
 
 @respx.mock
 def test_stop_and_destroy_are_idempotent(provider):
-    from jambu_gpu.core.models import Instance
+    from gpu4agents.core.models import Instance
 
     instance = Instance(id="19384723", provider="vast")
     respx.put(f"{API_BASE}/instances/19384723/").mock(return_value=httpx.Response(404))
@@ -284,8 +284,8 @@ def test_a_bad_key_on_a_401_is_still_authentication_error_regardless_of_body(pro
 
 @respx.mock
 def test_a_404_is_still_vastnotfound_even_with_a_success_false_body(provider):
-    from jambu_gpu.core.models import Instance
-    from jambu_gpu.providers.vast.client import VastNotFound
+    from gpu4agents.core.models import Instance
+    from gpu4agents.providers.vast.client import VastNotFound
 
     respx.get(f"{API_BASE}/instances/123/").mock(
         return_value=httpx.Response(404, json={"success": False, "msg": "not found"})
@@ -300,8 +300,8 @@ def test_a_404_is_still_vastnotfound_even_with_a_success_false_body(provider):
 
 def test_the_real_boot_script_fits_vasts_onstart_limit(write_config, monkeypatch):
     """Caught on a live run: Vast refuses onstart scripts over 16 KB."""
-    from jambu_gpu.core.engine import Engine
-    from jambu_gpu.providers.vast.config import ONSTART_MAX_BYTES
+    from gpu4agents.core.engine import Engine
+    from gpu4agents.providers.vast.config import ONSTART_MAX_BYTES
 
     monkeypatch.setenv("VAST_API_KEY", "k" * 64)
     monkeypatch.setenv("HF_TOKEN", "hf_" + "t" * 37)
@@ -316,8 +316,8 @@ def test_the_real_boot_script_fits_vasts_onstart_limit(write_config, monkeypatch
 
 @respx.mock
 def test_an_oversized_boot_script_fails_before_any_api_call(provider):
-    from jambu_gpu.core.errors import ProvisioningError
-    from jambu_gpu.core.models import ComputeSpec, GpuSpec
+    from gpu4agents.core.errors import ProvisioningError
+    from gpu4agents.core.models import ComputeSpec, GpuSpec
 
     spec = ComputeSpec(gpu=GpuSpec(min_vram_gb=24, count=1), disk_gb=80, onstart="x" * 20000)
     with pytest.raises(ProvisioningError, match="onstart limit"):
@@ -362,7 +362,7 @@ def test_an_instance_reports_its_machine(provider):
     respx.get(f"{API_BASE}/instances/19384723/").mock(
         return_value=httpx.Response(200, json={"instances": dict(INSTANCE, machine_id=77)})
     )
-    from jambu_gpu.core.models import Instance
+    from gpu4agents.core.models import Instance
 
     status = provider.status(Instance(id="19384723", provider="vast"))
     assert status.instance.host_id == "77"
@@ -372,7 +372,7 @@ def test_an_instance_reports_its_machine(provider):
 
 
 def _client(sleeps):
-    from jambu_gpu.providers.vast.client import VastClient
+    from gpu4agents.providers.vast.client import VastClient
 
     client = VastClient("k")
     client.sleep = sleeps.append
@@ -397,8 +397,8 @@ def test_a_rate_limit_is_waited_out():
 
 @respx.mock
 def test_a_rate_limit_that_never_lifts_is_an_error():
-    from jambu_gpu.core.errors import ProviderError
-    from jambu_gpu.providers.vast.client import RETRY_DELAYS_S
+    from gpu4agents.core.errors import ProviderError
+    from gpu4agents.providers.vast.client import RETRY_DELAYS_S
 
     route = respx.get(f"{API_BASE}/instances/").mock(return_value=httpx.Response(429))
     sleeps: list = []
@@ -409,7 +409,7 @@ def test_a_rate_limit_that_never_lifts_is_an_error():
 
 @respx.mock
 def test_a_gateway_error_is_retried_for_reads_but_not_for_a_create():
-    from jambu_gpu.core.errors import ProviderError
+    from gpu4agents.core.errors import ProviderError
 
     read = respx.get(f"{API_BASE}/instances/").mock(
         side_effect=[httpx.Response(502), httpx.Response(200, json={"instances": []})]
@@ -424,7 +424,7 @@ def test_a_gateway_error_is_retried_for_reads_but_not_for_a_create():
 
 
 def test_vast_serves_vllm_from_the_image_its_hosts_cache(write_config, monkeypatch):
-    from jambu_gpu.core.engine import Engine
+    from gpu4agents.core.engine import Engine
 
     monkeypatch.setenv("VAST_API_KEY", "test-key")
     engine = Engine(write_config())

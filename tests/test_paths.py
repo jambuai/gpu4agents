@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from jambu_gpu.core.paths import gpu_home, project_state_dir
-from jambu_gpu.core.state import RuntimeState, StateStore
+from gpu4agents.core.paths import gpu_home, project_state_dir
+from gpu4agents.core.state import RuntimeState, StateStore
 
 
 def test_a_new_project_keeps_its_state_in_dot_gpu(tmp_path):

@@ -175,7 +175,7 @@ class Server:
         return config.parent
 
     def _argv(self, args: list[str], json_output: bool = True) -> list[str]:
-        return [self.python, "-m", "jambu_gpu", *(["--json"] if json_output else []), *args]
+        return [self.python, "-m", "gpu4agents", *(["--json"] if json_output else []), *args]
 
     def cli(self, args: list[str], cwd: Path, timeout: float = CLI_TIMEOUT_S) -> CliResult:
         try:
@@ -595,7 +595,7 @@ class Server:
                 result: Any = {
                     "protocolVersion": version,
                     "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": SERVER_NAME, "title": "gpu (jambu-gpu)", "version": __version__},
+                    "serverInfo": {"name": SERVER_NAME, "title": "gpu (GPU for Agents)", "version": __version__},
                     "instructions": INSTRUCTIONS,
                 }
             elif method == "ping":

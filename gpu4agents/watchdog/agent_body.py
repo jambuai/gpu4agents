@@ -29,7 +29,7 @@ the guard starts over. The same value means a supervisor respawn: keep state.
 # The generated script inlines core/policy.py above this body. When this file
 # is imported directly (tests, linting) we pull the same names from the package.
 if "evaluate" not in globals():  # pragma: no cover - only in standalone import
-    from jambu_gpu.core.policy import (  # noqa: F401
+    from gpu4agents.core.policy import (  # noqa: F401
         ACTION_DESTROY,
         ACTION_NONE,
         ACTION_STOP,

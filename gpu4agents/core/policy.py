@@ -3,7 +3,7 @@
 This module is the SINGLE SOURCE OF TRUTH for "may this instance stay
 billable?".  It is deliberately stdlib-only and dependency-free because its
 source is inlined verbatim into the remote watchdog agent that runs on the
-rented instance (see jambu_gpu/watchdog/builder.py).  Do not import anything
+rented instance (see gpu4agents/watchdog/builder.py).  Do not import anything
 from the rest of the package here.
 """
 

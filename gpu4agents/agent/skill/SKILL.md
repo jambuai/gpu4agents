@@ -1,11 +1,11 @@
 ---
 name: gpu
-description: Rent a temporary cloud GPU, serve an open-weights model on it behind an OpenAI-compatible API, run experiments or evals against it, and shut it down so it stops billing. Use when the user wants to run, test, benchmark or compare a HuggingFace model (Qwen, Llama, Mistral, ...) on a GPU, needs an LLM endpoint for an experiment, or asks about GPU instances gpu/jambu-gpu created. Works through the `gpu` MCP tools (gpu_setup, gpu_run, ...) or the `gpu` CLI.
+description: Rent a temporary cloud GPU, serve an open-weights model on it behind an OpenAI-compatible API, run experiments or evals against it, and shut it down so it stops billing. Use when the user wants to run, test, benchmark or compare a HuggingFace model (Qwen, Llama, Mistral, ...) on a GPU, needs an LLM endpoint for an experiment, or asks about GPU instances gpu/gpu4agents created. Works through the `gpu` MCP tools (gpu_setup, gpu_run, ...) or the `gpu` CLI.
 ---
 
 # gpu: temporary GPUs for experiments
 
-`gpu` (the `jambu-gpu` package) rents a machine on Vast.ai, serves a model with vLLM behind an OpenAI-compatible API, and installs a watchdog on the machine that stops it once nothing has used it for `idle_timeout` (15 min by default). A machine you forget stops by itself, so billing ends even if this conversation does.
+`gpu` (the `gpu4agents` package) rents a machine on Vast.ai, serves a model with vLLM behind an OpenAI-compatible API, and installs a watchdog on the machine that stops it once nothing has used it for `idle_timeout` (15 min by default). A machine you forget stops by itself, so billing ends even if this conversation does.
 
 Each project directory has a `jambu.yaml` (what to rent and serve) and a `.gpu/` directory (what was rented). One project, one machine.
 
@@ -65,4 +65,4 @@ Exit codes are the same for the CLI and the MCP tools (`exit_code` in the error)
 - `401`: a new machine was rented and the key changed; take it from `gpu_connection`.
 - A long job with quiet stretches longer than `idle_timeout`: `gpu_lock(duration="2h")`, then `gpu_unlock`.
 
-Full contract: https://github.com/jambuai/jambu-gpu/blob/main/docs/INTEGRATION.md
+Full contract: https://github.com/jambuai/gpu4agents/blob/main/docs/INTEGRATION.md

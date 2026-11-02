@@ -8,7 +8,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from jambu_gpu.core.config import RuntimeConfig, load_config  # noqa: E402
+from gpu4agents.core.config import RuntimeConfig, load_config  # noqa: E402
 
 BASE_CONFIG = {
     "version": 1,
