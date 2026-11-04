@@ -17,7 +17,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.8.0 or later. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.9.0 or later. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>
@@ -102,6 +102,16 @@ When the work is code that needs a GPU, not requests to a model (training or fin
 3. The code writes every result to `$JAMBU_OUTPUT_DIR` (checkpoints too, as it goes), prints progress, exits non-zero on failure and never prints secrets. `HF_HOME` is a cache on the machine.
 4. With the user's yes: `gpu job run` (uploads, runs, streams the log, downloads to `gpu-outputs/<job id>/`, exits with the job's code). Through MCP: `gpu_setup` until ready, `gpu_job_run`, `gpu_job_status` until the state is not `running`, `gpu_job_pull`.
 5. A running job keeps the machine up; `max_lifetime` and the budget still stop it. Pull outputs before `gpu destroy`, which deletes them.
+
+## Serve any model (images, voice, transcription, embeddings)
+
+Any Hugging Face model can be served behind OpenAI routes, not only chat. The full contract is in https://gpu4agents.jambu.ai/serving.md (copy in the repository: `SERVING.md`). In short:
+
+1. `gpu init --model <repo>` (MCP: `gpu_init`) reads the model card and writes the engine: `vllm` for chat, `hf` for the rest, with `model.task` one of `embeddings`, `image`, `transcription`, `speech`, `pipeline`. The output and `gpu_init`'s result name it; `--engine` and `--task` override.
+2. `gpu setup` deploys it; `gpu env` (MCP: `gpu_connection`) gives `base_url`, `api_key`, `model` and `routes`. Call it with any OpenAI client: `images.generate`, `audio.speech.create`, `audio.transcriptions.create`, `embeddings.create`; other pipelines take `POST /v1/pipeline` with `{"inputs": ..., "parameters": {...}}`.
+3. To switch models, edit `model.id` (and `model.task`) in jambu.yaml and run `gpu setup` again: same machine, new server. A larger `min_vram_gb` needs `--recreate`.
+4. When the built-in server cannot load a model (its own library, several models chained, video), `gpu init --engine custom` writes `server/server.py` and `server/gpujob.yaml`. Fill in `load()` and the handlers; keep `/health` (503 until loaded), the `JAMBU_API_KEY` check and `/metrics` (`jambu_requests_running`, `jambu_requests_total`), and listen on `$PORT`.
+5. `gpu logs` shows the server's log. Requests keep the machine up; it stops after `idle_timeout` once they stop.
 
 ## Another provider
 

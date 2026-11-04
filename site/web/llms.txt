@@ -9,6 +9,7 @@ GPU for Agents (`gpu4agents`, the `gpu` command) lets a coding agent rent a clou
 - [install.md](https://gpu4agents.jambu.ai/install.md): step-by-step setup an agent can follow: install, connect the account, learn the rules
 - [install.sh](https://gpu4agents.jambu.ai/install.sh): `curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent claude|codex|gemini|cursor|auto`
 - [jobs.md](https://gpu4agents.jambu.ai/jobs.md): the contract for running your own code on the GPU as a job: training, image, audio or video models, anything that needs CUDA; outputs come back
+- [serving.md](https://gpu4agents.jambu.ai/serving.md): serve any Hugging Face model behind OpenAI routes (images, voice, transcription, embeddings, any pipeline), or a server the agent writes
 - [providers.md](https://gpu4agents.jambu.ai/providers.md): add a GPU provider gpu does not ship, by writing an adapter against the provider contract
 
 ## Use

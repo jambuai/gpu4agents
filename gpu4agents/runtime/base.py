@@ -66,6 +66,9 @@ class ModelRuntime(ABC):
 
     engine: str = "abstract"
     default_image: str = ""
+    # True when the model server is deployed after boot as a service job
+    # (runtime/service.py) instead of being started by the boot script.
+    service: bool = False
 
     def __init__(self, config: RuntimeConfig) -> None:
         self.config = config
@@ -137,6 +140,10 @@ class ModelRuntime(ABC):
     def runtime_log_path(self) -> Optional[str]:
         """The model server's log on the instance, served by the watchdog's /logs."""
         return None
+
+    def routes(self) -> list[str]:
+        """The OpenAI routes the server answers, for the connection details."""
+        return []
 
     def validate(self) -> ValidationResult:
         return ValidationResult()

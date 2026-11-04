@@ -8,11 +8,17 @@ import typer
 from rich.table import Table
 from rich.text import Text
 
+import shutil
+from typing import Optional
+
 from ..core.config import (
+    CUSTOM_CONFIG_TEMPLATE,
     DEFAULT_CONFIG_TEMPLATE,
     DEFAULT_CONFIG_TEMPLATE_FLAT,
     CONFIG_FILENAMES,
     JOBS_CONFIG_TEMPLATE,
+    MODEL_TASKS,
+    SERVE_CONFIG_TEMPLATE,
 )
 from ..core.errors import JambuError
 from ._common import console, fmt_money, get_context, handle, print_json, register_project
@@ -31,7 +37,25 @@ def init_command(
         "--jobs",
         help="A machine that serves no model and only runs `gpu job` (runtime.engine: none).",
     ),
-    min_vram_gb: int = typer.Option(24, "--min-vram-gb", help="Minimum GPU memory to rent."),
+    engine: str = typer.Option(
+        "auto",
+        "--engine",
+        help=(
+            "auto (from the model card: chat models on vllm, any other task on hf), "
+            "vllm, hf, custom (a server you write, SERVING.md) or none (same as --jobs)."
+        ),
+    ),
+    task: Optional[str] = typer.Option(
+        None,
+        "--task",
+        help="With hf: chat, embeddings, image, transcription, speech or pipeline (default: from the model card).",
+    ),
+    service_dir: str = typer.Option(
+        "server", "--service-dir", help="With --engine custom: where your server lives."
+    ),
+    min_vram_gb: Optional[int] = typer.Option(
+        None, "--min-vram-gb", help="Minimum GPU memory to rent (default 24, or sized from the model)."
+    ),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing config file."),
     flat: bool = typer.Option(
         False,
@@ -42,7 +66,13 @@ def init_command(
         ),
     ),
 ) -> None:
-    """Write a starter jambu.yaml (and .env.example) in the current directory."""
+    """Write a starter jambu.yaml (and .env.example) in the current directory.
+
+    Any Hugging Face model works: a chat model is served by vLLM; an image,
+    speech, transcription, embeddings or other pipeline model by gpu's own
+    OpenAI-compatible server (runtime.engine: hf). The model card decides,
+    unless --engine says otherwise.
+    """
     from ..core.errors import ConfigError as _ConfigError
     from ..providers import scaffold
     from ..providers.registry import load_builtin_providers
@@ -56,19 +86,57 @@ def init_command(
         credential_names = []
     indent = "  " if flat else "    "
     provider_block = f"{indent}name: {provider}\n" + (f"{indent}plugin: {plugin}\n" if plugin else "")
-    if jobs and flat:
-        console.print(Text("! --jobs writes jambu.yaml; drop --flat", style="yellow"))
+    if engine not in ("auto", "vllm", "hf", "custom", "none"):
+        console.print(Text("! --engine must be auto, vllm, hf, custom or none", style="yellow"))
         raise typer.Exit(2)
+    if task is not None and task not in MODEL_TASKS:
+        console.print(Text(f"! --task must be one of {', '.join(MODEL_TASKS)}", style="yellow"))
+        raise typer.Exit(2)
+    if jobs:
+        engine = "none"
+    if flat and engine not in ("auto", "vllm"):
+        console.print(Text("! only a vllm config can be --flat; drop --flat", style="yellow"))
+        raise typer.Exit(2)
+    model_given = ctx.get_parameter_source("model") is not None and (
+        ctx.get_parameter_source("model").name != "DEFAULT"
+    )
+    sized: Optional[int] = None
+    if engine == "auto" or (engine == "hf" and task is None):
+        detected_engine, detected_task, sized, note = detect_serving(model, model_given)
+        if engine == "auto":
+            engine = detected_engine
+        task = task or detected_task
+        if note:
+            console.print(Text(f"  {note}", style="dim"))
+    vram = min_vram_gb or sized or 24
     if flat:
         target = Path.cwd() / "config.yml"
         content = DEFAULT_CONFIG_TEMPLATE_FLAT.format(model_id=model)
-    elif jobs:
+    elif engine == "none":
         target = Path.cwd() / CONFIG_FILENAMES[0]
-        content = JOBS_CONFIG_TEMPLATE.format(min_vram_gb=min_vram_gb)
+        content = JOBS_CONFIG_TEMPLATE.format(min_vram_gb=vram)
+    elif engine == "hf":
+        target = Path.cwd() / CONFIG_FILENAMES[0]
+        task = task or "auto"
+        content = SERVE_CONFIG_TEMPLATE.format(
+            model_id=model,
+            min_vram_gb=vram,
+            task=task,
+            task_note=(
+                "From the model card. chat, embeddings, image, transcription, speech or pipeline."
+                if task != "auto"
+                else "auto: read from the model card when the server starts."
+            ),
+        )
+    elif engine == "custom":
+        target = Path.cwd() / CONFIG_FILENAMES[0]
+        content = CUSTOM_CONFIG_TEMPLATE.format(
+            model_id=model if model_given else '""', min_vram_gb=vram, service_dir=service_dir
+        )
     else:
         target = Path.cwd() / CONFIG_FILENAMES[0]  # jambu.yaml
         content = DEFAULT_CONFIG_TEMPLATE.format(model_id=model)
-    content = content.replace("min_vram_gb: 24\n", f"min_vram_gb: {min_vram_gb}\n", 1)
+    content = content.replace("min_vram_gb: 24\n", f"min_vram_gb: {vram}\n", 1)
     content = content.replace(f"{indent}name: vast\n", provider_block, 1)
 
     if target.exists() and not force:
@@ -76,6 +144,8 @@ def init_command(
         raise typer.Exit(1)
     target.write_text(content)
     console.print(Text(f"+ wrote {target}", style="green"))
+    if engine == "custom":
+        scaffold_server(Path.cwd() / service_dir)
     if not flat:
         console.print(
             Text(
@@ -101,8 +171,59 @@ def init_command(
         )
     login = "gpu login" if provider == "vast" else f"gpu login --provider {provider}"
     console.print(f"next: {login} && gpu validate")
-    if jobs:
+    if engine == "none":
         console.print("then: gpu job run -- python your_script.py   (see `gpu job --help`)")
+    elif engine == "hf":
+        console.print(f"then: gpu setup   (serves {model} as {task}; routes in `gpu env --format json`)")
+    elif engine == "custom":
+        console.print(f"then: write your model into {service_dir}/server.py, and gpu setup")
+
+
+def detect_serving(model: str, model_given: bool) -> tuple[str, Optional[str], Optional[int], str]:
+    """(engine, task, min VRAM GB or None, a note) from the model's Hugging Face card."""
+    from ..core.model_inspect import ModelInspectError, fetch_hf_api_metadata
+    from ..serve import serving_for
+
+    import os
+
+    if not model_given or os.environ.get("GPU_NO_MODEL_CARD"):
+        # The default model is a chat model; GPU_NO_MODEL_CARD=1 works offline.
+        return "vllm", "chat", None, ""
+
+    try:
+        card = fetch_hf_api_metadata(model, token=os.environ.get("HF_TOKEN") or None, timeout=8.0)
+    except ModelInspectError as exc:
+        return "vllm", None, None, f"could not read the model card ({exc}); assuming a chat model on vLLM"
+    engine, task = serving_for(card)
+    sized = None
+    total = (card.get("safetensors") or {}).get("total")
+    if total:
+        # bf16 weights plus headroom; the same floor `gpu inspect-model` uses.
+        sized = max(8, int(total * 2 / 1e9 * 1.3 + 2.999))
+    tag = card.get("pipeline_tag") or card.get("library_name") or "no pipeline_tag"
+    if engine == "vllm":
+        return engine, task, None, f"{model}: {tag} -> vLLM"
+    note = f"{model}: {tag} -> runtime.engine: hf, model.task: {task}"
+    library = card.get("library_name")
+    if library not in ("transformers", "diffusers", "sentence-transformers"):
+        note += (
+            f". Its library is {library or 'not declared'}: if the hf server cannot load it, "
+            "serve it with your own server (gpu init --engine custom, SERVING.md)"
+        )
+    return engine, task, sized, note
+
+
+def scaffold_server(directory: Path) -> None:
+    """A starting server for runtime.engine: custom (serve/template/)."""
+    from ..serve import TEMPLATE_DIR
+
+    if (directory / "gpujob.yaml").exists() or (directory / "server.py").exists():
+        console.print(Text(f"= {directory} already has a server; left as is", style="dim"))
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in ("server.py", "gpujob.yaml"):
+        shutil.copyfile(TEMPLATE_DIR / name, directory / name)
+    console.print(Text(f"+ wrote {directory}/server.py and gpujob.yaml (contract: SERVING.md)", style="green"))
 
 
 def setup_command(
@@ -129,6 +250,10 @@ def setup_command(
         handle(exc)
         return
 
+    _print_connection(context, engine, state)
+
+
+def _print_connection(context, engine, state) -> None:
     payload = engine.connection(state)
     watchdog = state.watchdog.to_dict()
     watchdog.pop("token", None)
@@ -137,13 +262,31 @@ def setup_command(
         print_json(payload)
         return
     if state.endpoint:
+        routes = ", ".join(payload.get("routes") or []) or "see GET /v1/models"
         console.print(
             f"\n  endpoint  [bold]{state.endpoint}[/bold]\n"
             f"  openai    [bold]{payload['base_url']}[/bold]\n"
             f"  model     [bold]{payload['model']}[/bold]\n"
+            f"  routes    {routes}\n"
             "  api key   [dim]gpu env[/dim]"
         )
     console.print("\nnext: gpu run python your_experiment.py")
+
+
+def redeploy_command(ctx: typer.Context) -> None:
+    """Restart the model server on the running machine (runtime.engine: hf or custom).
+
+    `gpu setup` already redeploys when the model, its settings or your server's
+    code changed; this restarts it even when nothing did.
+    """
+    context = get_context(ctx)
+    try:
+        engine = context.engine()
+        state = engine.redeploy()
+    except JambuError as exc:
+        handle(exc)
+        return
+    _print_connection(context, engine, state)
 
 
 def offers_command(

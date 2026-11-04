@@ -218,6 +218,11 @@ class VllmRuntime(ModelRuntime):
             f">> {LOG_PATH} 2>&1 & echo $! > {PID_PATH}"
         )
 
+    def routes(self) -> list[str]:
+        from ..serve import VLLM_ROUTES
+
+        return list(VLLM_ROUTES)
+
     def activity_probe(self) -> dict:
         # The watchdog runs in the same container, so loopback reaches vLLM
         # without the public port. /metrics is served even with --api-key.

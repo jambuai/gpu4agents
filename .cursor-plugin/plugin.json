@@ -1,7 +1,7 @@
 {
   "name": "gpu4agents",
   "description": "Your agent rents the GPU it needs, serves a model on it and runs the experiment. You pay only while it works.",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "author": {
     "name": "João Gabriel Lima"
   },

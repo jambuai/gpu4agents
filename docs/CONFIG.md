@@ -92,11 +92,12 @@ which source each number comes from.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `id` | *required* | HuggingFace repo id. |
+| `id` | *required* | HuggingFace repo id. Optional with `runtime.engine: none` or `custom`. |
 | `revision` | – | Pin a commit/branch/tag. |
 | `hf_token_env` | `HF_TOKEN` | Env var holding the HF token for gated models. |
 | `trust_remote_code` | `false` | Pass `--trust-remote-code` to the runtime. |
 | `served_name` | – | Name the model is served under (`--served-model-name`). |
+| `task` | `auto` | With `runtime.engine: hf`: `chat`, `embeddings`, `image`, `transcription`, `speech` or `pipeline`, which picks the OpenAI routes ([SERVING.md](../SERVING.md)). `auto` reads the model card's `pipeline_tag` when the server starts; `gpu init` writes the card's answer. |
 
 ## `runtime`
 
@@ -104,7 +105,7 @@ How the model runs. Independent from where it runs.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `engine` | `vllm` | `vllm` or `none` (bare compute, start nothing). |
+| `engine` | `vllm` | `vllm` (chat models), `hf` (any other Hugging Face model, gpu's own OpenAI-compatible server), `custom` (a server you write, in `service_dir`) or `none` (bare compute for jobs, start nothing). `hf` and `custom` are deployed after boot: changing the model or the server code redeploys on the same machine at the next `gpu setup`. See [SERVING.md](../SERVING.md). |
 | `port` | `8000` | Container port the server listens on; published publicly. |
 | `context_length` | `16384` | `--max-model-len`. |
 | `dtype` | `auto` | vLLM dtype. |
@@ -116,6 +117,8 @@ How the model runs. Independent from where it runs.
 | `tool_calling` | `auto` | `auto` guesses `--tool-call-parser` from `model.id` and turns tool calling on if recognized; `on` requires a resolvable parser (fails `validate` otherwise); `off` never passes tool-calling flags. |
 | `tool_call_parser` | – | Explicit vLLM parser name, overrides the guess. See [vLLM's tool calling docs](https://docs.vllm.ai/en/latest/features/tool_calling/) for the current list (`hermes`, `llama3_json`, `llama4_pythonic`, `mistral`, `granite`, `qwen3_xml`, `deepseek_v3`, ...). |
 | `tool_server` | – | MCP server URL (or `demo`). vLLM routes `/v1/responses` tool calls to it and runs them server-side. Leave unset to let the calling agent framework execute tools itself. |
+| `packages` | `[]` | `hf`: extra pip packages the model needs, installed before it loads. Pin them. |
+| `service_dir` | `server` | `custom`: the directory holding your server and its `gpujob.yaml`, relative to the project. |
 
 `gpu inspect-model <repo>` also suggests `dtype`, `context_length` and
 `tool_calling` for a given model. See

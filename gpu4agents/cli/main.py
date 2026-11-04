@@ -66,6 +66,7 @@ app.add_typer(providers.providers_app, name="providers")
 app.command("validate")(validate.validate_command)
 app.command("offers")(setup.offers_command)
 app.command("setup")(setup.setup_command)
+app.command("redeploy")(setup.redeploy_command)
 app.command(
     "run",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},

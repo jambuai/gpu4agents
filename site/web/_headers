@@ -11,6 +11,9 @@
 /providers.md
   Content-Type: text/markdown; charset=utf-8
   Cache-Control: public, max-age=300
+/serving.md
+  Content-Type: text/markdown; charset=utf-8
+  Cache-Control: public, max-age=300
 /jobs.md
   Content-Type: text/markdown; charset=utf-8
   Cache-Control: public, max-age=300

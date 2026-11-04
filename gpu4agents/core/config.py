@@ -35,6 +35,12 @@ from .durations import parse_duration
 from .errors import ConfigError
 from .paths import project_state_dir
 
+# Engines whose model server runs as a service job (serve/), not from the
+# boot script: changing the model or the server code redeploys it on the same
+# machine instead of renting a new one.
+SERVICE_ENGINES = ("hf", "custom")
+MODEL_TASKS = ("auto", "chat", "embeddings", "image", "transcription", "speech", "pipeline")
+
 # jambu.yaml (namespaced, shared with other Jambu Lab tools) is searched
 # first; config.yml (flat, gpu-runtime-only) is the legacy fallback.
 CONFIG_FILENAMES = ("jambu.yaml", "jambu.yml", "config.yml", "config.yaml")
@@ -122,10 +128,23 @@ class ModelConfig(_Base):
     hf_token_env: Optional[str] = "HF_TOKEN"
     trust_remote_code: bool = False
     served_name: Optional[str] = None
+    # What the model does, which picks the OpenAI routes the hf engine serves
+    # (serve/hf/server.py). auto: the model card's pipeline_tag.
+    task: str = "auto"
+
+    @field_validator("task")
+    @classmethod
+    def _known_task(cls, v: str) -> str:
+        if v not in MODEL_TASKS:
+            raise ValueError(f"model.task must be one of {', '.join(MODEL_TASKS)}")
+        return v
 
 
 class RuntimeConfigSection(_Base):
-    engine: Literal["vllm", "none"] = "vllm"
+    # vllm: chat models. hf: any other Hugging Face model (images, speech,
+    # transcription, embeddings, any pipeline). custom: a server the agent
+    # writes (runtime.service_dir, SERVING.md). none: bare machine for jobs.
+    engine: Literal["vllm", "hf", "custom", "none"] = "vllm"
     port: int = 8000
     context_length: Optional[int] = 16384
     dtype: str = "auto"
@@ -173,6 +192,13 @@ class RuntimeConfigSection(_Base):
     # (a URL, or "demo" for vLLM's bundled demo server). Leave unset to let
     # the calling agent frameworks execute their own tools client-side.
     tool_server: Optional[str] = None
+
+    # hf: pip packages the model needs beyond the task's defaults (a model
+    # card that says `pip install kokoro`, for instance).
+    packages: list[str] = Field(default_factory=list)
+    # custom: the directory holding the server (gpujob.yaml + code), relative
+    # to the project.
+    service_dir: Optional[str] = None
 
 
 class LockConfig(_Base):
@@ -288,12 +314,16 @@ class RuntimeConfig(_Base):
 
     @model_validator(mode="after")
     def _model_when_serving(self) -> "RuntimeConfig":
-        if self.runtime.engine != "none" and not self.model.id:
+        if self.runtime.engine not in ("none", "custom") and not self.model.id:
             raise ValueError(
                 f"model.id is required with runtime.engine: {self.runtime.engine} "
                 "(use runtime.engine: none for a machine that only runs jobs)"
             )
         return self
+
+    @property
+    def serves_as_service(self) -> bool:
+        return self.runtime.engine in SERVICE_ENGINES
 
     # -- convenience accessors, all in seconds ------------------------------
 
@@ -398,6 +428,13 @@ class RuntimeConfig(_Base):
                 "extra_args": self.runtime.extra_args,
             },
         }
+        if self.serves_as_service:
+            # The model and the server are deployed after boot (see
+            # SERVICE_ENGINES), so they are not part of the machine's identity.
+            material["model"] = None
+            material["runtime"] = {
+                key: material["runtime"][key] for key in ("engine", "port", "api_key")
+            }
         blob = json.dumps(material, sort_keys=True, default=str).encode()
         return hashlib.sha256(blob).hexdigest()[:16]
 
@@ -641,6 +678,105 @@ gpu_runtime:
     watchdog:
       enabled: true
       port: 8777
+
+  budget:
+    max_hourly_cost_usd: 1.00
+    max_session_cost_usd: 5.00
+"""
+
+# Any non-chat Hugging Face model behind OpenAI routes (`gpu init --model X`
+# when the model card says image, speech, transcription, embeddings, ...).
+SERVE_CONFIG_TEMPLATE = """\
+# jambu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
+# the gpu_runtime: key below.
+gpu_runtime:
+  version: 1
+
+  provider:
+    name: vast
+    profile: default
+
+  compute:
+    gpu:
+      min_vram_gb: {min_vram_gb}
+      count: 1
+    disk_gb: 80
+    image: pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
+
+  model:
+    id: {model_id}
+    # {task_note}
+    task: {task}
+
+  runtime:
+    # gpu's OpenAI-compatible server for Hugging Face models (SERVING.md).
+    engine: hf
+    port: 8000
+    # Extra pip packages the model card asks for:
+    packages: []
+
+  lifecycle:
+    max_lifetime: 6h
+    idle_timeout: 15m
+    stopped_ttl: 24h
+    auto_stop: true
+    auto_destroy: false
+    traffic_counts_as_activity: true
+    watchdog:
+      enabled: true
+      port: 8777
+
+  health:
+    # Installing the libraries and downloading the weights both happen here.
+    startup_timeout: 30m
+
+  budget:
+    max_hourly_cost_usd: 1.00
+    max_session_cost_usd: 5.00
+"""
+
+# A model server the agent writes itself (`gpu init --engine custom`).
+CUSTOM_CONFIG_TEMPLATE = """\
+# jambu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
+# the gpu_runtime: key below.
+gpu_runtime:
+  version: 1
+
+  provider:
+    name: vast
+    profile: default
+
+  compute:
+    gpu:
+      min_vram_gb: {min_vram_gb}
+      count: 1
+    disk_gb: 80
+    image: pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
+
+  model:
+    # Passed to the server as JAMBU_MODEL_ID (optional).
+    id: {model_id}
+
+  runtime:
+    # Your own server, in {service_dir}/ (gpujob.yaml + code). Contract:
+    # https://gpu4agents.jambu.ai/serving.md
+    engine: custom
+    service_dir: {service_dir}
+    port: 8000
+
+  lifecycle:
+    max_lifetime: 6h
+    idle_timeout: 15m
+    stopped_ttl: 24h
+    auto_stop: true
+    auto_destroy: false
+    traffic_counts_as_activity: true
+    watchdog:
+      enabled: true
+      port: 8777
+
+  health:
+    startup_timeout: 30m
 
   budget:
     max_hourly_cost_usd: 1.00
