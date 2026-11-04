@@ -389,7 +389,7 @@ def test_the_boot_script_reconstitutes_the_agent_byte_for_byte(tmp_path):
         written = root / "etc" / "watchdog.json"
         assert json.loads(written.read_text()) == {"token": "t", "port": 8777}
         assert written.stat().st_mode & 0o777 == 0o600
-        assert not list((root / "etc").glob("*.b64"))
+        assert not list((root / "etc").glob("*.b85"))
     finally:
         kill_supervisor(root)
 

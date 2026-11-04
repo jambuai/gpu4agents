@@ -505,8 +505,8 @@ def test_the_watchdog_learns_the_runtimes_pid_and_log(engine, monkeypatch):
     import zlib
 
     script = engine._build_onstart("t" * 43)
-    blob = re.search(r"echo (\S+) > /etc/jambu/watchdog.json.b64", script).group(1)
-    config = json.loads(zlib.decompress(base64.b64decode(blob)))
+    blob = re.search(r"echo '(\S+)' > /etc/jambu/watchdog.json.b85", script).group(1)
+    config = json.loads(zlib.decompress(base64.b85decode(blob)))
     assert config["runtime_pid_path"] == "/var/run/jambu/vllm.pid"
     assert config["logs"] == {
         "runtime": "/var/log/jambu/vllm.log",
@@ -842,8 +842,8 @@ def test_the_remote_startup_grace_covers_the_boot_and_the_model_server(write_con
 
     def grace(**health):
         script = _engine(write_config, health=health)._build_onstart("t" * 43)
-        blob = re.search(r"echo (\S+) > /etc/jambu/watchdog.json.b64", script).group(1)
-        return json.loads(zlib.decompress(base64.b64decode(blob)))["startup_grace_s"]
+        blob = re.search(r"echo '(\S+)' > /etc/jambu/watchdog.json.b85", script).group(1)
+        return json.loads(zlib.decompress(base64.b85decode(blob)))["startup_grace_s"]
 
     assert grace() == 30 * 60 + 10 * 60 + 300  # boot_timeout 30m by default
     assert grace(boot_timeout="20m", startup_timeout="5m") == 20 * 60 + 5 * 60 + 300

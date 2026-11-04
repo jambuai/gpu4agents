@@ -90,6 +90,24 @@ gpu login --check             # which account gpu finds, and its balance
 
 Restart the agent and ask for an experiment. See [Letting a coding agent rent GPUs](docs/AGENTS.md).
 
+## Run your own code on the GPU
+
+Serving a model is one use. A **job** is any program: training a LoRA, generating images or audio with an open model, a batch over a dataset, a CUDA benchmark. The agent writes the code in a directory, and `gpu` uploads it, runs it on the rented machine, streams the log and brings back whatever it wrote to `$JAMBU_OUTPUT_DIR`. The machine stays up while the job runs and stops by itself after it ends.
+
+```bash
+gpu init --jobs --min-vram-gb 24          # a machine that runs jobs, no model server
+gpu job run -- python train.py --epochs 3 # upload, run, follow, download to gpu-outputs/<job id>/
+gpu job status                            # state, exit code, time, cost
+```
+
+To have the agent write one, paste:
+
+```text
+Write this as a GPU for Agents job and run it. Fetch https://gpu4agents.jambu.ai/jobs.md with curl and follow its contract.
+```
+
+[JOBS.md](JOBS.md) has the contract: the directory, `gpujob.yaml`, the environment a job gets, and the rules its code follows.
+
 ## Use any GPU provider
 
 `gpu` talks to providers through a small contract: find offers, rent, report status, stop, destroy, and two calls the watchdog makes from the machine to shut itself down. Vast.ai ships with it. For anything else, such as RunPod, Lambda or your company's cluster, paste this into your agent:
@@ -145,6 +163,7 @@ A full example is [`jambu.example.yaml`](jambu.example.yaml). `gpu ls` shows eve
 
 - [Letting a coding agent rent GPUs (Claude Code, Codex, Gemini CLI, Cursor, Claude Desktop)](docs/AGENTS.md)
 - [Integrating into an application (any language)](docs/INTEGRATION.md)
+- [Running your own code as a job](JOBS.md)
 - [Commands, workloads, and agents](docs/USAGE.md)
 - [Every config field](docs/CONFIG.md)
 - [Choosing a model](docs/CHOOSING_A_MODEL.md)

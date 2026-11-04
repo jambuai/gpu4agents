@@ -134,6 +134,9 @@ class BootingProvider(FakeProvider):
                 "JAMBU_WATCHDOG_CONFIG": str(self.root / "etc" / "watchdog.json"),
                 "JAMBU_WATCHDOG_STATE": str(self.root / "lib" / "activity.json"),
                 "JAMBU_WATCHDOG_EVENTS": str(self.root / "log" / "events.jsonl"),
+                "JAMBU_WATCHDOG_EXT": str(self.root / "opt" / "ext"),
+                "JAMBU_JOBS_DIR": str(self.root / "jobs"),
+                "JAMBU_JOB_HEARTBEAT_S": "0.5",
             }
         )
         subprocess.run(
@@ -287,3 +290,71 @@ def test_a_runtime_that_never_becomes_healthy_is_cleaned_up(booted):
     assert engine.store.load().instance_id is None, "partial resources must be cleaned up"
     events = [record["event"] for record in engine.events.tail(limit=50)]
     assert "setup_failed" in events
+
+
+@pytest.fixture
+def bare(write_config, tmp_path):
+    """A jobs-only machine (runtime.engine: none), booted from the real script."""
+    watchdog_port = free_port()
+    config = write_config(
+        model={"id": ""},
+        runtime={"engine": "none"},
+        lifecycle={
+            "idle_timeout": "6s",
+            "max_lifetime": "1h",
+            "heartbeat_grace": "5s",
+            "watchdog": {"enabled": True, "port": watchdog_port, "interval": "1s"},
+        },
+    )
+    root = tmp_path / "instance"
+    root.mkdir()
+    marker = tmp_path / "marker.json"
+    provider = BootingProvider(config, CredentialResolver(config.project_dir), root, marker, free_port())
+    engine = Engine(config, provider=provider)
+    yield engine, provider, marker
+    provider.kill_watchdog()
+
+
+def test_a_job_runs_on_the_machine_outlives_the_idle_timeout_and_comes_back(bare, tmp_path):
+    engine, provider, marker = bare
+    code = tmp_path / "proj"
+    code.mkdir()
+    (code / "gpujob.yaml").write_text("run: python3 train.py\nsetup: echo setup-ran\nenv: {STEPS: '3'}\n")
+    (code / "train.py").write_text(
+        "import os, time, pathlib\n"
+        "out = pathlib.Path(os.environ['JAMBU_OUTPUT_DIR'])\n"
+        "for i in range(int(os.environ['STEPS'])):\n"
+        "    print('step', i, flush=True); time.sleep(3)\n"
+        "(out / 'model.txt').write_text('trained')\n"
+    )
+    (code / ".env").write_text("SECRET=1")
+
+    record = engine.job_submit(code)
+    assert record["files"] == 2, ".env must stay home"
+    seen: list[str] = []
+    info = engine.job_follow(record["id"], seen.append, poll_s=0.5)
+
+    assert info["state"] == "succeeded"
+    assert not marker.exists(), "a 9 s job must hold a machine whose idle timeout is 6 s"
+    log = "".join(seen)
+    assert "setup-ran" in log and "step 2" in log
+
+    pulled = engine.job_pull(record["id"])
+    assert pulled["files"] == ["model.txt"]
+    assert (Path(pulled["outputs_dir"]) / "model.txt").read_text() == "trained"
+    assert [j["id"] for j in engine.job_list()] == [record["id"]]
+
+    deadline = time.time() + 30
+    while time.time() < deadline and not marker.exists():
+        time.sleep(0.5)
+    assert marker.exists(), "once the job is over, the idle machine stops itself"
+
+
+def test_a_bare_machine_is_not_held_by_the_startup_grace(bare):
+    engine, provider, marker = bare
+    state = engine.setup()
+    assert engine.beacon(state).state()["starting"] is False
+    deadline = time.time() + 30
+    while time.time() < deadline and not marker.exists():
+        time.sleep(0.5)
+    assert marker.exists(), "an unused bare machine must idle out, not wait out the boot grace"

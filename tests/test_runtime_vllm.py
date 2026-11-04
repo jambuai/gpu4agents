@@ -233,7 +233,7 @@ def test_a_runtime_without_liveness_declares_nothing(write_config):
     runtime = NoRuntime(write_config(runtime={"engine": "none"}))
     assert runtime.runtime_pid_path() is None
     assert runtime.runtime_log_path() is None
-    assert runtime.required_cuda() == 12.1  # pytorch/...-cuda12.1-...
+    assert runtime.required_cuda() == 12.8  # pytorch/...-cuda12.8-...
 
 
 def test_vast_published_vllm_images_carry_their_cuda(write_config):

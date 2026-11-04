@@ -116,7 +116,8 @@ class ComputeConfig(_Base):
 
 
 class ModelConfig(_Base):
-    id: str
+    # Required to serve a model; a jobs-only project (runtime.engine: none) has none.
+    id: str = ""
     revision: Optional[str] = None
     hf_token_env: Optional[str] = "HF_TOKEN"
     trust_remote_code: bool = False
@@ -266,7 +267,7 @@ class RuntimeConfig(_Base):
     version: int = 1
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
     compute: ComputeConfig = Field(default_factory=ComputeConfig)
-    model: ModelConfig
+    model: ModelConfig = Field(default_factory=ModelConfig)
     runtime: RuntimeConfigSection = Field(default_factory=RuntimeConfigSection)
     lifecycle: LifecycleConfig = Field(default_factory=LifecycleConfig)
     health: HealthConfig = Field(default_factory=HealthConfig)
@@ -284,6 +285,15 @@ class RuntimeConfig(_Base):
         if v != 1:
             raise ValueError(f"unsupported config version: {v} (expected 1)")
         return v
+
+    @model_validator(mode="after")
+    def _model_when_serving(self) -> "RuntimeConfig":
+        if self.runtime.engine != "none" and not self.model.id:
+            raise ValueError(
+                f"model.id is required with runtime.engine: {self.runtime.engine} "
+                "(use runtime.engine: none for a machine that only runs jobs)"
+            )
+        return self
 
     # -- convenience accessors, all in seconds ------------------------------
 
@@ -594,6 +604,43 @@ gpu_runtime:
     boot_timeout: 30m
     pull_stall_timeout: 10m
     startup_timeout: 10m
+
+  budget:
+    max_hourly_cost_usd: 1.00
+    max_session_cost_usd: 5.00
+"""
+
+# A machine that serves no model and only runs jobs (`gpu init --jobs`).
+JOBS_CONFIG_TEMPLATE = """\
+# jambu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
+# the gpu_runtime: key below.
+gpu_runtime:
+  version: 1
+
+  provider:
+    name: vast
+    profile: default
+
+  compute:
+    gpu:
+      min_vram_gb: {min_vram_gb}
+      count: 1
+    disk_gb: 80
+    # Jobs install what they need on top of this image (gpujob.yaml setup:).
+    image: pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
+
+  runtime:
+    engine: none
+
+  lifecycle:
+    max_lifetime: 6h
+    idle_timeout: 15m
+    stopped_ttl: 24h
+    auto_stop: true
+    auto_destroy: false
+    watchdog:
+      enabled: true
+      port: 8777
 
   budget:
     max_hourly_cost_usd: 1.00

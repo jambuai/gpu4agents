@@ -146,13 +146,16 @@ def build_agent_config(
     return config
 
 
-def _b64_gz_block(text: str, width: int = 76) -> str:
+def _b85_gz_block(text: str, width: int = 76) -> str:
     """Compressed, line-wrapped payload (``width=0``: one line).
 
-    The boot script travels inside a provider API field, so the ~29 KB agent is
-    deflated to ~9 KB and wrapped, instead of riding on one enormous line.
+    The boot script travels inside a provider API field, so the ~30 KB agent is
+    deflated to ~8 KB and wrapped, instead of riding on one enormous line.
+    Base85 rather than base64: a quarter of the overhead instead of a third,
+    and its alphabet has no quote or backslash, so it is safe in single quotes
+    and in a quoted heredoc.
     """
-    blob = base64.b64encode(zlib.compress(text.encode(), 9)).decode()
+    blob = base64.b85encode(zlib.compress(text.encode(), 9)).decode()
     if not width:
         return blob
     return "\n".join(blob[i : i + width] for i in range(0, len(blob), width))
@@ -190,7 +193,8 @@ def build_onstart_script(
         # so it is written under a 077 umask.
         decode = (
             "import base64,os,zlib;os.umask(0o77);"
-            f"[open(p,'wb').write(zlib.decompress(base64.b64decode(open(p+'.b64','rb').read())))"
+            "[open(p,'wb').write(zlib.decompress(base64.b85decode("
+            "open(p+'.b85','rb').read().replace(b'\\n',b''))))"
             f" for p in ({CONFIG_REMOTE_PATH!r},{AGENT_REMOTE_PATH!r})]"
         )
         config_json = json.dumps(agent_config, separators=(",", ":"))
@@ -216,12 +220,12 @@ def build_onstart_script(
             'if [ -z "$PYBIN" ]; then',
             '  echo "jambu: no python interpreter in this image; watchdog NOT installed"',
             "else",
-            f"  (umask 077; echo {_b64_gz_block(config_json, width=0)} > {CONFIG_REMOTE_PATH}.b64)",
-            f"  cat > {AGENT_REMOTE_PATH}.b64 <<'JAMBU_AGENT_EOF'",
-            _b64_gz_block(agent_source),
+            f"  (umask 077; echo '{_b85_gz_block(config_json, width=0)}' > {CONFIG_REMOTE_PATH}.b85)",
+            f"  cat > {AGENT_REMOTE_PATH}.b85 <<'JAMBU_AGENT_EOF'",
+            _b85_gz_block(agent_source),
             "JAMBU_AGENT_EOF",
             f'  "$PYBIN" -c {_shell_quote(decode)}',
-            f"  rm -f {CONFIG_REMOTE_PATH}.b64 {AGENT_REMOTE_PATH}.b64",
+            f"  rm -f {CONFIG_REMOTE_PATH}.b85 {AGENT_REMOTE_PATH}.b85",
             f"  chmod 600 {CONFIG_REMOTE_PATH}",
             f"  chmod 700 {AGENT_REMOTE_PATH}",
             # One id per container start: the agent tells a restart (new

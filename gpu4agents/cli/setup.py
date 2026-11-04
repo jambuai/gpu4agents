@@ -12,6 +12,7 @@ from ..core.config import (
     DEFAULT_CONFIG_TEMPLATE,
     DEFAULT_CONFIG_TEMPLATE_FLAT,
     CONFIG_FILENAMES,
+    JOBS_CONFIG_TEMPLATE,
 )
 from ..core.errors import JambuError
 from ._common import console, fmt_money, get_context, handle, print_json, register_project
@@ -25,6 +26,12 @@ def init_command(
         "--provider",
         help="GPU provider. One gpu does not ship is loaded from gpu_providers/NAME.py (gpu providers new NAME).",
     ),
+    jobs: bool = typer.Option(
+        False,
+        "--jobs",
+        help="A machine that serves no model and only runs `gpu job` (runtime.engine: none).",
+    ),
+    min_vram_gb: int = typer.Option(24, "--min-vram-gb", help="Minimum GPU memory to rent."),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing config file."),
     flat: bool = typer.Option(
         False,
@@ -49,12 +56,19 @@ def init_command(
         credential_names = []
     indent = "  " if flat else "    "
     provider_block = f"{indent}name: {provider}\n" + (f"{indent}plugin: {plugin}\n" if plugin else "")
+    if jobs and flat:
+        console.print(Text("! --jobs writes jambu.yaml; drop --flat", style="yellow"))
+        raise typer.Exit(2)
     if flat:
         target = Path.cwd() / "config.yml"
         content = DEFAULT_CONFIG_TEMPLATE_FLAT.format(model_id=model)
+    elif jobs:
+        target = Path.cwd() / CONFIG_FILENAMES[0]
+        content = JOBS_CONFIG_TEMPLATE.format(min_vram_gb=min_vram_gb)
     else:
         target = Path.cwd() / CONFIG_FILENAMES[0]  # jambu.yaml
         content = DEFAULT_CONFIG_TEMPLATE.format(model_id=model)
+    content = content.replace("min_vram_gb: 24\n", f"min_vram_gb: {min_vram_gb}\n", 1)
     content = content.replace(f"{indent}name: vast\n", provider_block, 1)
 
     if target.exists() and not force:
@@ -87,6 +101,8 @@ def init_command(
         )
     login = "gpu login" if provider == "vast" else f"gpu login --provider {provider}"
     console.print(f"next: {login} && gpu validate")
+    if jobs:
+        console.print("then: gpu job run -- python your_script.py   (see `gpu job --help`)")
 
 
 def setup_command(

@@ -13,7 +13,7 @@ from ..core.errors import JambuError
 from . import account
 from . import agent as agent_cli
 from . import inspect as inspect_cli
-from . import lifecycle, providers, run, setup, status, validate
+from . import job, lifecycle, providers, run, setup, status, validate
 from ._common import Context, err_console, get_context, print_json
 
 app = typer.Typer(
@@ -70,6 +70,7 @@ app.command(
     "run",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )(run.run_command)
+app.add_typer(job.job_app, name="job")
 app.command("status")(status.status_command)
 app.command("logs")(status.logs_command)
 app.command("events")(status.events_command)
