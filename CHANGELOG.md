@@ -2,6 +2,27 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-11-04
+
+### Added
+- **Jobs: your own code on the GPU.** `gpu job run` packs a directory, uploads it to the rented machine, runs a shell command there, streams the log and downloads whatever the job wrote to `$JAMBU_OUTPUT_DIR` into `gpu-outputs/<job id>/`. Use it for anything that needs CUDA and is not a request to a served model: training or fine-tuning, image, audio or video models, batches, benchmarks. `gpu job status | logs -f | pull | cancel | ls` follow it.
+- A running job counts as work: the watchdog on the machine heartbeats it, so the machine stays up with no laptop connected and becomes idle when the job ends. `max_lifetime` and the session budget still apply. Jobs survive a watchdog respawn; their exit code is written by the job's own shell.
+- `gpujob.yaml` next to the code declares `run`, `setup`, `env`, `timeout`, `exclude` and `label`. `.git`, virtualenvs, caches, `.env` files and earlier outputs never upload.
+- [`JOBS.md`](JOBS.md), served at `gpu4agents.jambu.ai/jobs.md`: the contract an agent follows to write a job.
+- `gpu init --jobs` writes a `jambu.yaml` for a machine that serves no model (`runtime.engine: none`, PyTorch 2.8 with CUDA 12.8). `model` is now optional when nothing is served. `--min-vram-gb` sets the GPU size.
+- MCP tools `gpu_job_run`, `gpu_job_status`, `gpu_job_pull` and `gpu_job_cancel`.
+- The watchdog loads extensions the CLI uploads once the machine is up (`POST /extend`), so the boot script stays under Vast.ai's 16 KB limit. The job runner is the first one.
+
+### Changed
+- The boot payload is base85 instead of base64, about 700 bytes smaller.
+- The default image for `runtime.engine: none` is `pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime` (was 2.4.0 with CUDA 12.1).
+
+### Fixed
+- A machine with `runtime.engine: none` stayed in "starting" until the boot grace ran out (about 45 minutes), so an unused one could not idle out sooner.
+
+### Upgrading
+- Machines rented by an earlier version have a watchdog that cannot load the job runner. `gpu job run` says so; `gpu setup --recreate` replaces the machine.
+
 ## [0.7.0] - 2026-11-02
 
 ### Added

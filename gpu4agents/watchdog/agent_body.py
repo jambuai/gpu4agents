@@ -19,6 +19,13 @@ Contract with the CLI (all routes require ``X-Jambu-Token``):
     POST /lock                -> {ttl_seconds|until|null}
     POST /unlock
     POST /shutdown            -> {action: stop|destroy, reason}
+    POST /extend              -> {name, source}: load more routes (see below)
+
+Extensions: the boot script rides in a size-capped provider field, so features
+the CLI needs only later (the job runner) are uploaded once the machine is up.
+``/extend`` saves the source under EXT_DIR and runs it in this module's
+globals; it registers a route handler in EXT_ROUTES. Saved extensions are
+loaded again when the supervisor respawns the agent.
 
 Sessions: the boot script exports ``JAMBU_SESSION_STARTED_AT`` once per
 container start. A value different from the stored one means the instance was
@@ -41,6 +48,8 @@ if "evaluate" not in globals():  # pragma: no cover - only in standalone import
         evaluate,
     )
 
+import base64
+import hashlib
 import hmac
 import json
 import math
@@ -50,12 +59,14 @@ import threading
 import time
 import traceback
 import urllib.request
+import zlib
 from urllib.parse import parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CONFIG_PATH = os.environ.get("JAMBU_WATCHDOG_CONFIG", "/etc/jambu/watchdog.json")
 STATE_PATH = os.environ.get("JAMBU_WATCHDOG_STATE", "/var/lib/jambu/activity.json")
 EVENTS_PATH = os.environ.get("JAMBU_WATCHDOG_EVENTS", "/var/log/jambu/events.jsonl")
+EXT_DIR = os.environ.get("JAMBU_WATCHDOG_EXT", "/opt/jambu/ext")
 
 _LOCK = threading.RLock()
 _STATE = {}
@@ -64,6 +75,10 @@ _STOPPED = threading.Event()
 # Serializes provider calls; the guard loop and /shutdown may race.
 _ACTION_LOCK = threading.Lock()
 _PROBE = {}
+# name -> handler(request, method, path, body) returning True when it answered.
+EXT_ROUTES = {}
+# name -> digest of the loaded source, so the CLI uploads only what changed.
+_EXT = {}
 
 # Seconds of continuously failing stops before giving up on the disk and
 # destroying (config key escalate_after_s). Long enough to ride out a provider
@@ -633,6 +648,50 @@ def probe_payload():
 
 
 # --------------------------------------------------------------------------
+# extensions
+# --------------------------------------------------------------------------
+
+
+def load_extension(name, source):
+    exec(compile(source, "<extension %s>" % name, "exec"), globals())
+    _EXT[name] = hashlib.sha256(source.encode()).hexdigest()[:16]
+    log_event("extension_loaded", name=name, digest=_EXT[name])
+
+
+def load_saved_extensions():
+    try:
+        names = sorted(os.listdir(EXT_DIR))
+    except OSError:
+        return
+    for filename in names:
+        if not filename.endswith(".py"):
+            continue
+        try:
+            with open(os.path.join(EXT_DIR, filename)) as handle:
+                load_extension(filename[:-3], handle.read())
+        except Exception as exc:  # noqa: BLE001 - a bad extension must not kill the guard
+            log_event("extension_error", name=filename, error=str(exc))
+
+
+def extend(body):
+    name = str(body.get("name") or "")
+    if not name.isidentifier():
+        return 400, {"error": "bad extension name"}
+    source = zlib.decompress(base64.b64decode(body.get("source") or "")).decode()
+    os.makedirs(EXT_DIR, exist_ok=True)
+    _atomic_write(os.path.join(EXT_DIR, name + ".py"), source)
+    load_extension(name, source)
+    return 200, {"ok": True, "extensions": dict(_EXT)}
+
+
+def _ext_route(request, method, path, body=None):
+    for handler in list(EXT_ROUTES.values()):
+        if handler(request, method, path, body):
+            return True
+    return False
+
+
+# --------------------------------------------------------------------------
 # HTTP control surface
 # --------------------------------------------------------------------------
 
@@ -713,13 +772,30 @@ class Handler(BaseHTTPRequestHandler):
             count = max(0, min(count, LOG_LINES_MAX))
             self._reply(200, {"name": name, "lines": tail_lines(target, count)})
             return
+        if self._extended("GET", path):
+            return
         self._reply(404, {"error": "not found"})
+
+    def do_PUT(self):  # noqa: N802
+        path = self.path.split("?")[0].rstrip("/") or "/"
+        if self._authorized() and not self._extended("PUT", path):
+            self._reply(404, {"error": "not found"})
+
+    def _extended(self, method, path, body=None):
+        try:
+            return _ext_route(self, method, path, body)
+        except Exception as exc:  # noqa: BLE001
+            log_event("watchdog_error", route=path, error=str(exc))
+            self._reply(500, {"error": str(exc)})
+            return True
 
     def do_POST(self):  # noqa: N802
         path = self.path.split("?")[0].rstrip("/") or "/"
         if not self._authorized():
             return
         body = self._payload()
+        if self._extended("POST", path, body):
+            return
         try:
             self._reply(*dispatch(path, body))
         except Exception as exc:  # noqa: BLE001
@@ -748,6 +824,7 @@ def state_payload():
             "stop_failures": int(_STATE.get("stop_failures") or 0),
             "pending_shutdown": _STATE.get("pending_shutdown"),
             "last_probe": probe_payload(),
+            "extensions": dict(_EXT),
             "state": derive_state(snap, cfg),
             "idle_seconds": round(snap.idle_seconds(cfg), 1),
             "age_seconds": round(snap.age_seconds(), 1),
@@ -892,6 +969,9 @@ def dispatch(path, body):
         log_event("instance_unlocked", reason=body.get("reason", "manual"))
         return 200, {"ok": True}
 
+    if path == "/extend":
+        return extend(body)
+
     if path == "/shutdown":
         action = body.get("action") or ACTION_STOP
         reason = body.get("reason") or "manual"
@@ -932,6 +1012,7 @@ def main():
 
     _STATE = load_state()
     save_state()
+    load_saved_extensions()
 
     port = int(_CONFIG.get("port") or 8777)
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)

@@ -146,13 +146,26 @@ class ModelRuntime(ABC):
 
 
 class NoRuntime(ModelRuntime):
-    """`runtime.engine: none` - provision bare compute, start nothing."""
+    """`runtime.engine: none` - provision bare compute, start nothing.
+
+    The machine for `gpu job`: the job brings its own code and installs what
+    it needs on top of this image (CUDA 12.8 runs every current GPU,
+    Blackwell included).
+    """
 
     engine = "none"
-    default_image = "pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime"
+    default_image = "pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime"
 
     def ports(self) -> list[int]:
         return []
+
+    def required_compute_cap(self) -> Optional[float]:
+        # PyTorch's CUDA 12.8+ wheels ship kernels for Turing (7.5) and newer
+        # only: on a Pascal or Volta card the job dies with "no kernel image".
+        cuda = self.required_cuda()
+        if image_repo(self.image()) == "pytorch/pytorch" and cuda is not None and cuda >= 12.8:
+            return 7.5
+        return None
 
     def start_command(self) -> str:
         return "true"

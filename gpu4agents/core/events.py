@@ -36,6 +36,10 @@ CLEANUP_PERFORMED = "cleanup_performed"
 BUDGET_REJECTED = "budget_rejected"
 # A machine failed to boot; setup rents another one.
 HOST_FAILED = "host_failed"
+# A job (code run on the machine itself) was submitted, ended, or brought back.
+JOB_SUBMITTED = "job_submitted"
+JOB_FINISHED = "job_finished"
+JOB_OUTPUTS_PULLED = "job_outputs_pulled"
 
 
 class EventLog:

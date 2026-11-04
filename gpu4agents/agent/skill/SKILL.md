@@ -1,11 +1,11 @@
 ---
 name: gpu4agents
-description: GPU for Agents. Rent a cloud GPU on your own, serve an open-weights model on it behind an OpenAI-compatible API, run experiments or evals, monitor cost and idle time, and shut it down so the user pays only while it works. Works with Vast.ai out of the box and with any other GPU provider through an adapter you can write. Use when the user wants to run, test, benchmark or compare a HuggingFace model (Qwen, Llama, Mistral, ...) on a GPU, needs an LLM endpoint for an experiment, asks what GPUs are running or what they cost, wants to use a specific GPU provider, or asks to install or set up GPU for Agents (gpu4agents, the `gpu` command).
+description: GPU for Agents. Rent a cloud GPU on your own, serve an open-weights model on it behind an OpenAI-compatible API, run experiments or evals, run its own code on the GPU as a job (training, fine-tuning, image/audio/video models, anything that needs CUDA) and bring the outputs back, monitor cost and idle time, and shut it down so the user pays only while it works. Works with Vast.ai out of the box and with any other GPU provider through an adapter you can write. Use when the user wants to run, test, benchmark or compare a HuggingFace model (Qwen, Llama, Mistral, ...) on a GPU, needs an LLM endpoint for an experiment, needs a GPU for code it writes (train a LoRA, generate images or audio, run a CUDA benchmark), asks what GPUs are running or what they cost, wants to use a specific GPU provider, or asks to install or set up GPU for Agents (gpu4agents, the `gpu` command).
 ---
 
 # GPU for Agents
 
-`gpu` (the `gpu4agents` package) rents a machine from a GPU provider, serves a model on it with vLLM behind an OpenAI-compatible API, and installs a watchdog on the machine. The watchdog shuts the machine down once nothing has used it for `idle_timeout` (15 min by default), so billing ends even if this conversation does.
+`gpu` (the `gpu4agents` package) rents a machine from a GPU provider, serves a model on it with vLLM behind an OpenAI-compatible API or runs your own code on it as a job, and installs a watchdog on the machine. The watchdog shuts the machine down once nothing has used it for `idle_timeout` (15 min by default), so billing ends even if this conversation does.
 
 Vast.ai is built in. Any other provider (RunPod, Lambda, a company cluster) plugs in through an adapter: one Python file that implements the provider contract. See "Another provider" below.
 
@@ -17,7 +17,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.7.0 or later. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.8.0 or later. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>
@@ -69,6 +69,10 @@ This writes this skill and registers the `gpu` MCP server for that agent. The to
 | keep up through a quiet stretch | `gpu_lock` / `gpu_unlock` | `gpu lock --for 2h` / `gpu unlock` |
 | stop (keep disk) | `gpu_stop` | `gpu --json stop` |
 | delete | `gpu_destroy(confirm=true)` | `gpu --json destroy --yes` |
+| run your code on the GPU | `gpu_job_run(command, dir)` | `gpu job run -- CMD` |
+| job state, log, cost | `gpu_job_status(job_id)` | `gpu job status`, `gpu job logs -f` |
+| download job outputs | `gpu_job_pull(job_id)` | `gpu job pull` |
+| stop a job | `gpu_job_cancel(job_id)` | `gpu job cancel` |
 | everything billing in the account | `gpu_ls` | `gpu --json ls` |
 | providers and what each can do | | `gpu --json providers` |
 
@@ -88,6 +92,16 @@ This writes this skill and registers the `gpu` MCP server for that agent. The to
    - a script: `gpu_run(command=["python", "eval.py"])` (or `gpu run python eval.py`). The script gets `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `JAMBU_MODEL_ID` in its environment, which any OpenAI SDK reads, and the watchdog keeps the machine up while it runs. Write the script to read those variables instead of pasting the key into code.
    - single requests: `curl "$base_url/chat/completions" -H "Authorization: Bearer $api_key"` with `"model": model`. Every request counts as activity.
 5. Report results and cost (`gpu_status` has `session_cost_usd`), then rule 4.
+
+## Your own code on the GPU (jobs)
+
+When the work is code that needs a GPU, not requests to a model (training or fine-tuning, an image, audio or video model, a batch, a benchmark), run it as a job. The full contract is in https://gpu4agents.jambu.ai/jobs.md (copy in the repository: `JOBS.md`). In short:
+
+1. A machine that only runs jobs: `gpu init --jobs --min-vram-gb N`. A project serving a model can run jobs too; the job reaches the model on `OPENAI_BASE_URL`.
+2. Put the code in a directory with a `gpujob.yaml`: `run:` (the command), `setup:` (pinned installs), `env:`, `timeout:`, `exclude:`. `.git`, virtualenvs, `.env` files and `gpu-outputs/` never upload; the limit is 2 GB, so the job downloads large data itself.
+3. The code writes every result to `$JAMBU_OUTPUT_DIR` (checkpoints too, as it goes), prints progress, exits non-zero on failure and never prints secrets. `HF_HOME` is a cache on the machine.
+4. With the user's yes: `gpu job run` (uploads, runs, streams the log, downloads to `gpu-outputs/<job id>/`, exits with the job's code). Through MCP: `gpu_setup` until ready, `gpu_job_run`, `gpu_job_status` until the state is not `running`, `gpu_job_pull`.
+5. A running job keeps the machine up; `max_lifetime` and the budget still stop it. Pull outputs before `gpu destroy`, which deletes them.
 
 ## Another provider
 

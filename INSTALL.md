@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/jambuai/gpu4agents/main/install.sh 
 
 The script needs only `curl` (Linux or macOS; on Windows, run it inside WSL). It installs [uv](https://docs.astral.sh/uv/) if missing, uses it to install the `gpu4agents` package with a Python it downloads by itself, and then installs the skill and registers the `gpu` MCP server for your runtime. It does not ask for or read any key.
 
-Check: `~/.local/bin/gpu --version` prints 0.7.0 or later. Use `~/.local/bin/gpu` for the rest of this session if plain `gpu` is not found.
+Check: `~/.local/bin/gpu --version` prints 0.8.0 or later. Use `~/.local/bin/gpu` for the rest of this session if plain `gpu` is not found.
 
 ## 2. Connect a GPU provider account
 

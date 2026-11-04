@@ -81,7 +81,7 @@ def test_every_tool_has_a_valid_schema_and_annotations(tmp_path):
         assert schema["type"] == "object"
         assert "project_dir" in schema["properties"]
         assert set(schema.get("required", [])) <= set(schema["properties"])
-        assert re.fullmatch(r"gpu_[a-z]+", tool["name"])
+        assert re.fullmatch(r"gpu_[a-z]+(_[a-z]+)?", tool["name"])
     by_name = {t["name"]: t for t in tools}
     assert by_name["gpu_destroy"]["annotations"]["destructiveHint"] is True
     assert by_name["gpu_status"]["annotations"]["readOnlyHint"] is True
@@ -121,6 +121,18 @@ def test_a_subdirectory_finds_the_project_upwards(tmp_path, monkeypatch):
 def test_no_project_says_how_to_make_one(tmp_path):
     error, payload = _call(Server(project=tmp_path), "gpu_status")
     assert error and payload["exit_code"] == 2 and "gpu_init" in payload["next"]
+
+
+def test_a_job_needs_a_started_machine_and_never_rents_one(tmp_path, monkeypatch):
+    monkeypatch.setenv("VAST_API_KEY", "x")
+    server = Server(project=tmp_path)
+    _call(server, "gpu_init", model="org/m")
+    error, payload = _call(server, "gpu_job_run", command="python train.py")
+    assert error and payload["exit_code"] == 3
+    assert "gpu_setup" in payload["next"]
+
+    error, listing = _call(server, "gpu_job_status")
+    assert not error and listing == {"jobs": []}
 
 
 def test_destroy_requires_an_explicit_confirm(tmp_path):
@@ -430,6 +442,7 @@ def test_the_published_copies_of_the_skill_and_installer_match_the_sources():
         assert (site / "install.sh").read_text() == (root / "install.sh").read_text()
         assert (site / "install.md").read_text() == (root / "INSTALL.md").read_text()
         assert (site / "providers.md").read_text() == (root / "PROVIDERS.md").read_text()
+        assert (site / "jobs.md").read_text() == (root / "JOBS.md").read_text()
 
 
 def test_plugin_manifests_carry_the_package_version():

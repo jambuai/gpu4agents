@@ -74,6 +74,10 @@ Rules:
   explicit yes. Finish by checking gpu_ls for anything still running.
 - Never print or ask for the provider's API key; the user runs `gpu login`
   in a terminal. The endpoint api_key is per machine.
+- To run your own code on the GPU (training, image or audio models, anything
+  that needs CUDA), write it in a directory following
+  https://gpu4agents.jambu.ai/jobs.md, then gpu_setup, gpu_job_run,
+  gpu_job_status until it ends, and gpu_job_pull for the outputs.
 """
 
 
@@ -393,6 +397,51 @@ class Server:
             result["setup_cancelled"] = cancelled
         return result
 
+    def tool_job_run(self, args: dict[str, Any]) -> Any:
+        project_dir = self._project_dir(args)
+        argv = ["job", "run", "--detach", "--no-start"]
+        if args.get("dir"):
+            argv += ["--dir", str(Path(str(args["dir"])).expanduser())]
+        for key in ("setup", "timeout", "label"):
+            if args.get(key):
+                argv += [f"--{key}", str(args[key])]
+        for key, value in (args.get("env") or {}).items():
+            argv += ["--env", f"{key}={value}"]
+        if args.get("command"):
+            argv += ["--", str(args["command"])]
+        result = self.cli(argv, project_dir)
+        if result.returncode == 3:
+            error = result.error()
+            error["next"] = "start the machine first with gpu_setup (it costs money: ask the user), then call gpu_job_run again"
+            raise ToolError(error)
+        data = self._ok(result)
+        data["next"] = "call gpu_job_status(job_id) to follow it; gpu_job_pull(job_id) once it ends"
+        return data
+
+    def tool_job_status(self, args: dict[str, Any]) -> Any:
+        project_dir = self._project_dir(args)
+        job_id = args.get("job_id")
+        if not job_id:
+            return self._ok(self.cli(["job", "ls"], project_dir))
+        info = self._ok(self.cli(["job", "status", str(job_id)], project_dir))
+        logs = self.cli(["job", "logs", str(job_id)], project_dir)
+        if logs.returncode == 0 and isinstance(logs.data, dict):
+            info["log_tail"] = _tail_text(logs.data.get("data") or "", int(args.get("log_chars") or OUTPUT_TAIL_CHARS))
+        if info.get("state") == "running":
+            info["next"] = "still running; call gpu_job_status again later (the machine stays up while it runs)"
+        else:
+            info["next"] = "gpu_job_pull(job_id) downloads the outputs; then offer gpu_stop"
+        return info
+
+    def tool_job_pull(self, args: dict[str, Any]) -> Any:
+        argv = ["job", "pull", str(args["job_id"])]
+        if args.get("dest"):
+            argv += ["--out", str(Path(str(args["dest"])).expanduser())]
+        return self._ok(self.cli(argv, self._project_dir(args)))
+
+    def tool_job_cancel(self, args: dict[str, Any]) -> Any:
+        return self._ok(self.cli(["job", "cancel", str(args["job_id"])], self._project_dir(args)))
+
     def tool_ls(self, args: dict[str, Any]) -> Any:
         start = self._start_dir(args)
         config = find_config(start)
@@ -497,6 +546,58 @@ class Server:
                 ),
                 self.tool_run,
                 {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
+            ),
+            Tool(
+                "gpu_job_run",
+                "Run code on the GPU",
+                "Upload a directory of code to the running GPU machine and start a shell command "
+                "there (training, image/audio/video models, anything needing CUDA). Returns job_id "
+                "at once; the job keeps the machine up while it runs. Files it writes to "
+                "$JAMBU_OUTPUT_DIR come back with gpu_job_pull. Needs a machine started with "
+                "gpu_setup. Contract: https://gpu4agents.jambu.ai/jobs.md",
+                _schema(
+                    {
+                        "dir": {"type": "string", "description": "Directory to upload (default: project_dir). gpujob.yaml there may declare run/setup/env/timeout."},
+                        "command": {"type": "string", "description": "Shell command, e.g. \"python train.py --epochs 3\". Default: run: in gpujob.yaml."},
+                        "setup": {"type": "string", "description": "Shell command run first, e.g. \"pip install -r requirements.txt\"."},
+                        "env": {"type": "object", "additionalProperties": {"type": "string"}},
+                        "timeout": {"type": "string", "description": "Kill the job after this long, e.g. 2h."},
+                        "label": {"type": "string"},
+                    }
+                ),
+                self.tool_job_run,
+                {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
+            ),
+            Tool(
+                "gpu_job_status",
+                "Job status and log",
+                "State (running, succeeded, failed, timeout, cancelled), exit code, run time, cost, "
+                "output files and the tail of the log of one job. Without job_id, lists this project's jobs.",
+                _schema(
+                    {
+                        "job_id": {"type": "string"},
+                        "log_chars": {"type": "integer", "minimum": 100, "maximum": 100000},
+                    }
+                ),
+                self.tool_job_status,
+                read_only,
+            ),
+            Tool(
+                "gpu_job_pull",
+                "Download job outputs",
+                "Download what a job wrote to $JAMBU_OUTPUT_DIR into gpu-outputs/<job_id>/ (or dest). "
+                "Works while the job still runs. Do it before gpu_destroy: the files live on the machine's disk.",
+                _schema({"job_id": {"type": "string"}, "dest": {"type": "string"}}, ["job_id"]),
+                self.tool_job_pull,
+                {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
+            ),
+            Tool(
+                "gpu_job_cancel",
+                "Cancel a job",
+                "Stop a running job (TERM, then KILL after 10 s). Outputs written so far stay.",
+                _schema({"job_id": {"type": "string"}}, ["job_id"]),
+                self.tool_job_cancel,
+                {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": True},
             ),
             Tool(
                 "gpu_logs",

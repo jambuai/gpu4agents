@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import re
 import secrets
+import tempfile
 import time
+from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
 from .. import watchdog as watchdog_pkg
@@ -39,6 +41,16 @@ from .errors import (
 from .events import EventLog
 from .execution import ExecutionManager, Heartbeat
 from .health import wait_for_healthy
+from .job import (
+    JobClient,
+    JobRecords,
+    LOG_POLL_S,
+    OUTPUTS_DIRNAME,
+    build_bundle,
+    load_manifest,
+    new_job_id,
+)
+from .durations import parse_duration
 from .models import (
     ComputeSpec,
     GpuSpec,
@@ -226,7 +238,7 @@ class Engine:
                 "compute.image",
             )
 
-        if cfg.model.hf_token_env and not self.credentials.get(cfg.model.hf_token_env):
+        if cfg.model.id and cfg.model.hf_token_env and not self.credentials.get(cfg.model.hf_token_env):
             result.warn(
                 f"{cfg.model.hf_token_env} is not set; gated models will fail to download",
                 "model.hf_token_env",
@@ -394,7 +406,7 @@ class Engine:
             ports=self._ports(),
             env=env,
             onstart=onstart,
-            label=f"{JAMBU_LABEL_PREFIX}{cfg.model.id.split('/')[-1][:24]}-{cfg.fingerprint()[:6]}",
+            label=f"{JAMBU_LABEL_PREFIX}{(cfg.model.id.split('/')[-1] or 'jobs')[:24]}-{cfg.fingerprint()[:6]}",
             spot=cfg.compute.spot,
             region=cfg.compute.region,
             max_hourly_cost_usd=cfg.budget.max_hourly_cost_usd,
@@ -780,6 +792,12 @@ class Engine:
 
             if self.config.runtime.engine != "none":
                 self._wait_runtime(state)
+            else:
+                # Nothing to wait for: end the watchdog's startup grace now, or
+                # an unused bare machine would bill until the grace expires.
+                client = self.beacon(state)
+                if client is not None:
+                    client.mark_ready()
 
             state.starting = False
             state.state = InstanceState.READY.value
@@ -1059,6 +1077,213 @@ class Engine:
                 f"workload exited with code {returncode}", returncode=returncode
             )
         return 0
+
+    # ------------------------------------------------------------------
+    # jobs: any program, run on the machine itself (core/job.py)
+    # ------------------------------------------------------------------
+
+    def _job_client(self, start: bool) -> tuple[RuntimeState, JobClient]:
+        """A ready machine with the current job runner loaded on its watchdog."""
+        if not self.config.lifecycle.watchdog.enabled:
+            raise ConfigError(
+                "jobs run through the machine's watchdog; set lifecycle.watchdog.enabled: true"
+            )
+        if start:
+            state = self.ensure_ready()
+        else:
+            state, _ = self._observe()
+            if not state.has_instance():
+                raise StateError("no machine for this project; `gpu setup` starts one")
+            if state.state == InstanceState.STOPPED.value:
+                raise StateError(
+                    f"instance {state.instance_id} is stopped; `gpu setup` restarts it "
+                    "(job files are on its disk)"
+                )
+        client = self.beacon(state)
+        if client is None:
+            raise StateError("the machine has no reachable watchdog; jobs cannot run on it")
+        jobs = JobClient(client)
+        jobs.ensure_runner()
+        return state, jobs
+
+    def job_env(self, state: RuntimeState) -> dict[str, str]:
+        """What a job gets besides its own env: the model, over loopback."""
+        env = {"JAMBU_PROVIDER": self.provider.name, "JAMBU_INSTANCE_ID": state.instance_id or ""}
+        if self.config.runtime.engine != "none" and self.runtime.ports():
+            port = self.config.runtime.port
+            env.update(
+                {
+                    "OPENAI_BASE_URL": f"http://127.0.0.1:{port}/v1",
+                    "OPENAI_API_KEY": self.api_key_for(state),
+                    "JAMBU_MODEL_ID": self.served_model(),
+                }
+            )
+        return env
+
+    def job_submit(
+        self,
+        directory: Path,
+        command: Optional[str] = None,
+        *,
+        setup: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
+        timeout: Optional[str] = None,
+        label: Optional[str] = None,
+        exclude: Sequence[str] = (),
+        start: bool = True,
+    ) -> dict[str, Any]:
+        """Pack ``directory``, upload it and start the job. Returns its record."""
+        directory = Path(directory).resolve()
+        if not directory.is_dir():
+            raise ConfigError(f"job directory not found: {directory}")
+        manifest = load_manifest(directory)
+        command = command or manifest.run
+        if not command:
+            raise ConfigError(
+                "nothing to run: pass a command (`gpu job run -- python train.py`) "
+                "or set run: in gpujob.yaml"
+            )
+        timeout = timeout or manifest.timeout
+        timeout_s = parse_duration(timeout) if timeout else None
+        merged_env = dict(manifest.env)
+        merged_env.update(env or {})
+
+        state, jobs = self._job_client(start)
+        job_id = new_job_id()
+        with tempfile.TemporaryDirectory(prefix="gpu-job-") as tmp:
+            bundle = Path(tmp) / "bundle.tar.gz"
+            packed = build_bundle(directory, list(manifest.exclude) + list(exclude), bundle)
+            self.echo(
+                f"> uploading {packed['files']} files ({packed['bytes'] / 1024**2:.1f} MB) as job {job_id}"
+            )
+            if packed["files"]:
+                jobs.upload(job_id, bundle)
+        payload = {
+            "command": command,
+            "setup": setup or manifest.setup,
+            "env": {**self.job_env(state), **merged_env},
+            "timeout_s": timeout_s,
+            "label": label or manifest.label or "",
+        }
+        started = jobs.start(job_id, payload)["job"]
+        record = JobRecords(self.store.dir).update(
+            job_id,
+            label=payload["label"],
+            command=command,
+            setup=payload["setup"],
+            directory=str(directory),
+            instance_id=state.instance_id,
+            hourly_cost_usd=state.hourly_cost_usd,
+            submitted_at=utc_now(),
+            state=started.get("state"),
+            files=packed["files"],
+            bundle_bytes=packed["bytes"],
+        )
+        self.events.emit(
+            ev.JOB_SUBMITTED,
+            job_id=job_id,
+            instance_id=state.instance_id,
+            label=payload["label"],
+            files=packed["files"],
+            bundle_bytes=packed["bytes"],
+        )
+        self.echo(f"+ job {job_id} running on instance {state.instance_id}")
+        return record
+
+    def _resolve_job(self, job_id: Optional[str]) -> str:
+        if job_id:
+            return job_id
+        latest = JobRecords(self.store.dir).latest()
+        if latest is None:
+            raise StateError("no jobs in this project yet; `gpu job run` starts one")
+        return str(latest["id"])
+
+    def _job_summary(self, info: dict[str, Any], state: RuntimeState) -> dict[str, Any]:
+        rate = state.hourly_cost_usd
+        if info.get("elapsed_s") is None and info.get("started_at"):
+            end = info.get("finished_at") or utc_now()
+            info["elapsed_s"] = round(float(end) - float(info["started_at"]), 1)
+        elapsed = info.get("elapsed_s")
+        info["cost_usd"] = round(rate * elapsed / 3600.0, 4) if rate and elapsed else None
+        return info
+
+    def job_info(self, job_id: Optional[str] = None) -> dict[str, Any]:
+        job_id = self._resolve_job(job_id)
+        state, jobs = self._job_client(start=False)
+        info = self._job_summary(jobs.info(job_id), state)
+        JobRecords(self.store.dir).update(
+            job_id, state=info.get("state"), returncode=info.get("returncode")
+        )
+        return info
+
+    def job_log(self, job_id: Optional[str] = None, offset: int = 0, limit: Optional[int] = None) -> dict[str, Any]:
+        job_id = self._resolve_job(job_id)
+        _, jobs = self._job_client(start=False)
+        data = jobs.log(job_id, offset, limit)
+        data["job_id"] = job_id
+        return data
+
+    def job_follow(
+        self,
+        job_id: str,
+        on_output: Callable[[str], None],
+        offset: int = 0,
+        poll_s: float = LOG_POLL_S,
+    ) -> dict[str, Any]:
+        """Stream the job's log until it ends; returns its final record."""
+        _, jobs = self._job_client(start=False)
+        while True:
+            chunk = jobs.log(job_id, offset)
+            if chunk.get("data"):
+                on_output(chunk["data"])
+            moved = chunk["offset"] != offset
+            offset = chunk["offset"]
+            if chunk.get("done") and not moved:
+                break
+            if not moved:
+                time.sleep(poll_s)
+        return self.job_finished(job_id)
+
+    def job_finished(self, job_id: str) -> dict[str, Any]:
+        info = self.job_info(job_id)
+        if info.get("state") != "running":
+            self.events.emit(
+                ev.JOB_FINISHED,
+                job_id=job_id,
+                state=info.get("state"),
+                returncode=info.get("returncode"),
+                elapsed_s=info.get("elapsed_s"),
+            )
+        return info
+
+    def job_pull(self, job_id: Optional[str] = None, dest: Optional[Path] = None) -> dict[str, Any]:
+        job_id = self._resolve_job(job_id)
+        _, jobs = self._job_client(start=False)
+        target = Path(dest) if dest else self.config.project_dir / OUTPUTS_DIRNAME / job_id
+        files = jobs.download_outputs(job_id, target)
+        JobRecords(self.store.dir).update(job_id, outputs_dir=str(target), outputs=len(files))
+        self.events.emit(ev.JOB_OUTPUTS_PULLED, job_id=job_id, files=len(files), dest=str(target))
+        return {"job_id": job_id, "outputs_dir": str(target), "files": files}
+
+    def job_cancel(self, job_id: Optional[str] = None) -> dict[str, Any]:
+        job_id = self._resolve_job(job_id)
+        _, jobs = self._job_client(start=False)
+        result = jobs.cancel(job_id)
+        result["job_id"] = job_id
+        return result
+
+    def job_list(self) -> list[dict[str, Any]]:
+        """This project's jobs: the machine's records, else the local ones."""
+        records = {r["id"]: r for r in JobRecords(self.store.dir).all()}
+        try:
+            state, jobs = self._job_client(start=False)
+            for remote in jobs.list():
+                merged = records.get(remote["id"], {})
+                merged.update(self._job_summary(dict(remote), state))
+                records[remote["id"]] = merged
+        except (StateError, WatchdogUnavailable):
+            pass
+        return sorted(records.values(), key=lambda r: r.get("submitted_at") or r.get("started_at") or 0)
 
     # ------------------------------------------------------------------
     # status (spec section 18)
