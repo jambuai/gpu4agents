@@ -103,7 +103,7 @@ def test_state_dir_sits_next_to_the_config(config):
     assert config.state_dir == config.source_path.parent / ".gpu"
 
 
-# -- jambu.yaml shared-manifest namespacing ----------------------------------
+# -- gpu.yaml shared-manifest namespacing ----------------------------------
 
 
 def test_legacy_flat_config_yml_still_works(write_flat_config):
@@ -117,14 +117,14 @@ def test_jambu_yaml_ignores_other_tools_top_level_keys(tmp_path):
         "some_other_jambu_tool": {"port": 4000, "unrelated": True},
         "gpu_runtime": BASE_CONFIG,
     }
-    path = tmp_path / "jambu.yaml"
+    path = tmp_path / "gpu.yaml"
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
     config = load_config(path)
     assert config.model.id == "empero-ai/Qwythos-9B-v2"
 
 
 def test_gpu_runtime_key_must_be_a_mapping(tmp_path):
-    path = tmp_path / "jambu.yaml"
+    path = tmp_path / "gpu.yaml"
     path.write_text(yaml.safe_dump({"gpu_runtime": "not-a-mapping"}))
     with pytest.raises(ConfigError) as exc:
         load_config(path)
@@ -133,29 +133,47 @@ def test_gpu_runtime_key_must_be_a_mapping(tmp_path):
 
 def test_a_bare_document_in_jambu_yaml_is_treated_as_flat(tmp_path):
     """No gpu_runtime: key at all -> the whole document is the config, same
-    rule as config.yml. Lets a solo project use the jambu.yaml filename
+    rule as config.yml. Lets a solo project use the gpu.yaml filename
     without the wrapper if it never needs to share the file.
     """
-    path = tmp_path / "jambu.yaml"
+    path = tmp_path / "gpu.yaml"
     path.write_text(yaml.safe_dump(BASE_CONFIG, sort_keys=False))
     config = load_config(path)
     assert config.model.id == "empero-ai/Qwythos-9B-v2"
 
 
-def test_jambu_yaml_is_preferred_over_legacy_config_yml(tmp_path):
+def test_gpu_yaml_is_preferred_over_legacy_config_yml(tmp_path):
     (tmp_path / "config.yml").write_text(
         yaml.safe_dump({**BASE_CONFIG, "model": {"id": "org/legacy"}})
     )
-    (tmp_path / "jambu.yaml").write_text(
+    (tmp_path / "gpu.yaml").write_text(
         yaml.safe_dump({"gpu_runtime": {**BASE_CONFIG, "model": {"id": "org/current"}}})
     )
     config = load_config(start=tmp_path)
     assert config.model.id == "org/current"
-    assert config.source_path.name == "jambu.yaml"
+    assert config.source_path.name == "gpu.yaml"
 
 
 def test_config_filenames_search_order_favors_the_shared_manifest():
-    assert CONFIG_FILENAMES.index("jambu.yaml") < CONFIG_FILENAMES.index("config.yml")
+    assert CONFIG_FILENAMES.index("gpu.yaml") < CONFIG_FILENAMES.index("config.yml")
+
+
+def test_a_project_with_the_old_jambu_yaml_still_loads(tmp_path):
+    (tmp_path / "jambu.yaml").write_text(yaml.safe_dump({"gpu_runtime": BASE_CONFIG}))
+    config = load_config(start=tmp_path)
+    assert config.source_path.name == "jambu.yaml"
+
+
+def test_gpu_yaml_wins_over_the_old_jambu_yaml(tmp_path):
+    (tmp_path / "jambu.yaml").write_text(
+        yaml.safe_dump({"gpu_runtime": {**BASE_CONFIG, "model": {"id": "org/old"}}})
+    )
+    (tmp_path / "gpu.yaml").write_text(
+        yaml.safe_dump({"gpu_runtime": {**BASE_CONFIG, "model": {"id": "org/new"}}})
+    )
+    config = load_config(start=tmp_path)
+    assert config.model.id == "org/new"
+    assert config.source_path.name == "gpu.yaml"
 
 
 def test_unquoted_yaml_on_off_are_accepted_for_tool_calling(tmp_path):
@@ -163,7 +181,7 @@ def test_unquoted_yaml_on_off_are_accepted_for_tool_calling(tmp_path):
     writing `tool_calling: on` unquoted must not get a confusing type error.
     """
     doc = {"gpu_runtime": {**BASE_CONFIG, "runtime": {"tool_calling": True}}}
-    path = tmp_path / "jambu.yaml"
+    path = tmp_path / "gpu.yaml"
     path.write_text(yaml.safe_dump(doc, sort_keys=False))
     assert load_config(path).runtime.tool_calling == "on"
 
@@ -177,7 +195,7 @@ def test_unquoted_yaml_on_off_are_accepted_for_tool_calling(tmp_path):
 
 
 def test_model_profile_merges_catalog_fragment_under_project_overrides(tmp_path):
-    (tmp_path / "jambu.models.yaml").write_text(
+    (tmp_path / "gpu.models.yaml").write_text(
         yaml.safe_dump(
             {
                 "qwythos-9b": {
@@ -190,7 +208,7 @@ def test_model_profile_merges_catalog_fragment_under_project_overrides(tmp_path)
     )
     project_dir = tmp_path / "project"
     project_dir.mkdir()
-    (project_dir / "jambu.yaml").write_text(
+    (project_dir / "gpu.yaml").write_text(
         yaml.safe_dump(
             {
                 "gpu_runtime": {
@@ -203,61 +221,61 @@ def test_model_profile_merges_catalog_fragment_under_project_overrides(tmp_path)
         )
     )
 
-    config = load_config(project_dir / "jambu.yaml")
+    config = load_config(project_dir / "gpu.yaml")
     assert config.model.id == "empero-ai/Qwythos-9B-v2"
     assert config.model.trust_remote_code is True
     assert config.compute.gpu.min_vram_gb == 48  # project override wins
     assert config.compute.gpu.name_filter == "A6000"  # from the profile, untouched
     assert config.runtime.tool_call_parser == "qwen3_xml"
     assert config.profile_name == "qwythos-9b"
-    assert config.catalog_path == (tmp_path / "jambu.models.yaml").resolve()
+    assert config.catalog_path == (tmp_path / "gpu.models.yaml").resolve()
 
 
 def test_catalog_is_shared_by_sub_projects(tmp_path):
     """One catalog at a repo root serves every sub-project under it - the
     whole point: stop duplicating full configs into every directory.
     """
-    (tmp_path / "jambu.models.yaml").write_text(
+    (tmp_path / "gpu.models.yaml").write_text(
         yaml.safe_dump({"m": {"model": {"id": "org/model"}}})
     )
     for sub in ("a", "b"):
         d = tmp_path / sub
         d.mkdir()
-        (d / "jambu.yaml").write_text(
+        (d / "gpu.yaml").write_text(
             yaml.safe_dump({"gpu_runtime": {"version": 1, "model_profile": "m"}})
         )
-    assert load_config(tmp_path / "a" / "jambu.yaml").model.id == "org/model"
-    assert load_config(tmp_path / "b" / "jambu.yaml").model.id == "org/model"
+    assert load_config(tmp_path / "a" / "gpu.yaml").model.id == "org/model"
+    assert load_config(tmp_path / "b" / "gpu.yaml").model.id == "org/model"
 
 
 def test_model_profile_without_a_catalog_is_a_clear_error(tmp_path):
-    (tmp_path / "jambu.yaml").write_text(
+    (tmp_path / "gpu.yaml").write_text(
         yaml.safe_dump({"gpu_runtime": {"version": 1, "model_profile": "nope"}})
     )
     with pytest.raises(ConfigError) as exc:
-        load_config(tmp_path / "jambu.yaml")
-    assert "jambu.models.yaml" in str(exc.value)
+        load_config(tmp_path / "gpu.yaml")
+    assert "gpu.models.yaml" in str(exc.value)
 
 
 def test_unknown_profile_name_lists_whats_available(tmp_path):
-    (tmp_path / "jambu.models.yaml").write_text(
+    (tmp_path / "gpu.models.yaml").write_text(
         yaml.safe_dump({"a": {"model": {"id": "x/y"}}, "b": {"model": {"id": "x/z"}}})
     )
-    (tmp_path / "jambu.yaml").write_text(
+    (tmp_path / "gpu.yaml").write_text(
         yaml.safe_dump({"gpu_runtime": {"version": 1, "model_profile": "c"}})
     )
     with pytest.raises(ConfigError) as exc:
-        load_config(tmp_path / "jambu.yaml")
+        load_config(tmp_path / "gpu.yaml")
     assert "a" in str(exc.value) and "b" in str(exc.value)
 
 
 def test_profile_fragment_must_be_a_mapping(tmp_path):
-    (tmp_path / "jambu.models.yaml").write_text(yaml.safe_dump({"broken": "not-a-mapping"}))
-    (tmp_path / "jambu.yaml").write_text(
+    (tmp_path / "gpu.models.yaml").write_text(yaml.safe_dump({"broken": "not-a-mapping"}))
+    (tmp_path / "gpu.yaml").write_text(
         yaml.safe_dump({"gpu_runtime": {"version": 1, "model_profile": "broken"}})
     )
     with pytest.raises(ConfigError):
-        load_config(tmp_path / "jambu.yaml")
+        load_config(tmp_path / "gpu.yaml")
 
 
 def test_no_model_profile_means_no_catalog_lookup_at_all(write_config):
@@ -358,7 +376,7 @@ def test_init_templates_spell_out_the_new_lifecycle_defaults():
 def test_the_example_manifest_loads_with_the_new_fields():
     from pathlib import Path
 
-    example = Path(__file__).resolve().parents[1] / "jambu.example.yaml"
+    example = Path(__file__).resolve().parents[1] / "gpu.example.yaml"
     loaded = load_config(example)
     assert loaded.stopped_ttl_s == 24 * 3600
     assert loaded.lifecycle.traffic_counts_as_activity is True

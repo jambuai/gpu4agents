@@ -1,4 +1,4 @@
-// Run from the directory that holds jambu.yaml:
+// Run from the directory that holds gpu.yaml:
 //   npm --prefix examples/typescript-client install
 //   node --experimental-strip-types examples/typescript-client/src/index.ts "Say hi"
 

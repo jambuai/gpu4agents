@@ -9,7 +9,7 @@ description: GPU for Agents. Rent a cloud GPU on your own, serve an open-weights
 
 Vast.ai is built in. Any other provider (RunPod, Lambda, a company cluster) plugs in through an adapter: one Python file that implements the provider contract. See "Another provider" below.
 
-Each project directory has a `jambu.yaml` (what to rent and serve, and from which provider) and a `.gpu/` directory (what was rented). One project, one machine.
+Each project directory has a `gpu.yaml` (what to rent and serve, and from which provider) and a `.gpu/` directory (what was rented). One project, one machine.
 
 ## Setup, once per machine
 
@@ -17,7 +17,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.9.0 or later. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.9.1 or later. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>
@@ -58,7 +58,7 @@ This writes this skill and registers the `gpu` MCP server for that agent. The to
 
 | Step | MCP tool | CLI |
 | --- | --- | --- |
-| create jambu.yaml | `gpu_init(model)` | `gpu init --model ORG/NAME [--provider NAME]` |
+| create gpu.yaml | `gpu_init(model)` | `gpu init --model ORG/NAME [--provider NAME]` |
 | check config and credentials | `gpu_validate` | `gpu --json validate` |
 | see prices, rent nothing | `gpu_offers` | `gpu --json offers` |
 | start / ensure ready | `gpu_setup` | `gpu --json setup` |
@@ -78,14 +78,14 @@ This writes this skill and registers the `gpu` MCP server for that agent. The to
 
 ## Rules: this spends the user's money
 
-1. Ask before renting. Before the first `gpu_setup` / `gpu setup` / `gpu run` in a conversation, show the model, the GPU, the price (`gpu_offers`) and the cap (`budget.max_hourly_cost_usd`), and get a yes. Never raise the budget in `jambu.yaml` without asking.
+1. Ask before renting. Before the first `gpu_setup` / `gpu setup` / `gpu run` in a conversation, show the model, the GPU, the price (`gpu_offers`) and the cap (`budget.max_hourly_cost_usd`), and get a yes. Never raise the budget in `gpu.yaml` without asking.
 2. Setup is slow. The first setup takes 5 to 15 minutes (image pull, model download), and a bad host is replaced automatically. The MCP `gpu_setup` returns `status: "running"` while it works: call it again to keep waiting. From a shell, run `gpu --json setup` in the background with no timeout. Never start a second project, `--recreate`, or destroy because setup is slow. `gpu_status` (it shows `busy: true` during setup) and `gpu_logs(source="onstart")` show progress. If the user wants to give up, `gpu_stop` or `gpu_destroy` cancel the setup and destroy the half-booted machine.
 3. Never handle the provider key. See step 2 of the setup. If a command fails with exit code 5, send the user to `gpu login`.
 4. Clean up. When the work is done, offer `gpu_stop` (cheap to resume: about a minute, same key) or `gpu_destroy` (nothing billed; next time rents and downloads again). Destroy only with the user's explicit yes. Before finishing, run `gpu_ls` and report anything still running.
 
 ## A typical experiment
 
-1. If there is no `jambu.yaml`: `gpu_init(model=..., max_hourly_cost_usd=...)`. Size the GPU for the model: about 2 GB of VRAM per billion parameters in bf16, plus room for the KV cache. A 7 to 9B model wants 24 GB; a 0.5 to 3B model fits on 16 to 24 GB. `gpu inspect-model ORG/NAME` suggests VRAM and a tool-call parser.
+1. If there is no `gpu.yaml`: `gpu_init(model=..., max_hourly_cost_usd=...)`. Size the GPU for the model: about 2 GB of VRAM per billion parameters in bf16, plus room for the KV cache. A 7 to 9B model wants 24 GB; a 0.5 to 3B model fits on 16 to 24 GB. `gpu inspect-model ORG/NAME` suggests VRAM and a tool-call parser.
 2. `gpu_validate`, then `gpu_offers`. Show the user the price and ask.
 3. `gpu_setup` until `status: "ready"`. You get `base_url`, `api_key`, `model`.
 4. Run the work:
@@ -109,7 +109,7 @@ Any Hugging Face model can be served behind OpenAI routes, not only chat. The fu
 
 1. `gpu init --model <repo>` (MCP: `gpu_init`) reads the model card and writes the engine: `vllm` for chat, `hf` for the rest, with `model.task` one of `embeddings`, `image`, `transcription`, `speech`, `pipeline`. The output and `gpu_init`'s result name it; `--engine` and `--task` override.
 2. `gpu setup` deploys it; `gpu env` (MCP: `gpu_connection`) gives `base_url`, `api_key`, `model` and `routes`. Call it with any OpenAI client: `images.generate`, `audio.speech.create`, `audio.transcriptions.create`, `embeddings.create`; other pipelines take `POST /v1/pipeline` with `{"inputs": ..., "parameters": {...}}`.
-3. To switch models, edit `model.id` (and `model.task`) in jambu.yaml and run `gpu setup` again: same machine, new server. A larger `min_vram_gb` needs `--recreate`.
+3. To switch models, edit `model.id` (and `model.task`) in gpu.yaml and run `gpu setup` again: same machine, new server. A larger `min_vram_gb` needs `--recreate`.
 4. When the built-in server cannot load a model (its own library, several models chained, video), `gpu init --engine custom` writes `server/server.py` and `server/gpujob.yaml`. Fill in `load()` and the handlers; keep `/health` (503 until loaded), the `JAMBU_API_KEY` check and `/metrics` (`jambu_requests_running`, `jambu_requests_total`), and listen on `$PORT`.
 5. `gpu logs` shows the server's log. Requests keep the machine up; it stops after `idle_timeout` once they stop.
 
@@ -117,7 +117,7 @@ Any Hugging Face model can be served behind OpenAI routes, not only chat. The fu
 
 When the user wants a provider `gpu providers` does not list, write an adapter for it. The full steps are in https://gpu4agents.jambu.ai/providers.md (copy in the repository: `PROVIDERS.md`). In short:
 
-1. `gpu providers new <name>` writes `gpu_providers/<name>.py`, a skeleton of the provider contract. `gpu init --provider <name>` writes a `jambu.yaml` that loads it (`provider.name` and `provider.plugin`).
+1. `gpu providers new <name>` writes `gpu_providers/<name>.py`, a skeleton of the provider contract. `gpu init --provider <name>` writes a `gpu.yaml` that loads it (`provider.name` and `provider.plugin`).
 2. Read the provider's API docs and replace every `todo(...)` in that file with real code: offers, rent, status, stop, destroy, list, and the two stdlib-only calls the watchdog makes from the machine to stop or delete itself.
 3. The user runs `gpu login --provider <name>`. Then `gpu validate` and `gpu offers` must work without renting anything.
 4. One small test run, with the user's yes: `gpu setup`, `gpu status` (`watchdog.reachable` must be true), `gpu destroy --yes`.
@@ -138,7 +138,7 @@ Exit codes are the same for the CLI and the MCP tools (`exit_code` in the error)
 
 | Code | Meaning | Do |
 | --- | --- | --- |
-| 2 | config error, or jambu.yaml changed since setup | fix it; `gpu_setup(recreate=true)` replaces a machine built from the old config |
+| 2 | config error, or gpu.yaml changed since setup | fix it; `gpu_setup(recreate=true)` replaces a machine built from the old config |
 | 3 | no machine / no endpoint | `gpu_setup` |
 | 4, 8 | provider API error or timeout | retry with backoff |
 | 5 | provider auth failed, or no key | the user runs `gpu login` in a terminal (setup step 2) |

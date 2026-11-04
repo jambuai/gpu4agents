@@ -38,14 +38,14 @@ def new_command(
     name: str = typer.Argument(..., help="Short provider name, e.g. runpod or lambda."),
     display_name: str = typer.Option("", "--display-name", help="Human name, e.g. RunPod."),
     directory: Optional[Path] = typer.Option(
-        None, "--dir", help="Project directory (default: the jambu.yaml's, else the current one)."
+        None, "--dir", help="Project directory (default: the gpu.yaml's, else the current one)."
     ),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing adapter file."),
 ) -> None:
     """Write gpu_providers/NAME.py, an adapter skeleton for a provider gpu does not ship.
 
     Fill in its methods from the provider's API docs, then select it in
-    jambu.yaml with provider.name and provider.plugin.
+    gpu.yaml with provider.name and provider.plugin.
     """
     context = get_context(ctx)
     try:
@@ -63,7 +63,7 @@ def new_command(
         "provider": {"name": name, "plugin": scaffold.plugin_spec(name)},
         "next": [
             f"replace every todo(...) in {path} with calls to the provider's API",
-            f"jambu.yaml: gpu_runtime.provider.name: {name} and plugin: {scaffold.plugin_spec(name)}",
+            f"gpu.yaml: gpu_runtime.provider.name: {name} and plugin: {scaffold.plugin_spec(name)}",
             f"gpu login --provider {name}",
             "gpu validate, then gpu offers (rents nothing)",
         ],
@@ -161,7 +161,7 @@ def providers_command(ctx: typer.Context) -> None:
                 )
             )
     if selected:
-        console.print(Text(f"  * selected in jambu.yaml ({selected})", style="dim"))
+        console.print(Text(f"  * selected in gpu.yaml ({selected})", style="dim"))
     console.print(Text("  another provider: gpu providers new NAME", style="dim"))
 
 

@@ -1,13 +1,13 @@
 # The model catalog: one entry per model, referenced from any project's
-# jambu.yaml via `model_profile: <name>`. Searched the same way as
-# jambu.yaml (this directory, then parents) - one catalog serves every
+# gpu.yaml via `model_profile: <name>`. Searched the same way as
+# gpu.yaml (this directory, then parents) - one catalog serves every
 # sub-project in this repo (root, examples/, ...) without duplicating the
 # model/compute/runtime block into each one.
 #
-# What lives here vs. in a project's own jambu.yaml:
+# What lives here vs. in a project's own gpu.yaml:
 #   catalog (this file)  -> model identity: which weights, how much VRAM,
 #                           dtype, tool-call parser - "what varies by model"
-#   jambu.yaml            -> policy: lifecycle, health, budget, watchdog -
+#   gpu.yaml            -> policy: lifecycle, health, budget, watchdog -
 #                           "what varies by project", even for the same model
 #
 # Add an entry with `gpu inspect-model <repo> --add-profile <name>`

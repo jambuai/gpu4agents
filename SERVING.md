@@ -5,7 +5,7 @@ You are a coding agent and the work needs a model that is not a chat model, or a
 ## 1. Choosing the model and its server
 
 ```bash
-gpu init --model stabilityai/sd-turbo      # reads the model card, writes jambu.yaml
+gpu init --model stabilityai/sd-turbo      # reads the model card, writes gpu.yaml
 gpu offers                                 # prices; ask the user before renting
 gpu setup                                  # rents, deploys, waits until the model answers
 eval "$(gpu env)"                          # OPENAI_BASE_URL, OPENAI_API_KEY, JAMBU_MODEL_ID
@@ -84,7 +84,7 @@ Image extras go in the body (`extra_body` in the SDK): `num_inference_steps`, `g
 When no built-in server loads the model (a library of its own, a pipeline of several models, video, a custom API), write the server. gpu runs it on the GPU and treats it exactly like the built-in one.
 
 ```bash
-gpu init --engine custom --min-vram-gb 24    # writes jambu.yaml and server/ (server.py, gpujob.yaml)
+gpu init --engine custom --min-vram-gb 24    # writes gpu.yaml and server/ (server.py, gpujob.yaml)
 ```
 
 `server/gpujob.yaml` says how to start it:

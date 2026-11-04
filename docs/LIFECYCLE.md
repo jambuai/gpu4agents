@@ -98,7 +98,7 @@ Use a dedicated, restricted Vast.ai key for this, not a personal key. Set `lifec
 ## Architecture
 
 ```
-jambu.yaml (gpu_runtime:)
+gpu.yaml (gpu_runtime:)
     │
     ▼
 gpu

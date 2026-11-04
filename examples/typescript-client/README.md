@@ -6,7 +6,7 @@ Any Node/TypeScript application using a GPU that `gpu` rents and guards, through
 
 ## Run it
 
-From the directory that holds `jambu.yaml` and `VAST_API_KEY` (in `.env` or the environment), with `gpu4agents` (or `jambu-gpu` 0.3.0 or later) on `PATH`:
+From the directory that holds `gpu.yaml` and `VAST_API_KEY` (in `.env` or the environment), with `gpu4agents` (or `jambu-gpu` 0.3.0 or later) on `PATH`:
 
 ```bash
 npm --prefix examples/typescript-client install
@@ -41,4 +41,4 @@ export async function complete(prompt: string): Promise<string> {
 | `gpuStatus(opts)` | `gpu --json status` |
 | `GpuError`, `EXIT` | Failures carry the CLI's `exitCode` ([codes](../../docs/INTEGRATION.md#exit-codes)) |
 
-`opts` is `{ cwd?, config?, bin?, timeoutMs? }`: where `jambu.yaml` is, or its path, the `gpu` executable, and a limit on how long `setup` may take (none by default: `gpu` bounds itself, see [the lifecycle table](../../docs/INTEGRATION.md#lifecycle-the-app-has-to-expect)).
+`opts` is `{ cwd?, config?, bin?, timeoutMs? }`: where `gpu.yaml` is, or its path, the `gpu` executable, and a limit on how long `setup` may take (none by default: `gpu` bounds itself, see [the lifecycle table](../../docs/INTEGRATION.md#lifecycle-the-app-has-to-expect)).

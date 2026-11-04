@@ -15,7 +15,7 @@ def validate_command(
         False, "--offline", help="Skip provider API checks (schema and policy only)."
     ),
 ) -> None:
-    """Validate jambu.yaml, credentials, capabilities and available capacity."""
+    """Validate gpu.yaml, credentials, capabilities and available capacity."""
     context = get_context(ctx)
     try:
         engine = context.engine()

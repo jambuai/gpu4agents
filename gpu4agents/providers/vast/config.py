@@ -30,7 +30,7 @@ DEFAULT_MIN_CUDA = 12.1
 
 @dataclass
 class VastOptions:
-    """`provider.options` in jambu.yaml (gpu_runtime.provider.options), all optional."""
+    """`provider.options` in gpu.yaml (gpu_runtime.provider.options), all optional."""
 
     api_base: str = API_BASE
     runtype: str = DEFAULT_RUNTYPE

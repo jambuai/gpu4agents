@@ -1,4 +1,4 @@
-# Where jambu.yaml's model-specific values come from
+# Where gpu.yaml's model-specific values come from
 
 Every value in `model:`/`compute.gpu:`/`runtime:` that depends on the model
 you deploy (VRAM, dtype, context length, tool-call parser, `trust_remote_code`)
@@ -38,7 +38,7 @@ gpu_runtime:
     tool_calling: auto  # resolves to hermes automatically
 ```
 
-Paste the snippet under `gpu_runtime:` in your `jambu.yaml` and adjust
+Paste the snippet under `gpu_runtime:` in your `gpu.yaml` and adjust
 `lifecycle`/`health`/`budget` to get a starting config. Add `--json` for
 machine-readable output, `--revision` for a non-`main` branch/tag, and
 `--hf-token-env` if the repo is gated and your token lives under a different
@@ -110,7 +110,7 @@ Consequences:
   `gpu4agents/core/tool_parsers.py` (a one-line PR) so `tool_calling: auto`
   picks it up for everyone next time, the same way the Qwen3.5+ finding did.
 
-## Don't write a new jambu.yaml per model - use the catalog
+## Don't write a new gpu.yaml per model - use the catalog
 
 For each new model it is tempting to copy the whole file, since the provider,
 lifecycle and budget stay the same and only `model:`/`compute.gpu:` differ.
@@ -119,11 +119,11 @@ After a few models a repo has `jambu.qwythos.yaml`, `jambu.model-b.yaml`,
 wants one. Changing a lifecycle default then means editing all of them.
 
 Instead, keep what varies by model in the catalog and what varies by project
-in the active `jambu.yaml`, and reference the catalog entry by name.
+in the active `gpu.yaml`, and reference the catalog entry by name.
 
 ```yaml
-# jambu.models.yaml - one entry per model, shared by every project in the
-# repo (found by walking up from a project's jambu.yaml, same as jambu.yaml
+# gpu.models.yaml - one entry per model, shared by every project in the
+# repo (found by walking up from a project's gpu.yaml, same as gpu.yaml
 # itself is found - one catalog can sit at the repo root and serve every
 # sub-project under it).
 qwythos-9b:
@@ -137,7 +137,7 @@ qwen3.8-27b-uncensored:
 ```
 
 ```yaml
-# jambu.yaml - just this project's policy + which model
+# gpu.yaml - just this project's policy + which model
 gpu_runtime:
   version: 1
   model_profile: qwythos-9b   # the only thing that changes to switch models
@@ -163,7 +163,7 @@ repo's catalog. Trying a new model is usually a catalog case.
 
 ## Dynamic / un-modeled vLLM flags
 
-`jambu.yaml`'s schema models the fields that affect lifecycle, cost, and
+`gpu.yaml`'s schema models the fields that affect lifecycle, cost, and
 provider portability. It does not try to cover every vLLM flag, since vLLM adds
 flags faster than a fixed contract could track. For everything else, `runtime:`
 has two escape hatches, applied in this order. The later one wins on conflict,

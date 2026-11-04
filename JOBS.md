@@ -4,7 +4,7 @@ You are a coding agent and the work needs a GPU: training or fine-tuning, an ima
 
 ## 1. The machine
 
-The job runs on the project's machine, described by `jambu.yaml`. For a machine that only runs jobs:
+The job runs on the project's machine, described by `gpu.yaml`. For a machine that only runs jobs:
 
 ```bash
 gpu init --jobs --min-vram-gb 24     # runtime.engine: none, image pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime

@@ -86,7 +86,7 @@ gpu login --provider runpod   # a provider you added an adapter for
 gpu login --check             # which account gpu finds, and its balance
 ```
 
-`gpu login` checks the key with the provider, then saves it in `~/.gpu/credentials` (mode 600). Keys in the environment or a project `.env` work too. They never go in `jambu.yaml`.
+`gpu login` checks the key with the provider, then saves it in `~/.gpu/credentials` (mode 600). Keys in the environment or a project `.env` work too. They never go in `gpu.yaml`.
 
 Restart the agent and ask for an experiment. See [Letting a coding agent rent GPUs](docs/AGENTS.md).
 
@@ -129,7 +129,7 @@ Requests count as activity, so the machine stays up while clients call it and st
 Add <provider> to GPU for Agents. Fetch https://gpu4agents.jambu.ai/providers.md with curl and follow its steps.
 ```
 
-The agent runs `gpu providers new <name>`, fills in the adapter from the provider's API docs, checks it with `gpu validate` and `gpu offers`, and asks you before a test rental. The adapter is one file in your project, selected in `jambu.yaml`:
+The agent runs `gpu providers new <name>`, fills in the adapter from the provider's API docs, checks it with `gpu validate` and `gpu offers`, and asks you before a test rental. The adapter is one file in your project, selected in `gpu.yaml`:
 
 ```yaml
 gpu_runtime:
@@ -156,7 +156,7 @@ From an application in any language, `gpu --json setup` prints the endpoint as J
 ## Declare the limits
 
 ```yaml
-# jambu.yaml (only the gpu_runtime key is read, so other Jambu tools can share the file)
+# gpu.yaml (only the gpu_runtime key is read, so other Jambu tools can share the file)
 gpu_runtime:
   provider: {name: vast}
   model_profile: qwythos-9b
@@ -170,7 +170,7 @@ gpu_runtime:
     pull_stall_timeout: 10m    # a host whose image pull stalls is replaced
 ```
 
-A full example is [`jambu.example.yaml`](jambu.example.yaml). `gpu ls` shows every machine billing in the account, and `gpu sweep --install-timer` guards every project on the machine and cleans up orphans. See [Keeping the account clean](docs/USAGE.md#keeping-the-account-clean).
+A full example is [`gpu.example.yaml`](gpu.example.yaml). `gpu ls` shows every machine billing in the account, and `gpu sweep --install-timer` guards every project on the machine and cleans up orphans. See [Keeping the account clean](docs/USAGE.md#keeping-the-account-clean).
 
 ## Docs
 
@@ -185,7 +185,7 @@ A full example is [`jambu.example.yaml`](jambu.example.yaml). `gpu ls` shows eve
 
 ## Coming from `jambu-gpu`
 
-The package was called `jambu-gpu` until 0.4.1. The code, the `gpu` command, `jambu.yaml` and the machines are the same:
+The package was called `jambu-gpu` until 0.4.1. The code, the `gpu` command, the config file (`jambu.yaml` then, `gpu.yaml` now; both load) and the machines are the same:
 
 ```bash
 pipx uninstall jambu-gpu && pipx install gpu4agents

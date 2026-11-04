@@ -1,15 +1,15 @@
-# jambu.yaml reference
+# gpu.yaml reference
 
-`jambu.yaml` is the source of truth for the desired state. It describes what should
+`gpu.yaml` is the source of truth for the desired state. It describes what should
 run and how long it may live. It must never contain credentials, and it never contains
 provider API details.
 
-`jambu.yaml` is a manifest shared across Jambu.ai Lab sub-projects. `gpu` reads only
+`gpu.yaml` is a manifest shared across Jambu.ai Lab sub-projects. `gpu` reads only
 its own `gpu_runtime:` top-level key and ignores every other key in the document, so
 other Jambu tools can keep their own config in the same file:
 
 ```yaml
-# jambu.yaml
+# gpu.yaml
 gpu_runtime:
   version: 1
   model: {id: ...}
@@ -22,11 +22,13 @@ some_other_jambu_tool:
 If the file does not need to be shared, `gpu init --flat` writes a `config.yml` where
 the whole document is the gpu-runtime config, with no `gpu_runtime:` wrapper. This
 format is still supported. A bare document with no `gpu_runtime:` key is also accepted
-under the `jambu.yaml` filename, for a solo project that prefers that name.
+under the `gpu.yaml` filename, for a solo project that prefers that name.
 
 Resolution order (first match wins, searched from the working directory upward):
-`--config PATH`, else `jambu.yaml`, `jambu.yml`, `config.yml`, `config.yaml` in that
-order. When a directory has both shapes, the shared, namespaced one is preferred over
+`--config PATH`, else `gpu.yaml`, `gpu.yml`, `jambu.yaml`, `jambu.yml`, `config.yml`,
+`config.yaml` in that order. `jambu.yaml` is the name used before 0.9.1; projects that
+still have one keep working, and renaming it to `gpu.yaml` changes nothing else. The same
+goes for `jambu.models.yaml`, now `gpu.models.yaml`. When a directory has both shapes, the shared, namespaced one is preferred over
 the legacy flat one.
 
 `${VAR}` references in string values are expanded from the environment.
@@ -38,8 +40,8 @@ check keys that other tools own elsewhere in the document.
 ### `model_profile`: share model config across files
 
 Set `model_profile: <name>` instead of declaring `model:`/`compute:`/`runtime:`
-directly, and gpu merges in that named entry from `jambu.models.yaml`. The catalog is
-searched the same way as `jambu.yaml` (this directory, then parents), so one catalog
+directly, and gpu merges in that named entry from `gpu.models.yaml`. The catalog is
+searched the same way as `gpu.yaml` (this directory, then parents), so one catalog
 serves every sub-project in a repo. Fields you declare locally still win over the
 profile's. See
 [`docs/CHOOSING_A_MODEL.md`](CHOOSING_A_MODEL.md#dont-write-a-new-jambuyaml-per-model---use-the-catalog)

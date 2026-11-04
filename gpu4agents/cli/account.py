@@ -92,7 +92,7 @@ def make_engine(config: RuntimeConfig, echo=None) -> Engine:
 def ls_command(
     ctx: typer.Context,
     provider: Optional[str] = typer.Option(
-        None, "--provider", help="Provider to list (default: jambu.yaml's, else GPU_PROVIDER, else vast)."
+        None, "--provider", help="Provider to list (default: gpu.yaml's, else GPU_PROVIDER, else vast)."
     ),
 ) -> None:
     """List every jambu instance in the provider account."""
@@ -147,7 +147,7 @@ def sweep_command(
         "24h", "--stopped-ttl", help="Destroy an untracked instance stopped longer than this."
     ),
     provider: Optional[str] = typer.Option(
-        None, "--provider", help="Provider to look for orphans on (default: jambu.yaml's, else GPU_PROVIDER, else vast)."
+        None, "--provider", help="Provider to look for orphans on (default: gpu.yaml's, else GPU_PROVIDER, else vast)."
     ),
     config: Optional[Path] = typer.Option(
         None, "--config", "-c", help="Also guard this project for this run, registered or not."
@@ -162,7 +162,7 @@ def sweep_command(
 ) -> None:
     """Guard every registered project, then clean up orphans (dry run by default).
 
-    Each project registered by `gpu setup` is guarded with its own jambu.yaml
+    Each project registered by `gpu setup` is guarded with its own gpu.yaml
     and state, exactly like `gpu guard` in that directory. An instance no
     project tracks is an orphan: it is stopped (never destroyed) once it has
     run longer than --orphan-max-age, and destroyed once it has been seen
@@ -269,7 +269,7 @@ def _sweep(
     account = Account(context, provider_name)
     registry = sweep_mod.ProjectRegistry()
     registered = registry.paths()
-    # A project whose jambu.yaml is gone has nothing left to guard it by.
+    # A project whose gpu.yaml is gone has nothing left to guard it by.
     gone = [p for p in registered if not p.is_file()]
     registry.remove(gone)
     for path in gone:
@@ -342,7 +342,7 @@ def _sweep(
 def _login_target(context: Context, provider_name: Optional[str]):
     """The adapter class to log in to, and where its credentials are looked up.
 
-    --provider wins; then the project's jambu.yaml (plugins included); then
+    --provider wins; then the project's gpu.yaml (plugins included); then
     the default provider outside a project.
     """
     registry = load_builtin_providers()
@@ -364,7 +364,7 @@ def login_command(
         None,
         "--provider",
         "-p",
-        help="Provider to log in to (default: jambu.yaml's, else GPU_PROVIDER, else vast).",
+        help="Provider to log in to (default: gpu.yaml's, else GPU_PROVIDER, else vast).",
     ),
     from_stdin: bool = typer.Option(
         False, "--stdin", help="Read the key from stdin (one line per credential) instead of a hidden prompt."

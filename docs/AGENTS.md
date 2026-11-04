@@ -40,7 +40,7 @@ gpu login --check             # exit 0, the provider and where the key was found
 echo "$KEY" | gpu login --stdin
 ```
 
-The provider is the one `--provider` names, else the project's `jambu.yaml`, else `GPU_PROVIDER`, else Vast.ai. `gpu login --provider NAME` also saves `GPU_PROVIDER=NAME`, so `gpu ls` and `gpu sweep` outside a project use that provider. The key goes to `~/.gpu/credentials` (mode 600, directory 700); other lines in the file are kept. A key in the environment or a project `.env` still works and wins over the file. The skill tells the agent never to ask for the key in chat, read those files, or print it.
+The provider is the one `--provider` names, else the project's `gpu.yaml`, else `GPU_PROVIDER`, else Vast.ai. `gpu login --provider NAME` also saves `GPU_PROVIDER=NAME`, so `gpu ls` and `gpu sweep` outside a project use that provider. The key goes to `~/.gpu/credentials` (mode 600, directory 700); other lines in the file are kept. A key in the environment or a project `.env` still works and wins over the file. The skill tells the agent never to ask for the key in chat, read those files, or print it.
 
 ## Install by hand
 
@@ -69,7 +69,7 @@ Another agent that reads `SKILL.md` files: `gpu agent skill > path/to/skills/gpu
 
 | Tool | Does | Costs money |
 | --- | --- | --- |
-| `gpu_init` | write `jambu.yaml` for a model, with an optional price cap and VRAM | no |
+| `gpu_init` | write `gpu.yaml` for a model, with an optional price cap and VRAM | no |
 | `gpu_validate` | check the config and credentials | no |
 | `gpu_offers` | cheapest matching machines and their price | no |
 | `gpu_setup` | rent / restart and wait for the model; returns `base_url`, `api_key`, `model` | yes |
@@ -90,5 +90,5 @@ Each tool runs the `gpu` CLI with `--json` in the project directory, so errors c
 
 - The skill tells the agent to show the price and ask before renting, wait out a slow setup instead of starting over, never touch the provider key, and offer stop or destroy (and check `gpu_ls`) when done.
 - The server's tool annotations mark `gpu_destroy` destructive and the read-only tools read-only, so a client can let `gpu_status` run freely and ask for every `gpu_setup` and `gpu_destroy`. In Claude Code that is the `permissions` list in `.claude/settings.json`, e.g. `"allow": ["mcp__gpu__gpu_status", "mcp__gpu__gpu_offers", "mcp__gpu__gpu_ls"]`.
-- `jambu.yaml` holds the hard limits the agent cannot exceed without editing the file: `budget.max_hourly_cost_usd`, `budget.max_session_cost_usd`, `lifecycle.max_lifetime`.
+- `gpu.yaml` holds the hard limits the agent cannot exceed without editing the file: `budget.max_hourly_cost_usd`, `budget.max_session_cost_usd`, `lifecycle.max_lifetime`.
 - The watchdog stops the machine after `idle_timeout` whatever the agent does, and `gpu sweep --install-timer` catches anything left behind.

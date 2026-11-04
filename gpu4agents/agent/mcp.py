@@ -31,7 +31,7 @@ from typing import Any, Callable, Optional
 import yaml
 
 from .. import __version__
-from ..core.config import find_config
+from ..core.config import CONFIG_FILENAMES, find_config
 from .jobs import Job
 
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
@@ -45,15 +45,15 @@ OUTPUT_TAIL_CHARS = 12_000
 
 EXIT_MEANINGS = {
     1: ("unexpected error", "read the error; retry later"),
-    2: ("config error", "fix jambu.yaml; gpu_setup(recreate=true) replaces a machine built from an old config"),
+    2: ("config error", "fix gpu.yaml; gpu_setup(recreate=true) replaces a machine built from an old config"),
     3: ("no instance or no endpoint", "call gpu_setup"),
     4: ("provider API error", "retry with backoff"),
     5: ("provider authentication failed, or no key", "the user runs `gpu login` in their own terminal"),
-    6: ("no capacity matches the config", "retry later, or relax compute.gpu / the budget in jambu.yaml"),
+    6: ("no capacity matches the config", "retry later, or relax compute.gpu / the budget in gpu.yaml"),
     7: ("provisioning failed", "retry; the failed machine was already destroyed"),
     8: ("provider timed out", "retry with backoff"),
     9: ("the provider cannot do this", "change the config"),
-    10: ("over budget.max_hourly_cost_usd", "ask the user before raising the budget in jambu.yaml"),
+    10: ("over budget.max_hourly_cost_usd", "ask the user before raising the budget in gpu.yaml"),
     11: ("the model server did not start", "read stderr (the server's log tail); the machine was destroyed"),
     12: ("another gpu command holds this project's lock", "usually a setup: follow it with gpu_setup, or cancel it with gpu_stop"),
 }
@@ -131,7 +131,7 @@ def _schema(properties: dict[str, Any], required: Optional[list[str]] = None) ->
     props = {
         "project_dir": {
             "type": "string",
-            "description": "Directory holding jambu.yaml (or below it). Defaults to the server's project.",
+            "description": "Directory holding gpu.yaml (or below it). Defaults to the server's project.",
         },
         **properties,
     }
@@ -180,7 +180,7 @@ class Server:
         if config is None:
             raise ToolError(
                 {
-                    "error": f"no jambu.yaml in {start} or any parent",
+                    "error": f"no gpu.yaml in {start} or any parent",
                     "exit_code": 2,
                     "next": "call gpu_init with a model in the project directory, or pass project_dir",
                 }
@@ -233,7 +233,7 @@ class Server:
         if args.get("force"):
             argv.append("--force")
         self._ok(self.cli(argv, directory))
-        config = directory / "jambu.yaml"
+        config = directory / CONFIG_FILENAMES[0]
         text = config.read_text()
         if args.get("max_hourly_cost_usd") is not None:
             text = re.sub(
@@ -475,8 +475,8 @@ class Server:
         return [
             Tool(
                 "gpu_init",
-                "Create jambu.yaml",
-                "Write a starter jambu.yaml for a HuggingFace model in project_dir. Use once per "
+                "Create gpu.yaml",
+                "Write a starter gpu.yaml for a HuggingFace model in project_dir. Use once per "
                 "project, before anything else. Any model: the model card picks the server (chat on "
                 "vLLM; image, speech, transcription, embeddings or other pipelines on gpu's hf "
                 "server) and the result says which. Defaults: 24 GB VRAM (or sized from the model), "
@@ -496,7 +496,7 @@ class Server:
                         },
                         "max_hourly_cost_usd": {"type": "number", "description": "Price cap per hour."},
                         "min_vram_gb": {"type": "integer", "description": "Minimum GPU memory."},
-                        "force": {"type": "boolean", "description": "Overwrite an existing jambu.yaml."},
+                        "force": {"type": "boolean", "description": "Overwrite an existing gpu.yaml."},
                     },
                     ["model"],
                 ),
@@ -506,7 +506,7 @@ class Server:
             Tool(
                 "gpu_validate",
                 "Validate config",
-                "Check jambu.yaml and the provider credentials without renting anything.",
+                "Check gpu.yaml and the provider credentials without renting anything.",
                 _schema({}),
                 self.tool_validate,
                 read_only,
@@ -514,7 +514,7 @@ class Server:
             Tool(
                 "gpu_offers",
                 "Show GPU offers",
-                "Cheapest machines that match jambu.yaml, with their hourly price. Nothing is rented.",
+                "Cheapest machines that match gpu.yaml, with their hourly price. Nothing is rented.",
                 _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 50}}),
                 self.tool_offers,
                 read_only,
@@ -536,7 +536,7 @@ class Server:
                         },
                         "recreate": {
                             "type": "boolean",
-                            "description": "Replace a machine built from an older jambu.yaml (exit code 2 tells you when).",
+                            "description": "Replace a machine built from an older gpu.yaml (exit code 2 tells you when).",
                         },
                     }
                 ),

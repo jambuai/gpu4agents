@@ -16,7 +16,7 @@ class JambuError(Exception):
 
 
 class ConfigError(JambuError):
-    """jambu.yaml (or legacy config.yml) is missing, malformed or semantically invalid."""
+    """gpu.yaml (or legacy config.yml) is missing, malformed or semantically invalid."""
 
     exit_code = 2
 

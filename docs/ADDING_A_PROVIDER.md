@@ -8,13 +8,13 @@ An adapter reaches `gpu` in one of three ways:
 
 | Where it lives | How `gpu` finds it | Use it for |
 | --- | --- | --- |
-| A file in the project | `provider.plugin: ./gpu_providers/acme.py:AcmeProvider` in jambu.yaml | one project, or an agent writing an adapter on the spot |
+| A file in the project | `provider.plugin: ./gpu_providers/acme.py:AcmeProvider` in gpu.yaml | one project, or an agent writing an adapter on the spot |
 | An installed package | an entry point in the `gpu4agents.providers` group | sharing an adapter across projects or publishing it |
 | This repository | `providers/<name>/` plus a line in `providers/registry.py` | a provider that ships with gpu4agents |
 
 `gpu providers new acme` writes the skeleton for the first route, with every
 method that needs the provider's API marked. `gpu init --provider acme` writes a
-jambu.yaml that selects it. Agents can follow [PROVIDERS.md](../PROVIDERS.md),
+gpu.yaml that selects it. Agents can follow [PROVIDERS.md](../PROVIDERS.md),
 which walks through the same steps.
 
 An installed package declares its adapter like this:

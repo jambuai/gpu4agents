@@ -398,7 +398,7 @@ def test_init_reads_the_model_card_and_writes_an_hf_config(tmp_path, monkeypatch
     _card(monkeypatch, {"pipeline_tag": "text-to-image", "library_name": "diffusers", "safetensors": {"total": 6_000_000_000}})
     result = CliRunner().invoke(app, ["init", "--model", "org/painter"])
     assert result.exit_code == 0, result.output
-    config = load_config(tmp_path / "jambu.yaml")
+    config = load_config(tmp_path / "gpu.yaml")
     assert config.runtime.engine == "hf"
     assert config.model.task == "image"
     assert config.compute.gpu.min_vram_gb == 18  # 6B params in bf16, plus headroom
@@ -412,7 +412,7 @@ def test_init_keeps_chat_models_on_vllm(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _card(monkeypatch, {"pipeline_tag": "text-generation", "library_name": "transformers"})
     assert CliRunner().invoke(app, ["init", "--model", "org/chat"]).exit_code == 0
-    assert load_config(tmp_path / "jambu.yaml").runtime.engine == "vllm"
+    assert load_config(tmp_path / "gpu.yaml").runtime.engine == "vllm"
 
 
 def test_init_with_an_unreachable_card_falls_back_to_vllm(tmp_path, monkeypatch):
@@ -428,7 +428,7 @@ def test_init_with_an_unreachable_card_falls_back_to_vllm(tmp_path, monkeypatch)
     monkeypatch.setattr("gpu4agents.core.model_inspect.fetch_hf_api_metadata", _fail)
     result = CliRunner().invoke(app, ["init", "--model", "org/x"])
     assert result.exit_code == 0 and "assuming a chat model" in result.output
-    assert load_config(tmp_path / "jambu.yaml").runtime.engine == "vllm"
+    assert load_config(tmp_path / "gpu.yaml").runtime.engine == "vllm"
 
 
 def test_init_engine_and_task_flags_win(tmp_path, monkeypatch):
@@ -437,7 +437,7 @@ def test_init_engine_and_task_flags_win(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["init", "--model", "org/x", "--engine", "hf", "--task", "speech", "--min-vram-gb", "12"])
     assert result.exit_code == 0, result.output
-    config = load_config(tmp_path / "jambu.yaml")
+    config = load_config(tmp_path / "gpu.yaml")
     assert (config.runtime.engine, config.model.task, config.compute.gpu.min_vram_gb) == ("hf", "speech", 12)
     assert CliRunner().invoke(app, ["init", "--engine", "dance", "--force"]).exit_code == 2
 
@@ -448,7 +448,7 @@ def test_init_custom_scaffolds_a_server_that_follows_the_contract(tmp_path, monk
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["init", "--engine", "custom"])
     assert result.exit_code == 0, result.output
-    config = load_config(tmp_path / "jambu.yaml")
+    config = load_config(tmp_path / "gpu.yaml")
     assert config.runtime.engine == "custom" and config.model.id == ""
     assert (tmp_path / "server" / "server.py").is_file()
     assert yaml.safe_load((tmp_path / "server" / "gpujob.yaml").read_text())["run"] == "python3 server.py"

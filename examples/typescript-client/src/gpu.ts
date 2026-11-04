@@ -21,9 +21,9 @@ export interface GpuConnection {
 }
 
 export interface GpuOptions {
-  /** Directory holding jambu.yaml (and .env with VAST_API_KEY). */
+  /** Directory holding gpu.yaml (and .env with VAST_API_KEY). */
   cwd?: string;
-  /** Explicit path to jambu.yaml. */
+  /** Explicit path to gpu.yaml. */
   config?: string;
   /** The gpu executable. Default: "gpu". */
   bin?: string;

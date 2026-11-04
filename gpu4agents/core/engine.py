@@ -553,7 +553,7 @@ class Engine:
                 if state.fingerprint != fingerprint and not recreate:
                     raise ConfigError(
                         f"instance {state.instance_id} was provisioned for a different "
-                        "runtime (jambu.yaml changed since setup). Re-run with "
+                        "runtime (gpu.yaml changed since setup). Re-run with "
                         "`--recreate` to replace it, or `gpu destroy` first."
                     )
                 if not recreate:
@@ -1504,7 +1504,7 @@ class Engine:
         if ttl_seconds is None and not self.config.lifecycle.allow_indefinite_lock:
             raise ConfigError(
                 "indefinite locks are disabled. Pass `--for 2h`, or set "
-                "lifecycle.allow_indefinite_lock: true in jambu.yaml."
+                "lifecycle.allow_indefinite_lock: true in gpu.yaml."
             )
         with self.store.process_lock():
             state = self._reconcile(self.store.load())

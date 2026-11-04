@@ -1,15 +1,15 @@
-"""jambu.yaml schema and loader (spec section 4).
+"""gpu.yaml schema and loader (spec section 4).
 
-jambu.yaml is the declarative desired-state Source of Truth. It describes
+gpu.yaml is the declarative desired-state Source of Truth. It describes
 *what* should run and *how long it may live*. It never contains credentials
 and never contains provider-specific API details.
 
-jambu.yaml is a SHARED manifest across Jambu.ai Lab sub-projects, not a file
+gpu.yaml is a SHARED manifest across Jambu.ai Lab sub-projects, not a file
 this tool owns exclusively - our config lives under one namespaced top-level
 key (``gpu_runtime:``), so other Jambu tools can add their own keys to the
 same file without colliding with ours:
 
-    # jambu.yaml
+    # gpu.yaml
     gpu_runtime:
       version: 1
       model: {id: ...}
@@ -41,17 +41,19 @@ from .paths import project_state_dir
 SERVICE_ENGINES = ("hf", "custom")
 MODEL_TASKS = ("auto", "chat", "embeddings", "image", "transcription", "speech", "pipeline")
 
-# jambu.yaml (namespaced, shared with other Jambu Lab tools) is searched
-# first; config.yml (flat, gpu-runtime-only) is the legacy fallback.
-CONFIG_FILENAMES = ("jambu.yaml", "jambu.yml", "config.yml", "config.yaml")
+# gpu.yaml (namespaced, shared with other Jambu Lab tools) is searched first.
+# jambu.yaml is the name before 0.9.1 and still loads; config.yml (flat,
+# gpu-runtime-only) is the oldest fallback.
+CONFIG_FILENAMES = ("gpu.yaml", "gpu.yml", "jambu.yaml", "jambu.yml", "config.yml", "config.yaml")
+LEGACY_CONFIG_FILENAMES = ("jambu.yaml", "jambu.yml")
 GPU_RUNTIME_KEY = "gpu_runtime"
 
-# The model catalog (spec: "Choosing a model" doc) - a project's jambu.yaml
+# The model catalog (spec: "Choosing a model" doc) - a project's gpu.yaml
 # references one entry by name instead of redeclaring the whole model/compute/
-# runtime block per model, per project. Searched the same way as jambu.yaml
+# runtime block per model, per project. Searched the same way as gpu.yaml
 # itself (this directory, then parents), so one catalog can serve every
 # sub-project in a repo without duplication.
-CATALOG_FILENAMES = ("jambu.models.yaml", "jambu.models.yml")
+CATALOG_FILENAMES = ("gpu.models.yaml", "gpu.models.yml", "jambu.models.yaml", "jambu.models.yml")
 PROFILE_KEY = "model_profile"
 
 
@@ -179,7 +181,7 @@ class RuntimeConfigSection(_Base):
         # YAML 1.1 (what PyYAML's safe_load speaks) reads a bare `on`/`off`
         # as the boolean True/False, not the string - a classic footgun (the
         # "Norway problem"). Accept the boolean so an unquoted `on`/`off` in
-        # jambu.yaml still does what it looks like it does, instead of a
+        # gpu.yaml still does what it looks like it does, instead of a
         # confusing "Input should be 'auto', 'on' or 'off'" error.
         if v is True:
             return "on"
@@ -288,7 +290,7 @@ class WorkloadConfig(_Base):
 
 
 class RuntimeConfig(_Base):
-    """The whole parsed gpu-runtime config (jambu.yaml's gpu_runtime: section, or a legacy config.yml)."""
+    """The whole parsed gpu-runtime config (gpu.yaml's gpu_runtime: section, or a legacy config.yml)."""
 
     version: int = 1
     provider: ProviderConfig = Field(default_factory=ProviderConfig)
@@ -526,13 +528,13 @@ def _resolve_profile(body: dict[str, Any], config_dir: Path) -> tuple[dict[str, 
 
 
 def load_config(path: Optional[Path] = None, start: Optional[Path] = None) -> RuntimeConfig:
-    """Load and validate jambu.yaml (or legacy config.yml), raising ConfigError
+    """Load and validate gpu.yaml (or legacy config.yml), raising ConfigError
     with a readable message.
     """
     resolved = Path(path).resolve() if path else find_config(start)
     if resolved is None:
         raise ConfigError(
-            "no jambu.yaml (or config.yml) found in this directory or any "
+            "no gpu.yaml (or config.yml) found in this directory or any "
             "parent. Run `gpu init` to create one."
         )
     if not resolved.is_file():
@@ -547,7 +549,7 @@ def load_config(path: Optional[Path] = None, start: Optional[Path] = None) -> Ru
 
     raw = _expand_env(raw)
 
-    # jambu.yaml is shared with other Jambu Lab tools: our section lives
+    # gpu.yaml is shared with other Jambu Lab tools: our section lives
     # under gpu_runtime: and everything else in the document belongs to
     # someone else. A bare config.yml (no such key) IS the whole document.
     if GPU_RUNTIME_KEY in raw:
@@ -596,7 +598,7 @@ def _format_validation_error(exc: Exception) -> str:
 
 
 DEFAULT_CONFIG_TEMPLATE = """\
-# jambu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
+# gpu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
 # the gpu_runtime: key below; add other tools' own top-level keys alongside
 # it without conflict.
 gpu_runtime:
@@ -649,7 +651,7 @@ gpu_runtime:
 
 # A machine that serves no model and only runs jobs (`gpu init --jobs`).
 JOBS_CONFIG_TEMPLATE = """\
-# jambu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
+# gpu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
 # the gpu_runtime: key below.
 gpu_runtime:
   version: 1
@@ -687,7 +689,7 @@ gpu_runtime:
 # Any non-chat Hugging Face model behind OpenAI routes (`gpu init --model X`
 # when the model card says image, speech, transcription, embeddings, ...).
 SERVE_CONFIG_TEMPLATE = """\
-# jambu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
+# gpu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
 # the gpu_runtime: key below.
 gpu_runtime:
   version: 1
@@ -737,7 +739,7 @@ gpu_runtime:
 
 # A model server the agent writes itself (`gpu init --engine custom`).
 CUSTOM_CONFIG_TEMPLATE = """\
-# jambu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
+# gpu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
 # the gpu_runtime: key below.
 gpu_runtime:
   version: 1

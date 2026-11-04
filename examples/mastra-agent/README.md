@@ -18,7 +18,7 @@ pointed at a self-hosted endpoint instead of the real OpenAI API.
 
 That's the entire integration surface. No gpu SDK, no wrapper client.
 
-## Requirements on the jambu.yaml side
+## Requirements on the gpu.yaml side
 
 Mastra calls `weatherTool` through vLLM's regular OpenAI tool-calling — which only
 fires if vLLM was started with a matching `--tool-call-parser`. gpu picks one
@@ -26,7 +26,7 @@ automatically for recognized model families (`runtime.tool_calling: auto`, the
 default); for anything it doesn't recognize, set it explicitly:
 
 ```yaml
-# jambu.yaml
+# gpu.yaml
 gpu_runtime:
   model:
     id: Qwen/Qwen2.5-7B-Instruct   # gpu resolves "hermes" for this one
@@ -45,7 +45,7 @@ actually be able to call `weatherTool`.
 ```bash
 cd examples/mastra-agent
 npm install
-cd ../..                    # back to wherever jambu.yaml lives
+cd ../..                    # back to wherever gpu.yaml lives
 
 gpu setup
 gpu run npm --prefix examples/mastra-agent start
@@ -65,6 +65,6 @@ It's currently 18°C and partly cloudy in Lisbon.
 `src/agent.ts` uses `api: "chat"` (vLLM's `/v1/chat/completions`) because it works
 on every vLLM version. vLLM also serves the OpenAI **Responses API** at
 `/v1/responses`, including MCP tool routing done server-side — set
-`api: "responses"` in the model config and `runtime.tool_server` in `jambu.yaml`
+`api: "responses"` in the model config and `runtime.tool_server` in `gpu.yaml`
 (see [`docs/CONFIG.md`](../../docs/CONFIG.md#agentic-flows-nothing-to-build)) to
 use that instead.

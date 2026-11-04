@@ -1,11 +1,11 @@
-# jambu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
+# gpu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
 # the gpu_runtime: key below; add other tools' own top-level keys alongside
 # it without conflict. Credentials never live here.
 #
 # This file shows every field in one place, for reference. Running more than
 # one model? Don't copy this file per model - use `model_profile: <name>`
-# with a shared jambu.models.yaml catalog instead. See
-# docs/CHOOSING_A_MODEL.md and jambu.models.yaml in this repo for an example.
+# with a shared gpu.models.yaml catalog instead. See
+# docs/CHOOSING_A_MODEL.md and gpu.models.yaml in this repo for an example.
 gpu_runtime:
   version: 1
 
