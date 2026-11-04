@@ -358,3 +358,115 @@ def test_a_bare_machine_is_not_held_by_the_startup_grace(bare):
     while time.time() < deadline and not marker.exists():
         time.sleep(0.5)
     assert marker.exists(), "an unused bare machine must idle out, not wait out the boot grace"
+
+
+@pytest.fixture
+def served(write_config, tmp_path):
+    """A machine serving a model server the agent wrote (runtime.engine: custom)."""
+    import shutil
+
+    from gpu4agents.serve import TEMPLATE_DIR
+
+    port = free_port()
+    watchdog_port = free_port()
+    server_dir = tmp_path / "server"
+    server_dir.mkdir()
+    for name in ("server.py", "gpujob.yaml"):
+        shutil.copyfile(TEMPLATE_DIR / name, server_dir / name)
+    config = write_config(
+        model={"id": "org/echo"},
+        runtime={"engine": "custom", "port": port, "service_dir": "server"},
+        lifecycle={
+            "idle_timeout": "6s",
+            "max_lifetime": "1h",
+            "heartbeat_grace": "5s",
+            "watchdog": {"enabled": True, "port": watchdog_port, "interval": "1s"},
+        },
+        health={"interval": "1s", "startup_timeout": "60s"},
+    )
+    root = tmp_path / "instance"
+    root.mkdir()
+    marker = tmp_path / "marker.json"
+    provider = BootingProvider(config, CredentialResolver(config.project_dir), root, marker, port)
+    engine = Engine(config, provider=provider)
+    yield engine, provider, marker, server_dir
+    try:
+        for job in engine.job_list():
+            if job.get("service") and job.get("state") == "running":
+                engine.job_cancel(job["id"])
+    except Exception:  # noqa: BLE001 - teardown only
+        pass
+    provider.kill_watchdog()
+
+
+def test_a_custom_model_server_is_deployed_served_with_the_key_and_idles_out(served):
+    import httpx
+
+    engine, provider, marker, _ = served
+    state = engine.setup()
+    conn = engine.connection(state)
+    assert conn["engine"] == "custom" and conn["api_key"]
+
+    authed = httpx.Client(base_url=conn["endpoint"], headers={"Authorization": f"Bearer {conn['api_key']}"})
+    reply = authed.post("/v1/echo", json={"hello": "gpu"})
+    assert reply.status_code == 200 and reply.json() == {"model": "org/echo", "echo": {"hello": "gpu"}}
+    assert httpx.post(conn["endpoint"] + "/v1/echo", json={}).status_code == 401
+
+    # The service is the runtime, not a workload: only its traffic holds the machine.
+    remote = engine.beacon(state).state()
+    assert not [w for w in remote["workloads"] if "service" in w]
+    services = [j for j in engine.job_list() if j.get("service")]
+    assert len(services) == 1 and services[0]["state"] == "running"
+
+    # Requests for longer than idle_timeout keep it up ...
+    until = time.time() + 10
+    while time.time() < until:
+        assert authed.post("/v1/echo", json={}).status_code == 200
+        time.sleep(1)
+    assert not marker.exists(), "the machine stopped while clients were using its model"
+    assert engine.beacon(state).state()["last_probe"]["last_traffic_at"]
+
+    # ... and once they stop, it stops itself.
+    deadline = time.time() + 40
+    while time.time() < deadline and not marker.exists():
+        time.sleep(0.5)
+    assert marker.exists() and json.loads(marker.read_text())["action"] == "stop"
+
+
+def test_changed_server_code_is_redeployed_on_the_same_machine(served):
+    import httpx
+
+    engine, provider, marker, server_dir = served
+    first = engine.setup()
+    old = [j for j in engine.job_list() if j.get("service") and j.get("state") == "running"]
+
+    # Same code: setup leaves the running server alone.
+    engine.setup()
+    same = [j for j in engine.job_list() if j.get("service") and j.get("state") == "running"]
+    assert [j["id"] for j in same] == [j["id"] for j in old]
+
+    code = (server_dir / "server.py").read_text()
+    (server_dir / "server.py").write_text(code.replace('"echo": body', '"echo": body, "version": 2'))
+    second = engine.setup()
+    assert second.instance_id == first.instance_id and provider.counter == 1
+    running = [j for j in engine.job_list() if j.get("service") and j.get("state") == "running"]
+    assert len(running) == 1 and running[0]["id"] != old[0]["id"]
+    assert engine.job_info(old[0]["id"])["state"] == "cancelled"
+
+    conn = engine.connection(second)
+    reply = httpx.post(
+        conn["endpoint"] + "/v1/echo", json={}, headers={"Authorization": f"Bearer {conn['api_key']}"}
+    )
+    assert reply.json()["version"] == 2
+
+
+def test_a_model_server_that_fails_to_start_is_reported_and_cleaned_up(served):
+    engine, provider, marker, server_dir = served
+    (server_dir / "gpujob.yaml").write_text("run: python3 server.py\nsetup: echo 'no such package' >&2; exit 1\n")
+    engine.config.health.startup_timeout = "20s"
+
+    from gpu4agents.core.errors import RuntimeStartupError
+
+    with pytest.raises(RuntimeStartupError):
+        engine.setup()
+    assert engine.store.load().instance_id is None

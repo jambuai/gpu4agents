@@ -10,10 +10,17 @@ While a job runs it is a workload, and the watchdog heartbeats it itself: the
 machine stays up with no laptop connected, and the idle clock starts when the
 job ends. max_lifetime and the session budget still apply.
 
+A *service* job (``"service": true``) is a model server instead: it is not a
+workload, so it never holds the machine up by itself running; the requests it
+serves do, through the activity probe on its /metrics. Its pid becomes the
+runtime pid (a server that dies while loading ends the startup wait) and its
+log becomes the runtime log (`gpu logs`).
+
 Routes (behind X-Jambu-Token, like every other control route):
     GET  /jobs                    -> {jobs: [records]}
     PUT  /jobs/<id>/bundle        <- tar.gz of the code (optional)
-    POST /jobs/<id>/start         -> {command, setup, env, timeout_s, label}
+    POST /jobs/<id>/start         -> {command, setup, env, timeout_s, label,
+                                      service, digest}
     GET  /jobs/<id>               -> the record, plus the output files so far
     GET  /jobs/<id>/log?offset=N  -> {data, offset, size, done}
     GET  /jobs/<id>/outputs       -> tar.gz of the output directory
@@ -218,7 +225,8 @@ def job_start(job_id, body):
                 start_new_session=True,
             )
         now = time.time()
-        timeout = body.get("timeout_s")
+        service = bool(body.get("service"))
+        timeout = None if service else body.get("timeout_s")
         record = {
             "id": job_id,
             "label": str(body.get("label") or ""),
@@ -231,22 +239,45 @@ def job_start(job_id, body):
             "returncode": None,
             "timeout_s": float(timeout) if timeout else None,
             "session_started_at": _STATE.get("session_started_at"),
+            "service": service,
+            "digest": str(body.get("digest") or "") or None,
         }
         job_write(record)
         _JOB_PROCS[job_id] = proc
-    with _LOCK:
-        _STATE.setdefault("workloads", {})[job_id] = {
-            "started_at": now,
-            "last_heartbeat": now,
-            "label": "job " + (record["label"] or job_id),
-            "state": "running",
-        }
-        _STATE["last_activity"] = now
-        _STATE["starting"] = False
-        save_state()
-    log_event("job_started", job_id=job_id, label=record["label"])
+    if service:
+        _service_publish(job_id, proc.pid)
+        touch("service_start")
+    else:
+        with _LOCK:
+            _STATE.setdefault("workloads", {})[job_id] = {
+                "started_at": now,
+                "last_heartbeat": now,
+                "label": "job " + (record["label"] or job_id),
+                "state": "running",
+            }
+            _STATE["last_activity"] = now
+            _STATE["starting"] = False
+            save_state()
+    log_event("job_started", job_id=job_id, label=record["label"], service=service)
     threading.Thread(target=job_monitor, args=(job_id, _JOB_GENERATION), daemon=True).start()
     return 200, {"ok": True, "job": record}
+
+
+def _service_publish(job_id, pid):
+    """Make the service the runtime: its pid for liveness, its log for /logs."""
+    pid_path = _CONFIG.get("runtime_pid_path")
+    log_path = (_CONFIG.get("logs") or {}).get("runtime")
+    try:
+        if pid_path:
+            os.makedirs(os.path.dirname(pid_path), exist_ok=True)
+            _atomic_write(pid_path, str(pid))
+        if log_path:
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            if os.path.lexists(log_path):
+                os.remove(log_path)
+            os.symlink(_job_path(job_id, "job.log"), log_path)
+    except OSError as exc:
+        log_event("service_publish_error", job_id=job_id, error=str(exc))
 
 
 def _job_done(job_id, record):
@@ -310,6 +341,10 @@ def job_monitor(job_id, generation):
         now = time.time()
         if timeout and now - float(record["started_at"]) > timeout and not record.get("cancel_reason"):
             job_cancel(job_id, "timeout")
+        if record.get("service"):
+            # Serving is not working: only the requests it answers are activity.
+            _STOPPED.wait(JOB_HEARTBEAT_S)
+            continue
         with _LOCK:
             workload = (_STATE.get("workloads") or {}).get(job_id)
             if workload is not None:

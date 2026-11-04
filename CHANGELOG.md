@@ -2,6 +2,16 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-11-04
+
+### Added
+- **Serve any Hugging Face model.** `gpu init --model <repo>` reads the Hugging Face model card and picks the server: chat and vision-language models stay on vLLM; every other task runs on gpu's own OpenAI-compatible server (`runtime.engine: hf`): `/v1/embeddings`, `/v1/images/generations`, `/v1/audio/transcriptions` and `/translations`, `/v1/audio/speech`, and `/v1/pipeline` for any other transformers pipeline. `model.task` records which; `--engine` and `--task` override the card, and `runtime.packages` adds pip packages a model needs.
+- `runtime.engine: custom`: a model server the agent writes. `gpu init --engine custom` scaffolds `server/server.py` and `server/gpujob.yaml`; gpu uploads and runs it like the built-in one. [`SERVING.md`](SERVING.md), served at `gpu4agents.jambu.ai/serving.md`, is the contract.
+- Both run as *service jobs* on the job runner: deployed after boot, so changing the model or the server's code and running `gpu setup` swaps the server on the same machine instead of renting a new one. `gpu redeploy` restarts it.
+- Requests to these servers count as activity through their `/metrics`, so a machine in use stays up and an unused one stops after `idle_timeout`. A server that dies while loading ends `gpu setup` with its log, and `gpu logs` shows it.
+- `gpu env --format json`, `gpu setup --json` and the MCP connection now include `engine`, `task` and `routes`. `gpu_init` takes `engine` and `task` and reports what it chose.
+- `GPU_NO_MODEL_CARD=1` makes `gpu init` skip reading the model card (offline).
+
 ## [0.8.0] - 2026-11-04
 
 ### Added

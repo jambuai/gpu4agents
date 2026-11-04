@@ -33,6 +33,8 @@ def jambu_home(tmp_path, monkeypatch):
     home = tmp_path / "gpu-home"
     monkeypatch.setenv("GPU_HOME", str(home))
     monkeypatch.delenv("JAMBU_HOME", raising=False)
+    # `gpu init --model X` reads X's model card; tests that want it unset this.
+    monkeypatch.setenv("GPU_NO_MODEL_CARD", "1")
     return home
 
 

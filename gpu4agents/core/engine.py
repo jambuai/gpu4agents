@@ -41,6 +41,7 @@ from .errors import (
 from .events import EventLog
 from .execution import ExecutionManager, Heartbeat
 from .health import wait_for_healthy
+from ..runtime.service import SERVICE_LABEL
 from .job import (
     JobClient,
     JobRecords,
@@ -406,12 +407,19 @@ class Engine:
             ports=self._ports(),
             env=env,
             onstart=onstart,
-            label=f"{JAMBU_LABEL_PREFIX}{(cfg.model.id.split('/')[-1] or 'jobs')[:24]}-{cfg.fingerprint()[:6]}",
+            label=f"{JAMBU_LABEL_PREFIX}{self._label_name()[:24]}-{cfg.fingerprint()[:6]}",
             spot=cfg.compute.spot,
             region=cfg.compute.region,
             max_hourly_cost_usd=cfg.budget.max_hourly_cost_usd,
             provider_options=dict(cfg.provider.options),
         )
+
+    def _label_name(self) -> str:
+        cfg = self.config
+        if cfg.serves_as_service:
+            # One machine may serve several models over its life (redeploys).
+            return f"serve-{cfg.runtime.engine}"
+        return cfg.model.id.split("/")[-1] or "jobs"
 
     def cuda_min(self) -> Optional[str]:
         """The stricter of compute.gpu.cuda_min and what the runtime image needs."""
@@ -790,6 +798,8 @@ class Engine:
 
             self._connect_watchdog(state)
 
+            if self.runtime.service:
+                self._deploy_service(state)
             if self.config.runtime.engine != "none":
                 self._wait_runtime(state)
             else:
@@ -923,6 +933,12 @@ class Engine:
         started = time.time()
 
         def _progress(attempt: int, remaining: float, detail: str) -> None:
+            if self.runtime.service:
+                # A redeploy late in a session has no startup grace left: the
+                # wait itself is the activity that keeps the machine up.
+                client = self.beacon(state)
+                if client is not None:
+                    client.try_request("POST", "/activity")
             if attempt % 4 == 0:
                 self.echo(
                     f"  still starting ({int(time.time() - started)}s elapsed, "
@@ -1013,8 +1029,19 @@ class Engine:
             "base_url": f"{endpoint.rstrip('/')}/v1" if endpoint else None,
             "api_key": self.api_key_for(state) if endpoint else None,
             "model": self.served_model(),
+            "engine": self.config.runtime.engine,
+            "task": self._task(),
+            "routes": self.runtime.routes(),
             "hourly_cost_usd": state.hourly_cost_usd,
         }
+
+    def _task(self) -> Optional[str]:
+        engine = self.config.runtime.engine
+        if engine == "vllm":
+            return "chat"
+        if engine == "hf":
+            return self.config.model.task
+        return None
 
     def workload_env(self, state: RuntimeState, workload_id: str) -> dict[str, str]:
         endpoint = state.endpoint or ""
@@ -1144,33 +1171,65 @@ class Engine:
                 "or set run: in gpujob.yaml"
             )
         timeout = timeout or manifest.timeout
-        timeout_s = parse_duration(timeout) if timeout else None
         merged_env = dict(manifest.env)
         merged_env.update(env or {})
 
         state, jobs = self._job_client(start)
+        record = self._submit(
+            state,
+            jobs,
+            directory,
+            command,
+            setup=setup or manifest.setup,
+            env={**self.job_env(state), **merged_env},
+            exclude=list(manifest.exclude) + list(exclude),
+            label=label or manifest.label or "",
+            timeout_s=parse_duration(timeout) if timeout else None,
+        )
+        self.echo(f"+ job {record['id']} running on instance {state.instance_id}")
+        return record
+
+    def _submit(
+        self,
+        state: RuntimeState,
+        jobs: JobClient,
+        directory: Path,
+        command: str,
+        *,
+        setup: Optional[str],
+        env: dict[str, str],
+        exclude: Sequence[str],
+        label: str,
+        timeout_s: Optional[float] = None,
+        service: bool = False,
+        digest: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Upload ``directory`` and start ``command`` on the job runner."""
         job_id = new_job_id()
         with tempfile.TemporaryDirectory(prefix="gpu-job-") as tmp:
             bundle = Path(tmp) / "bundle.tar.gz"
-            packed = build_bundle(directory, list(manifest.exclude) + list(exclude), bundle)
+            packed = build_bundle(directory, list(exclude), bundle)
             self.echo(
-                f"> uploading {packed['files']} files ({packed['bytes'] / 1024**2:.1f} MB) as job {job_id}"
+                f"> uploading {packed['files']} files ({packed['bytes'] / 1024**2:.1f} MB) as "
+                f"{'model server' if service else 'job'} {job_id}"
             )
             if packed["files"]:
                 jobs.upload(job_id, bundle)
         payload = {
             "command": command,
-            "setup": setup or manifest.setup,
-            "env": {**self.job_env(state), **merged_env},
+            "setup": setup,
+            "env": env,
             "timeout_s": timeout_s,
-            "label": label or manifest.label or "",
+            "label": label,
+            "service": service,
+            "digest": digest,
         }
         started = jobs.start(job_id, payload)["job"]
         record = JobRecords(self.store.dir).update(
             job_id,
-            label=payload["label"],
+            label=label,
             command=command,
-            setup=payload["setup"],
+            setup=setup,
             directory=str(directory),
             instance_id=state.instance_id,
             hourly_cost_usd=state.hourly_cost_usd,
@@ -1178,17 +1237,90 @@ class Engine:
             state=started.get("state"),
             files=packed["files"],
             bundle_bytes=packed["bytes"],
+            service=service,
         )
         self.events.emit(
             ev.JOB_SUBMITTED,
             job_id=job_id,
             instance_id=state.instance_id,
-            label=payload["label"],
+            label=label,
             files=packed["files"],
             bundle_bytes=packed["bytes"],
+            service=service,
         )
-        self.echo(f"+ job {job_id} running on instance {state.instance_id}")
         return record
+
+    # ------------------------------------------------------------------
+    # model servers deployed as service jobs (runtime/service.py)
+    # ------------------------------------------------------------------
+
+    def _deploy_service(self, state: RuntimeState, force: bool = False) -> str:
+        """Start the configured model server unless that exact one already runs."""
+        client = self.beacon(state)
+        if client is None or not self.config.lifecycle.watchdog.enabled:
+            raise ConfigError(
+                f"runtime.engine: {self.config.runtime.engine} runs its model server through "
+                "the machine's watchdog; set lifecycle.watchdog.enabled: true"
+            )
+        jobs = JobClient(client)
+        jobs.ensure_runner()
+        spec = self.runtime.service_spec()  # type: ignore[attr-defined]
+        spec.env["JAMBU_API_KEY"] = self.api_key_for(state)
+        digest = spec.digest()
+        running = [j for j in jobs.list() if j.get("service") and j.get("state") == "running"]
+        if not force:
+            for job in running:
+                if job.get("digest") == digest:
+                    self.echo(f"= model server {job['id']} already running")
+                    return str(job["id"])
+        for job in running:
+            self.echo(f"~ stopping model server {job['id']} (the model or its code changed)")
+            jobs.cancel(job["id"])
+            self._wait_job_end(jobs, str(job["id"]))
+        client.mark_starting()
+        record = self._submit(
+            state,
+            jobs,
+            spec.directory,
+            spec.command,
+            setup=spec.setup,
+            env=spec.env,
+            exclude=spec.exclude,
+            label=SERVICE_LABEL,
+            service=True,
+            digest=digest,
+        )
+        state.model_id = self.config.model.id
+        self.store.save(state)
+        self.echo(f"+ model server {record['id']} starting ({self.runtime.describe()})")
+        return str(record["id"])
+
+    def _wait_job_end(self, jobs: JobClient, job_id: str, timeout: float = 60.0) -> None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if jobs.info(job_id).get("state") != "running":
+                return
+            time.sleep(1.0)
+        raise RuntimeStartupError(f"the old model server {job_id} did not stop within {int(timeout)}s")
+
+    def redeploy(self) -> RuntimeState:
+        """Restart the model server on the running machine, same settings or not."""
+        if not self.runtime.service:
+            raise ConfigError(
+                "only runtime.engine: hf or custom redeploys in place; vLLM's command is "
+                "fixed at rent time (`gpu setup --recreate`)"
+            )
+        with self.store.process_lock():
+            state = self._reconcile(self.store.load())
+            if not state.has_instance() or state.state == InstanceState.STOPPED.value:
+                raise StateError("no running machine; `gpu setup` starts one and deploys the server")
+            self._deploy_service(state, force=True)
+            self._wait_runtime(state)
+            state.starting = False
+            state.state = InstanceState.READY.value
+            state.touch()
+            self.store.save(state)
+            return state
 
     def _resolve_job(self, job_id: Optional[str]) -> str:
         if job_id:
@@ -1275,14 +1407,20 @@ class Engine:
     def job_list(self) -> list[dict[str, Any]]:
         """This project's jobs: the machine's records, else the local ones."""
         records = {r["id"]: r for r in JobRecords(self.store.dir).all()}
+        current: Optional[str] = None
         try:
             state, jobs = self._job_client(start=False)
+            current = state.instance_id
             for remote in jobs.list():
                 merged = records.get(remote["id"], {})
                 merged.update(self._job_summary(dict(remote), state))
                 records[remote["id"]] = merged
         except (StateError, WatchdogUnavailable):
-            pass
+            current = self.store.load().instance_id
+        for record in records.values():
+            # Its machine is gone: whatever it was doing ended with it.
+            if record.get("state") == "running" and record.get("instance_id") != current:
+                record["state"] = "lost"
         return sorted(records.values(), key=lambda r: r.get("submitted_at") or r.get("started_at") or 0)
 
     # ------------------------------------------------------------------

@@ -15,14 +15,14 @@
 #   --no-modify-path  do not add ~/.local/bin to your shell profile
 #
 # Environment:
-#   GPU4AGENTS_SPEC  what to install (default: gpu4agents>=0.8.0); a version pin or a wheel path
+#   GPU4AGENTS_SPEC  what to install (default: gpu4agents>=0.9.0); a version pin or a wheel path
 #   GPU4AGENTS_PYTHON  Python version uv uses for the tool (default: 3.12)
 
 set -eu
 
 AGENT="auto"
 MODIFY_PATH=1
-SPEC="${GPU4AGENTS_SPEC:-gpu4agents>=0.8.0}"
+SPEC="${GPU4AGENTS_SPEC:-gpu4agents>=0.9.0}"
 PYVER="${GPU4AGENTS_PYTHON:-3.12}"
 
 while [ $# -gt 0 ]; do

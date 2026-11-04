@@ -108,6 +108,19 @@ Write this as a GPU for Agents job and run it. Fetch https://gpu4agents.jambu.ai
 
 [JOBS.md](JOBS.md) has the contract: the directory, `gpujob.yaml`, the environment a job gets, and the rules its code follows.
 
+## Serve any model
+
+Give `gpu` a Hugging Face model id and it serves it behind the OpenAI API shapes, whatever the model does. It reads the model card: chat and vision-language models run on vLLM; image, voice, transcription, embedding and other pipeline models run on gpu's own server. Any OpenAI client then works unchanged.
+
+```bash
+gpu init --model stabilityai/sd-turbo      # text-to-image -> /v1/images/generations
+gpu init --model openai/whisper-large-v3   # speech recognition -> /v1/audio/transcriptions
+gpu init --model BAAI/bge-m3               # embeddings -> /v1/embeddings
+gpu setup && eval "$(gpu env)"             # OPENAI_BASE_URL, OPENAI_API_KEY, JAMBU_MODEL_ID
+```
+
+Requests count as activity, so the machine stays up while clients call it and stops by itself once they stop. Pointing `model.id` at another model and running `gpu setup` again swaps the model on the same GPU, with no new rental. When no built-in server can load a model, `gpu init --engine custom` writes a small server for the agent to fill in, and gpu runs it the same way. [SERVING.md](SERVING.md) has the contract, the routes and the limits.
+
 ## Use any GPU provider
 
 `gpu` talks to providers through a small contract: find offers, rent, report status, stop, destroy, and two calls the watchdog makes from the machine to shut itself down. Vast.ai ships with it. For anything else, such as RunPod, Lambda or your company's cluster, paste this into your agent:

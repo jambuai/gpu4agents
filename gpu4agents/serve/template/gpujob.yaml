@@ -1,0 +1,5 @@
+# How gpu starts your model server on the GPU machine (SERVING.md).
+run: python3 server.py
+# Pin what you install; torch already comes with the image.
+# setup: pip install -r requirements.txt
+env: {}

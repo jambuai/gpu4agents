@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+import yaml
+
 from .. import __version__
 from ..core.config import find_config
 from .jobs import Job
@@ -58,8 +60,10 @@ EXIT_MEANINGS = {
 
 INSTRUCTIONS = """\
 gpu rents a cloud GPU (Vast.ai built in; other providers through an adapter),
-serves a model on it with vLLM behind an OpenAI-compatible API, and stops it
-by itself when nobody uses it.
+serves a model on it behind an OpenAI-compatible API, and stops it by itself
+when nobody uses it. Any Hugging Face model: chat models on vLLM; image,
+speech, transcription, embeddings and other pipeline models on gpu's own
+server (gpu_init picks from the model card; the result says which routes).
 
 Rules:
 - Renting costs the user money. Before the first gpu_setup in a conversation,
@@ -78,6 +82,9 @@ Rules:
   that needs CUDA), write it in a directory following
   https://gpu4agents.jambu.ai/jobs.md, then gpu_setup, gpu_job_run,
   gpu_job_status until it ends, and gpu_job_pull for the outputs.
+- To serve a model the built-in servers cannot load, write your own server
+  following https://gpu4agents.jambu.ai/serving.md (gpu_init with
+  engine="custom" writes a starting one), then gpu_setup.
 """
 
 
@@ -220,6 +227,9 @@ class Server:
         directory = self._start_dir(args)
         directory.mkdir(parents=True, exist_ok=True)
         argv = ["init", "--model", str(args["model"])]
+        for key in ("engine", "task"):
+            if args.get(key):
+                argv += [f"--{key}", str(args[key])]
         if args.get("force"):
             argv.append("--force")
         self._ok(self.cli(argv, directory))
@@ -232,11 +242,23 @@ class Server:
         if args.get("min_vram_gb") is not None:
             text = re.sub(r"(min_vram_gb:\s*)[0-9]+", rf"\g<1>{int(args['min_vram_gb'])}", text)
         config.write_text(text)
-        return {
+        written = (yaml.safe_load(text) or {}).get("gpu_runtime") or {}
+        engine = (written.get("runtime") or {}).get("engine")
+        result = {
             "config_path": str(config),
             "model": args["model"],
+            "engine": engine,
+            "task": (written.get("model") or {}).get("task") or ("chat" if engine == "vllm" else None),
             "next": "gpu_validate, then gpu_offers to see prices",
         }
+        if engine == "custom":
+            service_dir = (written.get("runtime") or {}).get("service_dir") or "server"
+            result["server_dir"] = str(directory / service_dir)
+            result["next"] = (
+                f"write the model into {service_dir}/server.py following "
+                "https://gpu4agents.jambu.ai/serving.md, then gpu_validate and gpu_offers"
+            )
+        return result
 
     def tool_validate(self, args: dict[str, Any]) -> Any:
         return self._ok(self.cli(["validate"], self._project_dir(args)))
@@ -455,10 +477,23 @@ class Server:
                 "gpu_init",
                 "Create jambu.yaml",
                 "Write a starter jambu.yaml for a HuggingFace model in project_dir. Use once per "
-                "project, before anything else. Defaults: 24 GB VRAM, $1.00/h cap, stop after 15 min idle.",
+                "project, before anything else. Any model: the model card picks the server (chat on "
+                "vLLM; image, speech, transcription, embeddings or other pipelines on gpu's hf "
+                "server) and the result says which. Defaults: 24 GB VRAM (or sized from the model), "
+                "$1.00/h cap, stop after 15 min idle.",
                 _schema(
                     {
-                        "model": {"type": "string", "description": "HuggingFace model id, e.g. Qwen/Qwen2.5-7B-Instruct"},
+                        "model": {"type": "string", "description": "HuggingFace model id, e.g. Qwen/Qwen2.5-7B-Instruct or openai/whisper-large-v3"},
+                        "engine": {
+                            "type": "string",
+                            "enum": ["auto", "vllm", "hf", "custom", "none"],
+                            "description": "auto (default) reads the model card. custom: a server you write (serving.md).",
+                        },
+                        "task": {
+                            "type": "string",
+                            "enum": ["chat", "embeddings", "image", "transcription", "speech", "pipeline"],
+                            "description": "With engine hf: override the task the model card gives.",
+                        },
                         "max_hourly_cost_usd": {"type": "number", "description": "Price cap per hour."},
                         "min_vram_gb": {"type": "integer", "description": "Minimum GPU memory."},
                         "force": {"type": "boolean", "description": "Overwrite an existing jambu.yaml."},

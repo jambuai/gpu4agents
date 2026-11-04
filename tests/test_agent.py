@@ -443,6 +443,7 @@ def test_the_published_copies_of_the_skill_and_installer_match_the_sources():
         assert (site / "install.md").read_text() == (root / "INSTALL.md").read_text()
         assert (site / "providers.md").read_text() == (root / "PROVIDERS.md").read_text()
         assert (site / "jobs.md").read_text() == (root / "JOBS.md").read_text()
+        assert (site / "serving.md").read_text() == (root / "SERVING.md").read_text()
 
 
 def test_plugin_manifests_carry_the_package_version():
