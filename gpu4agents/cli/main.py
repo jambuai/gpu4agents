@@ -21,7 +21,7 @@ app = typer.Typer(
     help=(
         "GPU for Agents: rent a GPU, serve a model, run the work; the machine stops "
         "when nothing uses it.\n\n"
-        "jambu.yaml is the desired-state source of truth; .gpu/state.json is what "
+        "gpu.yaml is the desired-state source of truth; .gpu/state.json is what "
         "was last observed."
     ),
     no_args_is_help=True,
@@ -42,7 +42,7 @@ def _print_version(value: bool) -> None:
 def main_callback(
     ctx: typer.Context,
     config: Optional[Path] = typer.Option(
-        None, "--config", "-c", help="Path to jambu.yaml (default: nearest one upwards)."
+        None, "--config", "-c", help="Path to gpu.yaml (default: nearest one upwards)."
     ),
     json_output: bool = typer.Option(
         False, "--json", help="Machine-readable output on stdout."

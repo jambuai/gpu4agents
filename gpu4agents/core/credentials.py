@@ -1,9 +1,9 @@
 """Credential resolution (spec section 5).
 
-Credentials never live in jambu.yaml. They are resolved from, in order:
+Credentials never live in gpu.yaml. They are resolved from, in order:
 environment variables, a project-local ``.env``, then ``~/.gpu/credentials``.
 The resolution strategy can grow (keychain, secret managers, CI secrets)
-without touching jambu.yaml or any adapter.
+without touching gpu.yaml or any adapter.
 """
 
 from __future__ import annotations

@@ -331,7 +331,7 @@
         <p class="lead reveal">The agent uses MCP tools, or the CLI with <code>--json</code>. The skill tells it to show you the price and ask before renting.</p>
       </div>
       <div class="steps">
-        <div class="step reveal-step"><span class="k">01</span><h3>Ask</h3><p>"Run this eval on Llama 8B." The agent writes <code>jambu.yaml</code> with <code>gpu_init</code>.</p></div>
+        <div class="step reveal-step"><span class="k">01</span><h3>Ask</h3><p>"Run this eval on Llama 8B." The agent writes <code>gpu.yaml</code> with <code>gpu_init</code>.</p></div>
         <div class="step reveal-step"><span class="k">02</span><h3>Price</h3><p><code>gpu_offers</code> lists matching GPUs under your cap. You say yes.</p></div>
         <div class="step reveal-step"><span class="k">03</span><h3>Serve</h3><p><code>gpu_setup</code> rents, boots vLLM and returns <code>base_url</code>, <code>api_key</code>, <code>model</code>. A stalled host is replaced.</p></div>
         <div class="step reveal-step"><span class="k">04</span><h3>Run, then stop</h3><p><code>gpu_run</code> runs the job. When requests stop, the watchdog stops the GPU.</p></div>
@@ -345,7 +345,7 @@
         <div class="section-head">
           <span class="eyebrow reveal">Guardrails</span>
           <h2 class="reveal">Limits the agent can't talk its way past.</h2>
-          <p class="lead reveal">They live in <code>jambu.yaml</code> and on the machine, and they work the same with every provider. The agent would have to edit the file to raise them, and the skill tells it to ask you first.</p>
+          <p class="lead reveal">They live in <code>gpu.yaml</code> and on the machine, and they work the same with every provider. The agent would have to edit the file to raise them, and the skill tells it to ask you first.</p>
         </div>
         <div class="rows">
           <div class="row reveal-row"><span class="big">15 min</span><div><h4>Idle timeout</h4><p>The watchdog on the machine stops it once requests stop. <code>lifecycle.idle_timeout</code></p></div></div>
@@ -356,7 +356,7 @@
         </div>
       </div>
       <div class="yaml reveal">
-        <div class="bar-top"><i></i><i></i><i></i><span>jambu.yaml</span></div>
+        <div class="bar-top"><i></i><i></i><i></i><span>gpu.yaml</span></div>
 <pre><span class="k2">gpu_runtime:</span>
   provider: {name: <span class="v">vast</span>}  <span class="c"># or your adapter</span>
   model_profile: <span class="v">qwythos-9b</span>
@@ -450,7 +450,7 @@
 <span class="c"># runs on the machine: stops it when idle</span>
 <span class="k2">def</span> provider_stop(ctx)
 <span class="k2">def</span> provider_destroy(ctx)</pre>
-          <div class="contract-foot"><span class="c">jambu.yaml</span> provider: {name: <span class="v prov-slug">runpod</span>, plugin: <span class="v">./gpu_providers/<span class="prov-slug">runpod</span>.py:<span class="prov-class">Runpod</span>Provider</span>}</div>
+          <div class="contract-foot"><span class="c">gpu.yaml</span> provider: {name: <span class="v prov-slug">runpod</span>, plugin: <span class="v">./gpu_providers/<span class="prov-slug">runpod</span>.py:<span class="prov-class">Runpod</span>Provider</span>}</div>
         </div>
       </div>
     </div>

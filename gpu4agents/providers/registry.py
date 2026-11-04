@@ -6,7 +6,7 @@ in one of three ways:
 
 - built in: registered by ``load_builtin_providers`` (Vast.ai);
 - installed: a package that declares a ``gpu4agents.providers`` entry point;
-- per project: ``provider.plugin`` in jambu.yaml, a file or module path.
+- per project: ``provider.plugin`` in gpu.yaml, a file or module path.
 """
 
 from __future__ import annotations

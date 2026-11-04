@@ -1,4 +1,4 @@
-"""Where jambu.yaml's numbers come from: fetch two public HF documents,
+"""Where gpu.yaml's numbers come from: fetch two public HF documents,
 derive a VRAM/parser suggestion, cite the sources. Mocked against the real
 shapes HuggingFace returns (see the live JSON captured while building this).
 """

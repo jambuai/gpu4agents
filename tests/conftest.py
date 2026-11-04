@@ -50,7 +50,7 @@ def _deep_merge(base: dict, extra: dict) -> dict:
 
 @pytest.fixture
 def write_config(tmp_path: Path):
-    """Writes the primary, namespaced jambu.yaml shape by default.
+    """Writes the primary, namespaced gpu.yaml shape by default.
 
     Use write_flat_config for the legacy config.yml (no gpu_runtime: wrapper)
     shape specifically.
@@ -58,7 +58,7 @@ def write_config(tmp_path: Path):
 
     def _write(**overrides) -> RuntimeConfig:
         data = _deep_merge(BASE_CONFIG, overrides)
-        path = tmp_path / "jambu.yaml"
+        path = tmp_path / "gpu.yaml"
         path.write_text(yaml.safe_dump({"gpu_runtime": data}, sort_keys=False))
         return load_config(path)
 

@@ -28,11 +28,30 @@ def test_init_writes_a_valid_config(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["init", "--model", "org/model"])
     assert result.exit_code == 0
-    assert (tmp_path / "jambu.yaml").is_file()
+    assert (tmp_path / "gpu.yaml").is_file()
     assert (tmp_path / ".env.example").is_file()
 
     validated = runner.invoke(app, ["validate", "--offline"])
     assert validated.exit_code == 0
+
+
+def test_init_writes_gpu_yaml(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["init", "--model", "org/model"]).exit_code == 0
+    assert (tmp_path / "gpu.yaml").is_file()
+    assert not (tmp_path / "jambu.yaml").exists()
+
+
+def test_init_stops_when_the_old_jambu_yaml_is_there(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "jambu.yaml").write_text("gpu_runtime: {}\n")
+    result = runner.invoke(app, ["init", "--model", "org/model"])
+    assert result.exit_code == 1
+    assert "rename it to gpu.yaml" in result.output
+    assert not (tmp_path / "gpu.yaml").exists()
+    assert runner.invoke(app, ["init", "--model", "org/model", "--force"]).exit_code == 0
+    assert (tmp_path / "gpu.yaml").is_file()
+    assert (tmp_path / "jambu.yaml").read_text() == "gpu_runtime: {}\n"
 
 
 def test_init_refuses_to_clobber(tmp_path, monkeypatch):
@@ -46,7 +65,7 @@ def test_init_flat_writes_the_legacy_unnamespaced_config(tmp_path, monkeypatch):
     result = runner.invoke(app, ["init", "--flat", "--model", "org/model"])
     assert result.exit_code == 0
     assert (tmp_path / "config.yml").is_file()
-    assert not (tmp_path / "jambu.yaml").exists()
+    assert not (tmp_path / "gpu.yaml").exists()
     assert runner.invoke(app, ["validate", "--offline"]).exit_code == 0
 
 
@@ -55,7 +74,7 @@ def test_init_default_config_is_namespaced_under_gpu_runtime(tmp_path, monkeypat
 
     monkeypatch.chdir(tmp_path)
     runner.invoke(app, ["init", "--model", "org/model"])
-    doc = yaml.safe_load((tmp_path / "jambu.yaml").read_text())
+    doc = yaml.safe_load((tmp_path / "gpu.yaml").read_text())
     assert set(doc.keys()) == {"gpu_runtime"}
     assert doc["gpu_runtime"]["model"]["id"] == "org/model"
 
@@ -87,7 +106,7 @@ def test_missing_config_is_a_clean_error(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["status"])
     assert result.exit_code == 2
-    assert "no jambu.yaml" in result.output
+    assert "no gpu.yaml" in result.output
 
 
 def test_status_json_on_a_fresh_project(config, monkeypatch):
@@ -155,7 +174,7 @@ def test_inspect_model_json(monkeypatch, tmp_path):
 
 
 def test_inspect_model_does_not_require_a_project_config(monkeypatch, tmp_path):
-    """No jambu.yaml anywhere - inspect-model must still work standalone."""
+    """No gpu.yaml anywhere - inspect-model must still work standalone."""
     import httpx
     import respx
     from gpu4agents.core.model_inspect import HF_API_BASE, HF_HUB_BASE
@@ -199,11 +218,11 @@ def test_inspect_model_add_profile_writes_the_catalog(monkeypatch, tmp_path):
             ["inspect-model", "Qwen/Qwen2.5-7B-Instruct", "--add-profile", "qwen25-7b"],
         )
     assert result.exit_code == 0
-    assert (tmp_path / "jambu.models.yaml").is_file()
+    assert (tmp_path / "gpu.models.yaml").is_file()
 
     import yaml
 
-    catalog = yaml.safe_load((tmp_path / "jambu.models.yaml").read_text())
+    catalog = yaml.safe_load((tmp_path / "gpu.models.yaml").read_text())
     assert catalog["qwen25-7b"]["model"]["id"] == "Qwen/Qwen2.5-7B-Instruct"
 
     # Re-running without --force must not clobber it.
@@ -225,7 +244,7 @@ def test_profiles_command_lists_the_catalog(monkeypatch, tmp_path):
     import yaml
 
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "jambu.models.yaml").write_text(
+    (tmp_path / "gpu.models.yaml").write_text(
         yaml.safe_dump(
             {
                 "qwythos-9b": {
@@ -436,7 +455,7 @@ def test_init_with_an_unknown_provider_points_jambu_yaml_at_its_adapter_file(tmp
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["init", "--provider", "acme"])
     assert result.exit_code == 0, result.output
-    text = (tmp_path / "jambu.yaml").read_text()
+    text = (tmp_path / "gpu.yaml").read_text()
     assert "    name: acme\n    plugin: ./gpu_providers/acme.py:AcmeProvider\n" in text
     assert "gpu providers new acme" in " ".join(result.output.split())
     assert "VAST_API_KEY" not in (tmp_path / ".env.example").read_text()
@@ -493,14 +512,14 @@ def test_a_plugin_provider_drives_the_cli_like_a_built_in_one(tmp_path, monkeypa
     from gpu4agents.core.config import load_config
     from gpu4agents.core.engine import Engine
 
-    engine = Engine(load_config(tmp_path / "jambu.yaml"))
+    engine = Engine(load_config(tmp_path / "gpu.yaml"))
     assert engine.provider.name == "acme"
 
 
 def test_a_plugin_whose_name_differs_from_the_config_is_refused(tmp_path, monkeypatch):
     _acme_project(tmp_path, monkeypatch)
-    text = (tmp_path / "jambu.yaml").read_text().replace("name: acme", "name: other")
-    (tmp_path / "jambu.yaml").write_text(text)
+    text = (tmp_path / "gpu.yaml").read_text().replace("name: acme", "name: other")
+    (tmp_path / "gpu.yaml").write_text(text)
     result = runner.invoke(app, ["login", "--check"])
     assert result.exit_code == 2
     assert "make them the same" in " ".join(result.output.split())

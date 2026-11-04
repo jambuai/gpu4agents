@@ -6,9 +6,9 @@ Operator reference. The project front page is the [README](../README.md). Field-
 
 | Command | What it does |
 | --- | --- |
-| `gpu init` | Write a starter `jambu.yaml` and `.env.example` (`--flat` for a legacy `config.yml`) |
+| `gpu init` | Write a starter `gpu.yaml` and `.env.example` (`--flat` for a legacy `config.yml`) |
 | `gpu inspect-model <repo>` | Suggest `min_vram_gb`, `dtype`, and `tool_calling` for a HuggingFace model, with sources cited. `--add-profile <name>` writes it into the model catalog |
-| `gpu profiles` | List the model profiles in `jambu.models.yaml` |
+| `gpu profiles` | List the model profiles in `gpu.models.yaml` |
 | `gpu providers` | Provider capability matrix and credential status |
 | `gpu validate` | Schema, policy, credentials, capabilities, real capacity. Fails before provisioning |
 | `gpu offers` | Matching GPU offers and their hourly price |
@@ -35,13 +35,13 @@ Every command accepts `--json` and `--config PATH`. To call `gpu` from an applic
 
 ## The manifest
 
-`gpu` reads only the `gpu_runtime:` key. Everything else in `jambu.yaml` belongs to another tool. Credentials never go in the file.
+`gpu` reads only the `gpu_runtime:` key. Everything else in `gpu.yaml` belongs to another tool. Credentials never go in the file.
 
-A project that does not share the file can run `gpu init --flat`. That writes a `config.yml` with the same fields at the top level, without the `gpu_runtime:` wrapper. When both files exist, `jambu.yaml` wins.
+A project that does not share the file can run `gpu init --flat`. That writes a `config.yml` with the same fields at the top level, without the `gpu_runtime:` wrapper. When both files exist, `gpu.yaml` wins.
 
-More than one model: do not copy the whole file per model. Set `model_profile: <name>` and keep the definitions in [`jambu.models.yaml`](../jambu.models.yaml). `gpu inspect-model <repo> --add-profile <name>` writes a profile. `gpu profiles` lists them. See [CHOOSING_A_MODEL.md](CHOOSING_A_MODEL.md).
+More than one model: do not copy the whole file per model. Set `model_profile: <name>` and keep the definitions in [`gpu.models.yaml`](../gpu.models.yaml). `gpu inspect-model <repo> --add-profile <name>` writes a profile. `gpu profiles` lists them. See [CHOOSING_A_MODEL.md](CHOOSING_A_MODEL.md).
 
-The full field list is [CONFIG.md](CONFIG.md). A filled example is [`jambu.example.yaml`](../jambu.example.yaml).
+The full field list is [CONFIG.md](CONFIG.md). A filled example is [`gpu.example.yaml`](../gpu.example.yaml).
 
 ## Running a workload
 
@@ -108,7 +108,7 @@ gpu ls
 ```
 Vast.ai instances
  ID        LABEL                          STATE    GPU          $/H     AGE    PROJECT
- 31337001  jambu-Qwythos-9B-v2-3fa2c1     READY    1x RTX 4090  $0.350  7h30m  /home/me/agent/jambu.yaml
+ 31337001  jambu-Qwythos-9B-v2-3fa2c1     READY    1x RTX 4090  $0.350  7h30m  /home/me/agent/gpu.yaml
  31337002  jambu-Llama-3.1-8B-9b01de      STOPPED  1x RTX 4090  $0.350  1d6h   orphan
 ```
 
@@ -116,7 +116,7 @@ Vast.ai instances
 
 `gpu setup` (and `gpu run`, which can provision) registers the project's absolute config path in `~/.gpu/projects.json` (`$GPU_HOME` overrides `~/.gpu`; a `~/.jambu` from before 0.3.0 is renamed to `~/.gpu` on first use, and `$JAMBU_HOME` is still read). `gpu sweep` then works in two steps:
 
-1. Tracked instances. For every registered project whose config still loads, it runs that project's own `gpu guard`: its own `jambu.yaml` and `.gpu/state.json`, so its own `max_lifetime`, lock, session start, `stopped_ttl` and budget. The project's events land in its own log. A registered project whose config file is gone is dropped from the registry. The project in the current directory, or the one given with `--config`, is guarded too for that run.
+1. Tracked instances. For every registered project whose config still loads, it runs that project's own `gpu guard`: its own `gpu.yaml` and `.gpu/state.json`, so its own `max_lifetime`, lock, session start, `stopped_ttl` and budget. The project's events land in its own log. A registered project whose config file is gone is dropped from the registry. The project in the current directory, or the one given with `--config`, is guarded too for that run.
 2. Orphans. An instance no project tracks has no known policy, and nobody knows whether it is in use. The rules for it are simple, and they never destroy a running machine:
 
 | Orphan | Rule | Action |
@@ -131,7 +131,7 @@ It is a dry run until you pass `--apply`:
 ```
 $ gpu sweep
 > guarding 1 project(s) (dry run)
-= /home/me/agent/jambu.yaml: 31337001 ok (within_policy)
+= /home/me/agent/gpu.yaml: 31337001 ok (within_policy)
 > sweeping Vast.ai for orphans: running > 1d is stopped, stopped > 1d is destroyed (dry run)
 - would destroy orphan 31337002 (jambu-Llama-3.1-8B-9b01de): stopped_ttl, stopped for 1d2h
 ! 1 action(s) pending; re-run with --apply

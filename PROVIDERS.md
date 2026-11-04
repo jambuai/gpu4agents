@@ -12,10 +12,10 @@ Follow these steps in the user's project directory. Do not rent anything until s
 
 ```bash
 gpu providers new <name> --display-name "<Provider name>"
-gpu init --provider <name> --model <org/model>   # skip if jambu.yaml exists
+gpu init --provider <name> --model <org/model>   # skip if gpu.yaml exists
 ```
 
-The first command writes `gpu_providers/<name>.py`. The second writes a `jambu.yaml` that selects it:
+The first command writes `gpu_providers/<name>.py`. The second writes a `gpu.yaml` that selects it:
 
 ```yaml
 gpu_runtime:
@@ -24,7 +24,7 @@ gpu_runtime:
     plugin: ./gpu_providers/<name>.py:<Name>Provider
 ```
 
-In an existing `jambu.yaml`, add those two lines under `gpu_runtime.provider` yourself.
+In an existing `gpu.yaml`, add those two lines under `gpu_runtime.provider` yourself.
 
 ## 3. Read the provider's API docs, then fill in the file
 

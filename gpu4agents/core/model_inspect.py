@@ -1,4 +1,4 @@
-"""Where jambu.yaml's model-specific values actually come from.
+"""Where gpu.yaml's model-specific values actually come from.
 
 Two public, documented HuggingFace endpoints - not scraping, not guessing:
 
@@ -146,10 +146,10 @@ class ModelInspection:
         }
 
     def to_profile_fragment(self) -> dict[str, Any]:
-        """The catalog-entry shape for ``jambu.models.yaml`` - just the
+        """The catalog-entry shape for ``gpu.models.yaml`` - just the
         model-specific fields, no lifecycle/health/budget/watchdog (those are
         project policy, not model identity, and stay in each project's own
-        jambu.yaml).
+        gpu.yaml).
         """
         model: dict[str, Any] = {"id": self.repo_id}
         if self.gated:

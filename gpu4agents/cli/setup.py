@@ -16,6 +16,7 @@ from ..core.config import (
     DEFAULT_CONFIG_TEMPLATE,
     DEFAULT_CONFIG_TEMPLATE_FLAT,
     CONFIG_FILENAMES,
+    LEGACY_CONFIG_FILENAMES,
     JOBS_CONFIG_TEMPLATE,
     MODEL_TASKS,
     SERVE_CONFIG_TEMPLATE,
@@ -62,11 +63,11 @@ def init_command(
         "--flat",
         help=(
             "Write a legacy, gpu-runtime-only config.yml (no gpu_runtime: "
-            "wrapper) instead of the shared jambu.yaml."
+            "wrapper) instead of the shared gpu.yaml."
         ),
     ),
 ) -> None:
-    """Write a starter jambu.yaml (and .env.example) in the current directory.
+    """Write a starter gpu.yaml (and .env.example) in the current directory.
 
     Any Hugging Face model works: a chat model is served by vLLM; an image,
     speech, transcription, embeddings or other pipeline model by gpu's own
@@ -134,7 +135,7 @@ def init_command(
             model_id=model if model_given else '""', min_vram_gb=vram, service_dir=service_dir
         )
     else:
-        target = Path.cwd() / CONFIG_FILENAMES[0]  # jambu.yaml
+        target = Path.cwd() / CONFIG_FILENAMES[0]  # gpu.yaml
         content = DEFAULT_CONFIG_TEMPLATE.format(model_id=model)
     content = content.replace("min_vram_gb: 24\n", f"min_vram_gb: {vram}\n", 1)
     content = content.replace(f"{indent}name: vast\n", provider_block, 1)
@@ -142,6 +143,18 @@ def init_command(
     if target.exists() and not force:
         console.print(Text(f"! {target} already exists (use --force)", style="yellow"))
         raise typer.Exit(1)
+    legacy = [Path.cwd() / name for name in LEGACY_CONFIG_FILENAMES if (Path.cwd() / name).is_file()]
+    if legacy and not flat:
+        if not force:
+            console.print(
+                Text(
+                    f"! {legacy[0].name} already exists here: rename it to gpu.yaml, "
+                    "or use --force to write a new gpu.yaml that takes its place",
+                    style="yellow",
+                )
+            )
+            raise typer.Exit(1)
+        console.print(Text(f"  {legacy[0].name} is left as it was; gpu.yaml is read first", style="dim"))
     target.write_text(content)
     console.print(Text(f"+ wrote {target}", style="green"))
     if engine == "custom":
@@ -158,7 +171,7 @@ def init_command(
     env_example = Path.cwd() / ".env.example"
     if not env_example.exists():
         env_example.write_text(
-            "# Credentials never belong in jambu.yaml / config.yml.\n"
+            "# Credentials never belong in gpu.yaml / config.yml.\n"
             "# `gpu login` keeps the provider key in ~/.gpu/credentials instead.\n"
             + "".join(f"{name}=\n" for name in credential_names)
             + "# Optional, for gated HuggingFace models:\n"
@@ -229,7 +242,7 @@ def scaffold_server(directory: Path) -> None:
 def setup_command(
     ctx: typer.Context,
     recreate: bool = typer.Option(
-        False, "--recreate", help="Replace an existing instance that no longer matches jambu.yaml."
+        False, "--recreate", help="Replace an existing instance that no longer matches gpu.yaml."
     ),
     allow_cost_override: bool = typer.Option(
         False, "--allow-cost-override", help="Provision even above budget.max_hourly_cost_usd."

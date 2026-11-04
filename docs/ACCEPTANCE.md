@@ -6,7 +6,7 @@ Eighteen guarantees, mapped to the code and the test that holds each one.
 | --- | --- | --- | --- |
 | 1 | Repeated `setup` does not duplicate infrastructure | `core/engine.py::Engine.setup` reconciles first, compares `config.fingerprint()`, and holds an exclusive `.gpu/runtime.lock` | `test_engine.py::test_setup_twice_does_not_create_two_instances`, `::test_setup_refuses_to_reuse_an_incompatible_instance` |
 | 2 | Provider APIs do not leak into core orchestration | `providers/base.py` contract; all Vast wire format confined to `providers/vast/{client,mapper}.py` | `test_engine.py::test_the_core_never_branches_on_a_provider_name` (greps `core/`) |
-| 3 | Missing credentials fail before provisioning | `VastProvider.validate` returns before any API call; `CredentialResolver` never reads jambu.yaml | `test_vast_provider.py::test_validate_fails_before_provisioning_without_a_key` (asserts zero HTTP calls) |
+| 3 | Missing credentials fail before provisioning | `VastProvider.validate` returns before any API call; `CredentialResolver` never reads gpu.yaml | `test_vast_provider.py::test_validate_fails_before_provisioning_without_a_key` (asserts zero HTTP calls) |
 | 4 | Failed provisioning cleans up | `Engine.setup` persists state *before* the long wait, then destroys on failure when `cleanup_on_setup_failure` | `test_engine.py::test_failed_setup_cleans_up_partially_created_resources` |
 | 5 | Active workloads are never stopped by the idle guard | `core/policy.py::evaluate` returns `workload_active` before any idle check | `test_policy.py::test_active_workload_is_never_stopped_by_the_idle_guard`, `test_watchdog.py::test_a_heartbeating_workload_is_never_stopped` |
 | 6 | An idle unlocked instance stops within `idle_timeout + watchdog_interval` | remote watchdog loop, `watchdog/agent_body.py::guard_loop` | `test_watchdog.py::test_idle_instance_is_stopped_with_a_recorded_reason` (real subprocess) |
@@ -77,7 +77,7 @@ The first attempt found problems the unit tests had missed. Each is fixed and te
 
 ## The MVP command surface
 
-`jambu.yaml` schema, CLI, provider contract, provider registry, Vast.ai adapter,
+`gpu.yaml` schema, CLI, provider contract, provider registry, Vast.ai adapter,
 vLLM runtime, `setup`, `run`, `status`, `stop`, `destroy`, `lock`/`unlock`, idle
 timeout, max lifetime, remote watchdog and structured logs are all present. On top
 of that, `ls` and `sweep` handle orphan control across the account.

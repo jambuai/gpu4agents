@@ -1,9 +1,9 @@
-# jambu.yaml - shared manifest across Jambu.ai Lab sub-projects.
+# gpu.yaml - shared manifest across Jambu.ai Lab sub-projects.
 # .env at repo root already has VAST_API_KEY / HF_TOKEN.
 # This tool only reads the gpu_runtime: key; other Jambu Lab tools can
 # add their own top-level keys to this same file.
 #
-# model/compute/runtime come from jambu.models.yaml (the shared catalog) -
+# model/compute/runtime come from gpu.models.yaml (the shared catalog) -
 # this file only holds project policy: lifecycle, health, budget. See
 # docs/CHOOSING_A_MODEL.md for why the split, and `gpu profiles` to
 # see what's available.

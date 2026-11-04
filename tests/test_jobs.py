@@ -318,7 +318,7 @@ def test_init_jobs_writes_a_loadable_bare_machine(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = CliRunner().invoke(app, ["init", "--jobs", "--min-vram-gb", "48"])
     assert result.exit_code == 0, result.output
-    config = load_config(tmp_path / "jambu.yaml")
+    config = load_config(tmp_path / "gpu.yaml")
     assert config.runtime.engine == "none"
     assert config.compute.gpu.min_vram_gb == 48
     assert config.compute.image.startswith("pytorch/pytorch:")

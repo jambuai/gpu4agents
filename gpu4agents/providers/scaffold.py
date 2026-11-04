@@ -20,7 +20,7 @@ TEMPLATE = '''\
 Written against the provider contract: gpu4agents/providers/base.py.
 Guide: https://github.com/jambuai/gpu4agents/blob/main/docs/ADDING_A_PROVIDER.md
 
-Selected in jambu.yaml with:
+Selected in gpu.yaml with:
 
     gpu_runtime:
       provider:

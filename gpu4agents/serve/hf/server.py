@@ -117,7 +117,7 @@ def resolve_task(settings):
     if settings.pipeline_tag:
         return "pipeline"
     raise SystemExit(
-        "%s has no pipeline_tag on Hugging Face; set model.task in jambu.yaml" % settings.model
+        "%s has no pipeline_tag on Hugging Face; set model.task in gpu.yaml" % settings.model
     )
 
 

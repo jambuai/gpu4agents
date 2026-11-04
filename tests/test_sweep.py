@@ -69,9 +69,9 @@ def run_sweep(provider, apply=True, tracked=None, registry=None, now=None, event
 
 
 def write_project(directory: Path, **overrides):
-    """A jambu.yaml of its own in ``directory`` (a second, third ... project)."""
+    """A gpu.yaml of its own in ``directory`` (a second, third ... project)."""
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "jambu.yaml"
+    path = directory / "gpu.yaml"
     data = _deep_merge(BASE_CONFIG, overrides)
     path.write_text(yaml.safe_dump({"gpu_runtime": data}, sort_keys=False))
     return load_config(path)
@@ -287,10 +287,10 @@ def test_the_project_registry_keeps_absolute_paths_once(tmp_path, jambu_home, mo
     assert registry.path == jambu_home / "projects.json"
     monkeypatch.chdir(tmp_path)
     (tmp_path / "p").mkdir()
-    (tmp_path / "p" / "jambu.yaml").write_text("x")
-    registry.register(Path("p/jambu.yaml"))
-    registry.register(tmp_path / "p" / "jambu.yaml")
-    assert registry.paths() == [(tmp_path / "p" / "jambu.yaml").resolve()]
+    (tmp_path / "p" / "gpu.yaml").write_text("x")
+    registry.register(Path("p/gpu.yaml"))
+    registry.register(tmp_path / "p" / "gpu.yaml")
+    assert registry.paths() == [(tmp_path / "p" / "gpu.yaml").resolve()]
     registry.remove(registry.paths())
     assert registry.paths() == []
 

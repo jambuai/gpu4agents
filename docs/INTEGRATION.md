@@ -23,11 +23,11 @@ gpu sweep --install-timer         # optional safety net, see USAGE.md
 Requirements:
 
 - `gpu4agents` (or `jambu-gpu` 0.3.0 or later), on Python 3.10+. The app can be in any language.
-- The directory holding `jambu.yaml` must be persistent. `gpu` keeps what it rented in `.gpu/state.json` next to it. In a container, mount it as a volume: a container that loses `.gpu/` forgets its instance, rents a second one, and leaves the first to the watchdog and the sweep.
+- The directory holding `gpu.yaml` must be persistent. `gpu` keeps what it rented in `.gpu/state.json` next to it. In a container, mount it as a volume: a container that loses `.gpu/` forgets its instance, rents a second one, and leaves the first to the watchdog and the sweep.
 - Before 0.3.0 these directories were `.jambu/` and `~/.jambu`. The first command after an upgrade renames them, so an instance already rented is kept and is not rented again.
 - `.gpu/state.json` holds the endpoint key and the watchdog token. It is written `0600`. Add `.gpu/` and `.env` to `.gitignore` and keep them out of images.
 
-Tune the lifecycle in `jambu.yaml` for the app. For a service with bursty traffic, a longer idle timeout avoids paying a restart on every burst:
+Tune the lifecycle in `gpu.yaml` for the app. For a service with bursty traffic, a longer idle timeout avoids paying a restart on every burst:
 
 ```yaml
 gpu_runtime:
@@ -45,7 +45,7 @@ All fields are in [CONFIG.md](CONFIG.md).
 
 ### Commands an app calls
 
-Always pass `--json` (before the command name). Run them from the project directory, or pass `--config /path/to/jambu.yaml`.
+Always pass `--json` (before the command name). Run them from the project directory, or pass `--config /path/to/gpu.yaml`.
 
 | Command | Use it to | Blocks | Starts billing |
 | --- | --- | --- | --- |
@@ -101,7 +101,7 @@ gpu env --format dotenv > .env.gpu
 | --- | --- | --- |
 | 0 | success | |
 | 1 | unexpected error | log stderr, retry later |
-| 2 | config error (`jambu.yaml` invalid, or changed since setup) | fix the config; `setup --recreate` replaces a machine built from the old one |
+| 2 | config error (`gpu.yaml` invalid, or changed since setup) | fix the config; `setup --recreate` replaces a machine built from the old one |
 | 3 | no instance / no endpoint (from `env`, `endpoint`) | call `setup` |
 | 4 | provider API error | retry with backoff |
 | 5 | provider authentication failed | fix `VAST_API_KEY` |
@@ -161,7 +161,7 @@ The TypeScript helper below does this.
 import OpenAI from "openai";
 import { Gpu } from "./gpu.ts";
 
-const gpu = new Gpu({ cwd: "/srv/my-app" });   // where jambu.yaml lives
+const gpu = new Gpu({ cwd: "/srv/my-app" });   // where gpu.yaml lives
 
 const reply = await gpu.call((c) =>
   new OpenAI({ baseURL: c.baseURL, apiKey: c.apiKey, maxRetries: 0, timeout: 120_000 })
@@ -220,7 +220,7 @@ Run `gpu --json setup` as a subprocess, parse the JSON, and point the language's
 - The endpoint requires a key. Unless `runtime.api_key` is set, `setup` generates one per machine (43 random URL-safe characters) and starts vLLM with it. Requests without it get `401`. `/health` and `/metrics` stay open: they reveal no data and the watchdog reads `/metrics`. Instances provisioned before this existed run without a key until they are recreated.
 - The endpoint is plain HTTP on a public IP and port. The key and the prompts travel unencrypted. For sensitive data, put the app and the GPU on a private network or a tunnel, or front the endpoint with a TLS proxy.
 - The watchdog holds the provider key on the instance so it can stop its own machine. A restricted key is the safer choice; see [LIFECYCLE.md](LIFECYCLE.md).
-- `jambu.yaml` never holds credentials. `.env` and `.gpu/` do not belong in version control.
+- `gpu.yaml` never holds credentials. `.env` and `.gpu/` do not belong in version control.
 
 ## 6. Troubleshooting
 

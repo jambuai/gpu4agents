@@ -1,15 +1,15 @@
-"""`gpu inspect-model` - where jambu.yaml's numbers actually come from.
+"""`gpu inspect-model` - where gpu.yaml's numbers actually come from.
 
 Fetches the two public HuggingFace documents that answer "what should
 compute.gpu / runtime look like for this model" (see
 gpu4agents/core/model_inspect.py for exactly which fields), and prints a
 ready-to-paste gpu_runtime: snippet plus the reasoning behind each value.
 
-`--add-profile` closes the loop: instead of hand-writing a new full jambu.yaml
+`--add-profile` closes the loop: instead of hand-writing a new full gpu.yaml
 per model (which only ever grows, never shrinks, and duplicates across every
 project directory), it writes the model-specific fragment straight into the
-shared jambu.models.yaml catalog under a name - `model_profile: <name>` in a
-project's jambu.yaml is then the only thing that ever needs to change.
+shared gpu.models.yaml catalog under a name - `model_profile: <name>` in a
+project's gpu.yaml is then the only thing that ever needs to change.
 """
 
 from __future__ import annotations
@@ -43,9 +43,9 @@ def inspect_model_command(
         "",
         "--add-profile",
         help=(
-            "Write the result straight into jambu.models.yaml under this name "
+            "Write the result straight into gpu.models.yaml under this name "
             "instead of just printing a snippet (creates the catalog if none "
-            "exists yet). Use model_profile: <name> in jambu.yaml to consume it."
+            "exists yet). Use model_profile: <name> in gpu.yaml to consume it."
         ),
     ),
     catalog_path_opt: Optional[Path] = typer.Option(
@@ -57,7 +57,7 @@ def inspect_model_command(
         False, "--force", help="With --add-profile, overwrite an existing profile of that name."
     ),
 ) -> None:
-    """Inspect a HuggingFace repo and suggest jambu.yaml values for it.
+    """Inspect a HuggingFace repo and suggest gpu.yaml values for it.
 
     Reads exactly two public documents, cited in the output:
 
@@ -150,7 +150,7 @@ def profiles_command(
         None, "--catalog", help=f"Catalog to list (default: nearest {CATALOG_FILENAMES[0]})."
     ),
 ) -> None:
-    """List the model profiles available in the model catalog (jambu.models.yaml)."""
+    """List the model profiles available in the model catalog (gpu.models.yaml)."""
     context = get_context(ctx)
     target = catalog_path_opt or find_catalog(Path.cwd())
     if target is None or not target.is_file():
@@ -188,7 +188,7 @@ def profiles_command(
         tool_calling = runtime.get("tool_call_parser") or runtime.get("tool_calling", "-")
         table.add_row(name, str(model_id), str(vram), str(tool_calling))
     console.print(table)
-    console.print(Text(f"  use with: model_profile: <name> in jambu.yaml", style="dim"))
+    console.print(Text(f"  use with: model_profile: <name> in gpu.yaml", style="dim"))
 
 
 def _write_profile(result, name: str, catalog_path_opt: Optional[Path], *, force: bool) -> Path:

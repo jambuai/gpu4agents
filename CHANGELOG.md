@@ -2,6 +2,14 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.1] - 2026-11-04
+
+### Changed
+- The config file is `gpu.yaml`, and the model catalog is `gpu.models.yaml`. `gpu init` writes `gpu.yaml`, and the docs, the skill and the website use the new names.
+
+### Upgrading
+- A project with a `jambu.yaml` or `jambu.models.yaml` keeps working: both names are still read, after the new ones. Renaming the file is enough to move over. In a directory that has a `jambu.yaml`, `gpu init` stops and asks you to rename it, or writes a `gpu.yaml` beside it with `--force`.
+
 ## [0.9.0] - 2026-11-04
 
 ### Added

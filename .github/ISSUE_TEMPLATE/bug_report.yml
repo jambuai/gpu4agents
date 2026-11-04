@@ -16,7 +16,7 @@ body:
     id: repro
     attributes:
       label: How to reproduce
-      description: The command or MCP tool call, and the relevant part of `jambu.yaml`.
+      description: The command or MCP tool call, and the relevant part of `gpu.yaml`.
       render: shell
   - type: textarea
     id: output

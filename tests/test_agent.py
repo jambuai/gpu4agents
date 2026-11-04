@@ -96,7 +96,7 @@ def test_init_then_status_then_connection(tmp_path, monkeypatch):
     server = Server(project=tmp_path)
     error, init = _call(server, "gpu_init", model="Qwen/Qwen2.5-0.5B-Instruct", max_hourly_cost_usd=0.4, min_vram_gb=16)
     assert not error, init
-    doc = yaml.safe_load((tmp_path / "jambu.yaml").read_text())["gpu_runtime"]
+    doc = yaml.safe_load((tmp_path / "gpu.yaml").read_text())["gpu_runtime"]
     assert doc["model"]["id"] == "Qwen/Qwen2.5-0.5B-Instruct"
     assert doc["budget"]["max_hourly_cost_usd"] == 0.4
     assert doc["compute"]["gpu"]["min_vram_gb"] == 16
