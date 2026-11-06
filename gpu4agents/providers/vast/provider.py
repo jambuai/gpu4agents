@@ -40,7 +40,15 @@ from ...core.models import (
 from ..base import GPUProvider, WatchdogSpec
 from . import mapper
 from .client import VastClient, VastNotFound
-from .config import API_KEY_ENV, KEYS_URL, ONSTART_MAX_BYTES, VastOptions
+from .config import (
+    API_KEY_ENV,
+    BILLING_URL,
+    KEYS_URL,
+    ONSTART_MAX_BYTES,
+    REFERRAL_LINK,
+    SIGNUP_URL,
+    VastOptions,
+)
 
 # Executed inside the remote watchdog; stdlib only, no package imports.
 WATCHDOG_ACTIONS = '''
@@ -107,6 +115,15 @@ class VastProvider(GPUProvider):
     display_name = "Vast.ai"
     required_credentials = [API_KEY_ENV]
     credentials_url = KEYS_URL
+    tagline = "built in; GPUs by the hour from a few cents, pay as you go"
+    signup_url = SIGNUP_URL
+    setup_steps = [
+        "Create a Vast.ai account: {signup_url}"
+        + ("\n     Signing up through this link supports GPU for Agents, at no cost to you." if REFERRAL_LINK else ""),
+        "Add some credit ($5 to $10 is plenty to try it): " + BILLING_URL
+        + "\n     You pay only while a GPU runs, and idle ones are shut down for you.",
+        "Create a key and copy it: {credentials_url}",
+    ]
     capabilities = ProviderCapabilities(
         stop=True,
         destroy=True,

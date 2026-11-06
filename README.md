@@ -81,7 +81,7 @@ uv tool install gpu4agents && gpu agent install -t auto --global    # the same, 
 Run this in your own terminal, so the agent never sees the key:
 
 ```bash
-gpu login                     # Vast.ai: paste a key from https://cloud.vast.ai/manage-keys/
+gpu login                     # pick a provider; for Vast.ai it walks you through the account and the key
 gpu login --provider runpod   # a provider you added an adapter for
 gpu login --check             # which account gpu finds, and its balance
 ```

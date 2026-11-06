@@ -387,7 +387,7 @@
             <li><b>Paste this into <span class="agent-name">Claude Code</span>.</b>
               <div class="prompt"><span id="prompt-text"></span><br /><button class="copy-btn" id="copy-prompt" type="button">Copy prompt</button></div>
             </li>
-            <li><b>When it asks, connect your GPU provider.</b> Run <code>gpu login</code> in your terminal and paste your API key into the hidden prompt. Vast.ai works out of the box. <a href="#providers">Any other provider</a> takes one adapter, and the agent can write it.</li>
+            <li><b>When it asks, connect the account that pays for the GPUs.</b> Type <code>gpu login</code> in your terminal app. It shows the providers you can use and walks you through it in about two minutes. Vast.ai works out of the box, and for <a href="#providers">a provider you already use</a>, your agent adds it.</li>
             <li><b>Restart <span class="agent-name">Claude Code</span> and ask for an experiment.</b> It shows the price and asks before renting anything.</li>
           </ol>
         </div>
@@ -615,7 +615,7 @@
       ["", `+ MCP server (${AGENTS[a].name}): ${AGENTS[a].mcp}`],
       ["", "$ gpu login --check"],
       ["", "no GPU provider connected yet"],
-      ["me", "● Installed. Which GPU provider do you use? Vast.ai works now: run `gpu login` in your terminal and paste your key. For any other provider, I can write its adapter first."],
+      ["me", "● Installed. One step left: type `gpu login` in your terminal app. It shows the providers you can use and walks you through it. Vast.ai works right away, and if you use another one, I'll add it."],
     ];
     const term = document.getElementById("agent-term"), who = document.getElementById("term-who");
     const promptText = document.getElementById("prompt-text"), copyBtn = document.getElementById("copy-prompt");

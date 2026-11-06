@@ -17,7 +17,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.9.1 or later. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.9.2 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>
@@ -31,10 +31,11 @@ To install by hand: `uv tool install --python 3.12 gpu4agents`, or `pipx install
 
 Check: `gpu login --check` exits 0. It prints the provider, where the key was found, and the balance when the provider reports one.
 
-If it exits 5, there is no working key yet. Ask the user which provider they want, then tell them, in these words or close:
+If it exits 5, no account is connected yet. The user may not be technical, so skip jargon like "API key" and tell them, in these words or close:
 
-- Vast.ai (built in): "Create an API key at https://cloud.vast.ai/manage-keys/ and add a few dollars of credit. Then open your own terminal, run `gpu login`, and paste the key into the hidden prompt."
-- Any other provider: write its adapter first ("Another provider" below), then ask the user to run `gpu login --provider <name>` in their own terminal.
+> One step left, about two minutes: connect the account that pays for the GPUs. Open your terminal app (not this chat) and type `gpu login`. It shows the providers you can use and walks you through it: Vast.ai works right away, and if you already use another one (RunPod, Lambda, your company's servers), pick "Another provider" and I'll add it. Your key stays on your computer; I never see it.
+
+If they pick another provider, write its adapter ("Another provider" below), then ask them to run `gpu login --provider <name>` in their terminal.
 
 Wait for them to say it is done, then run `gpu login --check` again.
 
@@ -150,6 +151,7 @@ Exit codes are the same for the CLI and the MCP tools (`exit_code` in the error)
 | 12 | another gpu command (a setup) holds the project | follow it with `gpu_setup`; `gpu_stop` / `gpu_destroy` cancel it |
 
 - `gpu: command not found` right after installing: use `~/.local/bin/gpu`, or open a new shell.
+- `gpu` prints a git error (`fatal: not a git repository`, or it pushed): `gpu` is a shell alias (Oh My Zsh). Use `command gpu` or `gpu4agents`, and tell the user the installer can remove the alias for new terminals.
 - Requests fail with connection refused or a timeout: the machine was stopped for being idle. Call `gpu_setup` again (about a minute), take the new `base_url` from its output, and retry once.
 - `401`: a new machine was rented and the key changed; take it from `gpu_connection`.
 - A long job with quiet stretches longer than `idle_timeout`: `gpu_lock(duration="2h")`, then `gpu_unlock`.

@@ -563,3 +563,36 @@ def test_entry_point_providers_are_registered(monkeypatch):
     monkeypatch.setattr(registry_mod.registry, "_providers", dict(registry_mod.registry._providers))
     monkeypatch.setattr(registry_mod.metadata, "entry_points", lambda group=None: [Entry()])
     assert "installed" in registry_mod.load_builtin_providers().names()
+
+
+def test_login_first_time_shows_the_providers_and_the_steps(tmp_path, monkeypatch, capsys):
+    from gpu4agents.cli import account
+    from gpu4agents.providers.vast.provider import VastProvider
+
+    monkeypatch.setattr(account.typer, "prompt", lambda *a, **k: "1")
+    chosen = account._choose_provider(account.registry_classes(), VastProvider)
+    assert chosen is VastProvider
+    account._walk_through(chosen)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "1) Vast.ai" in out and "Another provider I already use" in out
+    assert "Create a Vast.ai account: https://cloud.vast.ai/" in out
+    assert "billing" in out and "https://cloud.vast.ai/manage-keys/" in out
+
+
+def test_login_another_provider_points_to_the_agent_and_saves_nothing(tmp_path, monkeypatch, capsys):
+    from gpu4agents.cli import account
+    from gpu4agents.providers.vast.provider import VastProvider
+
+    classes = account.registry_classes()
+    monkeypatch.setattr(account.typer, "prompt", lambda *a, **k: str(len(classes) + 1))
+    assert account._choose_provider(classes, VastProvider) is None
+    out = " ".join(capsys.readouterr().out.split())
+    assert "providers.md" in out and "gpu login --provider NAME" in out
+
+
+def test_gpu4agents_is_installed_as_a_second_command_name():
+    import tomllib
+    from pathlib import Path
+
+    scripts = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())["project"]["scripts"]
+    assert scripts["gpu"] == scripts["gpu4agents"] == "gpu4agents.cli.main:main"

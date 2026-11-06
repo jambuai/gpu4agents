@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gpu4agents"
-version = "0.9.1"
+version = "0.9.2"
 description = "GPU for Agents: your coding agent rents the GPU it needs, on its own. You pay only while it works."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -51,6 +51,8 @@ Author = "https://www.linkedin.com/in/joaogabriellima"
 
 [project.scripts]
 gpu = "gpu4agents.cli.main:main"
+# The same command under a name no shell alias takes (Oh My Zsh has gpu = git push upstream).
+gpu4agents = "gpu4agents.cli.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["gpu4agents", "jambu_gpu"]

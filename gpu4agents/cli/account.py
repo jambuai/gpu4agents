@@ -395,9 +395,10 @@ def login_command(
             missing = [name for name in names if not credentials.get(name)]
             if missing:
                 raise AuthenticationError(
-                    f"no {cls.display_name} credentials found ({', '.join(missing)}); "
-                    f"run `gpu login{'' if provider is None else ' --provider ' + cls.name}` "
-                    f"in a terminal{where_to_get}"
+                    f"no GPU provider account is connected yet ({cls.display_name}: "
+                    f"{', '.join(missing)} not found). In your own terminal, run "
+                    f"`gpu login{'' if provider is None else ' --provider ' + cls.name}`: "
+                    f"it walks you through it in about two minutes{where_to_get}"
                 )
             values = {name: credentials.get(name) or "" for name in names}
             source = (credentials.file_source(names[0]) or "environment") if names else "none needed"
@@ -420,11 +421,17 @@ def login_command(
                         "gpu login needs a terminal for the hidden prompt; "
                         "run it in your own terminal, or pipe the key with --stdin"
                     )
-                if cls.credentials_url:
-                    typer.echo(f"Create a key at {cls.credentials_url}", err=True)
+                if provider is None and _choose_freely(context):
+                    cls = _choose_provider(registry_classes(), cls)
+                    if cls is None:
+                        return
+                    names = list(cls.required_credentials)
+                    provider = cls.name
+                _walk_through(cls)
                 for name in names:
+                    label = "your key" if len(names) == 1 else name
                     values[name] = getpass.getpass(
-                        f"{cls.display_name} {name} (input hidden): "
+                        f"Paste {label} here and press Enter (it stays hidden): "
                     ).strip()
             empty = [name for name, value in values.items() if not value]
             if empty:
@@ -443,6 +450,69 @@ def login_command(
         return
     where = summary.get("saved") or summary.get("source")
     balance = summary.get("balance_usd")
-    console.print(Text(f"{cls.display_name} credentials work ({where})", style="green"))
+    console.print(Text(f"{cls.display_name} is connected ({where}).", style="green"))
     if balance is not None:
-        console.print(Text(f"balance: ${balance:.2f}", style="dim"))
+        console.print(Text(f"Credit: ${balance:.2f}", style="dim"))
+        if balance <= 0:
+            console.print(Text("Add some credit before your agent rents a GPU.", style="yellow"))
+    if not check:
+        console.print("Go back to your agent and tell it you're done.")
+
+
+def registry_classes() -> list:
+    return list(load_builtin_providers().classes())
+
+
+def _choose_freely(context: Context) -> bool:
+    """No project and no saved default: the user picks the provider."""
+    if context.config_path is not None or find_config() is not None:
+        return False
+    return not account_credentials(Path.cwd()).get(PROVIDER_SETTING)
+
+
+def _choose_provider(classes: list, default):
+    """Show what is available and return the chosen adapter, or None for "another one"."""
+    classes = sorted(classes, key=lambda c: (c is not default, c.display_name))
+    console.print("[bold]Connect a GPU provider[/bold], so your agent can rent GPUs on its own.")
+    console.print("Your key stays on this computer; the agent never sees it.\n")
+    for i, item in enumerate(classes, 1):
+        note = f"  [dim]{item.tagline}[/dim]" if item.tagline else ""
+        console.print(f"  {i}) {item.display_name}{note}", highlight=False)
+    other = len(classes) + 1
+    console.print(
+        f"  {other}) Another provider I already use  "
+        "[dim]RunPod, Lambda, my company's servers, ...: your agent adds it[/dim]\n",
+        highlight=False,
+    )
+    choice = typer.prompt("Choose", default="1", err=True).strip()
+    try:
+        index = int(choice)
+    except ValueError:
+        index = 0
+    if 1 <= index <= len(classes):
+        return classes[index - 1]
+    if index != other:
+        raise ConfigError(f"choose a number from 1 to {other}")
+    console.print(
+        "\nAsk your agent, naming the provider:\n"
+        "  [cyan]Add PROVIDER as a GPU provider to GPU for Agents. Fetch "
+        "https://gpu4agents.jambu.ai/providers.md with curl and follow its steps.[/cyan]\n"
+        "It writes the connection for you, then asks you to run "
+        "[bold]gpu login --provider NAME[/bold] here to paste that provider's key.",
+        highlight=False,
+    )
+    return None
+
+
+def _walk_through(cls) -> None:
+    """The steps from no account to a key, in plain words."""
+    steps = list(cls.setup_steps)
+    if not steps and cls.credentials_url:
+        steps = ["Create a key at {credentials_url} and copy it."]
+    if not steps:
+        return
+    console.print(f"\n[bold]{cls.display_name}[/bold], in {len(steps)} steps:", highlight=False)
+    for i, step in enumerate(steps, 1):
+        text = step.format(signup_url=cls.signup_url or cls.credentials_url, credentials_url=cls.credentials_url)
+        console.print(f"  {i}. {text}", soft_wrap=True, highlight=False)
+    console.print("[dim]Already have an account? Skip to the key.[/dim]\n")

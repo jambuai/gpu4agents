@@ -204,6 +204,7 @@
       <div class="grp">Start</div>
       <a href="#overview">Overview</a>
       <a href="#quickstart">Quickstart</a>
+      <a href="#connect">Connect an account</a>
       <a href="#architecture">Architecture</a>
       <div class="grp">How it runs</div>
       <a href="#setup-flow">Process flow: setup</a>
@@ -230,7 +231,7 @@
 
     <main id="top">
       <header class="hero">
-        <span class="eyebrow">Documentation · v0.9.1</span>
+        <span class="eyebrow">Documentation · v0.9.2</span>
         <h1>How GPU for Agents works</h1>
         <p class="lead">A coding agent can only read and write text. With its own GPU it can make images and voices, transcribe audio, run open models and test GPU code on real hardware. <b>GPU for Agents</b> gives it that machine with the controls built in: a budget it can't exceed, a log of every step, and a watchdog on the machine that stops it when the work stops.</p>
         <details class="mtoc"><summary>On this page</summary><div>
@@ -262,9 +263,27 @@
         <h3>Let the agent install it</h3>
         <p>Paste this into Claude Code, Codex, Gemini CLI or Cursor, naming the one you use:</p>
         <div class="code"><div class="hd"><span>prompt</span><button class="cp">copy</button></div><pre style="white-space:pre-wrap">Set up GPU for Agents for me. I'm using Claude Code. Fetch https://gpu4agents.jambu.ai/install.md with curl and follow its steps.</pre></div>
-        <p>The agent runs the installer, gives itself the skill and the MCP server, and checks your provider account. Nothing is rented during installation. When it asks, connect the account in your own terminal, so the key never passes through the chat:</p>
-        <div class="code"><div class="hd"><span>your terminal</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu login            <span class="c"># hidden prompt; checks the key with the provider, saves it to ~/.gpu/credentials</span>
-<span class="p">$ </span>gpu login --check    <span class="c"># exit 0 when a key is found</span></pre></div>
+        <p>The agent runs the installer, gives itself the skill and the MCP server, and checks your provider account. Nothing is rented during installation.</p>
+        <h3 id="connect">Connect the account that pays for the GPUs</h3>
+        <p>When the agent asks, open your terminal app (not the chat) and type <code>gpu login</code>. It takes about two minutes, and the key never passes through the conversation.</p>
+        <div class="code"><div class="hd"><span>your terminal: gpu login</span></div><pre>Connect a GPU provider, so your agent can rent GPUs on its own.
+Your key stays on this computer; the agent never sees it.
+
+  1) Vast.ai  <span class="c">built in; GPUs by the hour from a few cents, pay as you go</span>
+  2) Another provider I already use  <span class="c">RunPod, Lambda, my company's servers, ...: your agent adds it</span>
+
+Choose [1]: <span class="s">1</span>
+
+Vast.ai, in 3 steps:
+  1. Create a Vast.ai account: https://cloud.vast.ai/
+  2. Add some credit ($5 to $10 is plenty to try it): https://cloud.vast.ai/billing/
+     You pay only while a GPU runs, and idle ones are shut down for you.
+  3. Create a key and copy it: https://cloud.vast.ai/manage-keys/
+Already have an account? Skip to the key.
+
+Paste your key here and press Enter (it stays hidden):</pre></div>
+        <p>The key is checked with the provider before it is saved in <code>~/.gpu/credentials</code> (mode 600). Pick "Another provider" and the command tells you what to ask your agent: it writes the adapter, then you run <code>gpu login --provider &lt;name&gt;</code>. <code>gpu login --check</code> says whether an account is connected, without changing anything.</p>
+        <div class="note warn"><b>If <code>gpu</code> runs something else.</b> Oh My Zsh's git plugin, on by default, makes <code>gpu</code> a shortcut for <code>git push upstream</code>, and a shortcut wins over the command, in your terminal and in your agent's. The installer finds it and turns it off for new terminals, with a marked block at the end of <code>~/.zshrc</code> or <code>~/.bashrc</code> that you can delete to undo it (<code>--keep-gpu-alias</code> skips this). The same command is always installed as <code>gpu4agents</code> too, so <code>gpu4agents login</code> works either way, and the skill makes the agent check <code>type gpu</code> before using it.</div>
         <h3>Or by hand</h3>
         <div class="code"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent auto
 <span class="c"># or: uv tool install --python 3.12 gpu4agents  /  pipx install gpu4agents</span>
@@ -872,6 +891,7 @@ conn = ensure_gpu()
         <div class="tbl"><table>
           <tr><th>Part</th><th>Must do</th></tr>
           <tr><td><code>capabilities</code></td><td>declare only what the API supports; <code>stop_eliminates_billing=False</code> if a stopped machine still bills</td></tr>
+          <tr><td><code>tagline</code>, <code>signup_url</code>, <code>setup_steps</code></td><td>what <code>gpu login</code> shows a first-time user: one line about the provider and the steps from no account to a key, in plain words</td></tr>
           <tr><td><code>verify_credentials</code></td><td>check the key; return only safe fields such as a balance, never an email, a name or the key</td></tr>
           <tr><td><code>find_offers</code></td><td>GPUs that fit VRAM, count, disk and the price cap, cheapest first</td></tr>
           <tr><td><code>setup</code></td><td>rent with the image, env, <code>jambu-</code> label, ports and onstart script</td></tr>
@@ -925,6 +945,7 @@ conn = ensure_gpu()
           <li><b>The endpoint is plain HTTP</b> on a public IP and port, so the key and prompts travel unencrypted. For sensitive data, use a private network or a tunnel, or put a TLS proxy in front.</li>
           <li><b>The watchdog holds a provider key</b> on the machine (<code>/etc/jambu/watchdog.json</code>, mode 600) so it can stop itself. Use a dedicated, restricted key. Opting out (<code>lifecycle.watchdog.enabled: false</code>) leaves shutdown to <code>gpu guard</code>, and <code>validate</code> warns.</li>
           <li><b>The key never goes through the chat.</b> <code>gpu login</code> takes it in a hidden prompt in your terminal, and the skill tells the agent never to ask for it, read it or print it.</li>
+          <li><b>A shell alias can shadow <code>gpu</code>.</b> With Oh My Zsh's <code>gpu = git push upstream</code>, an agent typing <code>gpu setup</code> in a repository would push. The installer removes the alias for new shells, and the skill has the agent check <code>type gpu</code> first and use <code>command gpu</code>. MCP tools don't go through a shell.</li>
           <li><b>Account hygiene.</b> <code>gpu ls</code> and <code>gpu sweep</code> only see machines labeled <code>jambu-</code>.</li>
         </ul>
       </section>

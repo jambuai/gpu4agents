@@ -34,13 +34,19 @@ The repository is a Claude Code plugin marketplace (`.claude-plugin/`) and a Cur
 The user, in their own terminal:
 
 ```bash
-gpu login                     # hidden prompt; checks the key with the provider, then saves it
+gpu login                     # the first time: pick a provider, follow the steps, paste the key (hidden)
 gpu login --provider runpod   # a provider added with an adapter
 gpu login --check             # exit 0, the provider and where the key was found; or exit 5
 echo "$KEY" | gpu login --stdin
 ```
 
-The provider is the one `--provider` names, else the project's `gpu.yaml`, else `GPU_PROVIDER`, else Vast.ai. `gpu login --provider NAME` also saves `GPU_PROVIDER=NAME`, so `gpu ls` and `gpu sweep` outside a project use that provider. The key goes to `~/.gpu/credentials` (mode 600, directory 700); other lines in the file are kept. A key in the environment or a project `.env` still works and wins over the file. The skill tells the agent never to ask for the key in chat, read those files, or print it.
+Run with no project and no saved provider, `gpu login` first lists the providers it can use: Vast.ai, ready out of the box, and "another provider I already use", which tells the user to ask their agent to add it ([`PROVIDERS.md`](../PROVIDERS.md)). For Vast.ai it then shows the steps in plain words (create the account, add some credit, copy the key) before the hidden prompt. An adapter supplies its own steps with `tagline`, `signup_url` and `setup_steps`.
+
+Otherwise the provider is the one `--provider` names, else the project's `gpu.yaml`, else `GPU_PROVIDER`, else Vast.ai. `gpu login --provider NAME` also saves `GPU_PROVIDER=NAME`, so `gpu ls` and `gpu sweep` outside a project use that provider. The key goes to `~/.gpu/credentials` (mode 600, directory 700); other lines in the file are kept. A key in the environment or a project `.env` still works and wins over the file. The skill tells the agent never to ask for the key in chat, read those files, or print it.
+
+## When `gpu` is a shell alias
+
+Oh My Zsh's git plugin, on by default, defines `gpu` as `git push upstream`. An alias wins over the command, in a terminal and in the agent's shell, so `gpu login` runs git instead (and in a repository with an `upstream` remote, it pushes). The installer looks for a `gpu` alias in zsh and bash and adds a marked block at the end of `~/.zshrc` or `~/.bashrc` that removes it for new shells; `--keep-gpu-alias` leaves it. The same command is always installed as `gpu4agents` too, and the skill tells the agent to run `type gpu` first and use `command gpu` when it is an alias. The MCP server is unaffected: clients start it without a shell.
 
 ## Install by hand
 

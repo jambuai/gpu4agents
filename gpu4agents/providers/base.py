@@ -54,6 +54,12 @@ class GPUProvider(ABC):
     required_credentials: list[str] = []
     # Where the user creates those credentials; `gpu login` prints it.
     credentials_url: str = ""
+    # For `gpu login`'s first-time walk-through: one line on what the provider
+    # is, and the steps from no account to a key, in plain words. Each step may
+    # use {signup_url} and {credentials_url}.
+    tagline: str = ""
+    signup_url: str = ""
+    setup_steps: list[str] = []
     capabilities: ProviderCapabilities = ProviderCapabilities()
     # Runtime engine -> the image to use when compute.image is unset. A
     # provider names the copy its hosts already cache, so a first boot does

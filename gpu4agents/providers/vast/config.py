@@ -12,6 +12,13 @@ from typing import Any, Optional
 API_BASE = "https://console.vast.ai/api/v0"
 API_KEY_ENV = "VAST_API_KEY"
 KEYS_URL = "https://cloud.vast.ai/manage-keys/"
+BILLING_URL = "https://cloud.vast.ai/billing/"
+# Where `gpu login` sends someone who has no Vast.ai account yet. Set
+# REFERRAL_LINK to the link under Vast's Settings > Referral Link: Vast then
+# credits the project's referral account with a share of what it earns from
+# that account, at no cost to the user. Empty: the plain sign-up page.
+REFERRAL_LINK = ""
+SIGNUP_URL = REFERRAL_LINK or "https://cloud.vast.ai/"
 
 # runtype that gives us sshd plus our own onstart script (the image entrypoint
 # is replaced by Vast's supervisor, so we launch the model server ourselves).

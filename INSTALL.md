@@ -20,21 +20,24 @@ curl -fsSL https://raw.githubusercontent.com/jambuai/gpu4agents/main/install.sh 
 
 The script needs only `curl` (Linux or macOS; on Windows, run it inside WSL). It installs [uv](https://docs.astral.sh/uv/) if missing, uses it to install the `gpu4agents` package with a Python it downloads by itself, and then installs the skill and registers the `gpu` MCP server for your runtime. It does not ask for or read any key.
 
-Check: `~/.local/bin/gpu --version` prints 0.9.1 or later. Use `~/.local/bin/gpu` for the rest of this session if plain `gpu` is not found.
+Check: `~/.local/bin/gpu --version` prints 0.9.2 or later.
+
+For the rest of this session, call the command by its full path, `~/.local/bin/gpu`. Your shell may define `gpu` as an alias: Oh My Zsh's git plugin, on by default, makes `gpu` mean `git push upstream`, and an alias wins over the command, so plain `gpu setup` could run git instead. The installer removes that alias for new shells and says so; tell the user if it did. The same command is also installed as `gpu4agents`.
 
 ## 2. Connect a GPU provider account
 
-Run `gpu login --check`.
+Run `~/.local/bin/gpu login --check`.
 
 - Exit code 0: an account is connected. Go to step 3.
-- Exit code 5: no working key yet. Ask the user which GPU provider they want to use.
-  - Vast.ai, or no preference: tell the user, in these words or close:
+- Exit code 5: no account is connected yet. Tell the user, in plain words and without technical terms, something close to this:
 
-    > Create an API key at https://cloud.vast.ai/manage-keys/ and add a few dollars of credit. Then open your own terminal, run `gpu login`, and paste the key into the hidden prompt.
+  > One last step, about two minutes: connect the account that pays for the GPUs. Open your terminal app (not this chat) and type `gpu login`. It shows the providers you can use and walks you through it: Vast.ai works right away, and if you already use another one (RunPod, Lambda, your company's servers), pick "Another provider" and I'll add it. Your key stays on your computer; I never see it.
 
-  - Another provider (RunPod, Lambda, their company's cluster, ...): `gpu` needs an adapter for it first. Tell the user you can write one, and do it after this installation by following https://gpu4agents.jambu.ai/providers.md. The user then runs `gpu login --provider <name>`.
+  If the installer said it kept a `gpu` alias, tell them to type `gpu4agents login` instead.
 
-  Wait until the user says it is done, then run `gpu login --check` again. If the user wants to connect later, go on to step 3.
+  If the user picks another provider, write its adapter after this installation by following https://gpu4agents.jambu.ai/providers.md. The user then runs `gpu login --provider <name>`.
+
+  Wait until the user says it is done, then run `~/.local/bin/gpu login --check` again. If the user wants to connect later, go on to step 3.
 
 Never ask the user to paste a key into this conversation, never read `~/.gpu/credentials` or `.env` files, and never print a key.
 
@@ -49,7 +52,7 @@ The MCP tools (`gpu_setup`, `gpu_status`, ...) appear after the user restarts th
 Summarize in a few lines:
 
 - what was installed (the `gpu` command, the skill, the MCP server for this runtime);
-- whether a provider account is connected, or what they still need to do (`gpu login`, or an adapter for their provider);
+- whether a provider account is connected, or what they still need to do (`gpu login` in their terminal, or an adapter for their provider), in plain words;
 - that they should restart the agent to get the tools;
 - an example request: "Compare Qwen 7B and Llama 8B on 50 prompts", and that you will show the price and ask before renting anything.
 

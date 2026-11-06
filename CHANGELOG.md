@@ -2,6 +2,18 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.9.2] - 2026-11-06
+
+### Changed
+- `gpu login` starts by showing the providers you can use: Vast.ai, ready out of the box, or "another provider I already use", which hands the job to your agent (it writes the adapter). For Vast.ai it then lists the steps in plain words, from creating the account and adding credit to copying the key, before the hidden prompt. `--provider`, `--stdin` and a project's `gpu.yaml` skip the menu, as before.
+- The messages a user sees when no account is connected, from `gpu login --check`, the installer, the skill and `install.md`, no longer assume a technical reader.
+
+### Fixed
+- Oh My Zsh's git plugin, on by default, defines `gpu` as an alias for `git push upstream`, and an alias wins over the command, in a terminal and in an agent's shell. The installer now detects a `gpu` alias in zsh and bash and removes it for new shells, in a marked block at the end of `~/.zshrc` or `~/.bashrc` (`--keep-gpu-alias` leaves it). The command is also installed as `gpu4agents`, which no alias takes, and the skill tells the agent to check `type gpu` first and use `command gpu` when it is an alias.
+
+### Added
+- Provider adapters can describe their own first-time walk-through for `gpu login`: `tagline`, `signup_url` and `setup_steps`.
+
 ## [0.9.1] - 2026-11-04
 
 ### Changed
