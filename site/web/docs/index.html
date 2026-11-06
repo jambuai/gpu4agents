@@ -1,0 +1,1084 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GPU for Agents Docs</title>
+  <meta name="description" content="How GPU for Agents works: integration, usage, contracts, protocols, the watchdog, the data flow and the process flow, with diagrams." />
+  <meta property="og:title" content="GPU for Agents: documentation" />
+  <meta property="og:description" content="Integration, contracts, protocols, the watchdog and the data flow, with diagrams and real numbers." />
+  <meta property="og:image" content="https://gpu4agents.jambu.ai/media/poster.jpg" />
+  <meta property="og:url" content="https://gpu4agents.jambu.ai/docs/" />
+  <meta name="theme-color" content="#0A0F0B" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="preload" href="/fonts/BricolageGrotesque.woff2" as="font" type="font/woff2" crossorigin />
+  <style>
+    @font-face { font-family: "Bricolage Grotesque"; src: url("/fonts/BricolageGrotesque.woff2") format("woff2"); font-weight: 200 800; font-display: swap; }
+    @font-face { font-family: "JetBrains Mono"; src: url("/fonts/JetBrainsMono.woff2") format("woff2"); font-weight: 400 800; font-display: swap; }
+    :root {
+      --ground: #0A0F0B; --ground-2: #111912; --ground-3: #162018; --line: #22302A;
+      --ink: #ECF2E8; --muted: #9CAA9D; --leaf: #5CBF3A; --lime: #B4E06C; --ember: #FF7A4D; --gold: #E8C547;
+      --display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --gutter: clamp(16px, 4vw, 40px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+    body { background: var(--ground); color: var(--ink); font-family: var(--display); font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+    a { color: var(--lime); text-underline-offset: 3px; }
+    a:hover { color: var(--leaf); }
+    code { font-family: var(--mono); font-size: .86em; background: var(--ground-2); border: 1px solid var(--line); padding: 1px 6px; border-radius: 6px; color: var(--ink); overflow-wrap: anywhere; }
+    ::selection { background: rgba(92,191,58,.35); }
+
+    /* nav */
+    nav.top { position: fixed; inset: 0 0 auto; z-index: 30; backdrop-filter: blur(12px); background: rgba(10,15,11,0.78); border-bottom: 1px solid var(--line); }
+    nav.top .in { display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 var(--gutter); max-width: 1440px; margin: 0 auto; gap: 16px; }
+    .logo { display: flex; align-items: center; gap: 10px; text-decoration: none; font-weight: 800; font-size: 19px; letter-spacing: -0.02em; color: var(--ink); }
+    .logo:hover { color: var(--ink); }
+    .logo svg { width: 30px; height: 30px; }
+    .logo .tag { font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--leaf); border: 1px solid var(--line); padding: 2px 8px; border-radius: 999px; letter-spacing: .08em; }
+    nav.top ul { display: flex; gap: 24px; list-style: none; font-size: 15px; }
+    nav.top ul a { text-decoration: none; color: var(--muted); } nav.top ul a:hover { color: var(--ink); }
+    @media (max-width: 640px) { nav.top ul li.opt { display: none; } }
+
+    /* layout */
+    .layout { max-width: 1440px; margin: 0 auto; padding: 64px var(--gutter) 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 56px; }
+    @media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+    aside.toc { position: sticky; top: 64px; height: calc(100vh - 64px); overflow-y: auto; padding: 36px 0 40px; font-size: 14.5px; }
+    aside.toc .grp { font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); margin: 22px 0 8px; }
+    aside.toc .grp:first-child { margin-top: 0; }
+    aside.toc a { display: block; padding: 5px 12px; border-left: 2px solid var(--line); color: var(--muted); text-decoration: none; }
+    aside.toc a:hover { color: var(--ink); }
+    aside.toc a.on { color: var(--ink); border-left-color: var(--leaf); }
+    @media (max-width: 1000px) { aside.toc { display: none; } }
+    details.mtoc { display: none; margin: 24px 0 0; border: 1px solid var(--line); border-radius: 14px; background: var(--ground-2); }
+    details.mtoc summary { cursor: pointer; padding: 12px 16px; font-family: var(--mono); font-size: 13px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+    details.mtoc div { padding: 4px 16px 16px; columns: 2; column-gap: 16px; font-size: 14.5px; }
+    details.mtoc a { display: block; padding: 3px 0; text-decoration: none; color: var(--ink); }
+    @media (max-width: 1000px) { details.mtoc { display: block; } }
+    @media (max-width: 420px) { details.mtoc div { columns: 1; } }
+
+    main { min-width: 0; padding: 36px 0 96px; max-width: 980px; }
+    .hero { padding: 28px 0 40px; border-bottom: 1px solid var(--line); margin-bottom: 12px; }
+    .eyebrow { font-family: var(--mono); font-size: 12.5px; letter-spacing: .18em; text-transform: uppercase; color: var(--leaf); display: inline-flex; align-items: center; gap: 12px; }
+    .eyebrow::before { content: ""; width: 28px; height: 2px; background: currentColor; }
+    h1 { font-size: clamp(40px, 6vw, 72px); letter-spacing: -0.045em; line-height: .98; font-weight: 800; margin: 18px 0 18px; }
+    .lead { font-size: clamp(18px, 1.7vw, 21px); color: var(--muted); font-weight: 300; max-width: 720px; }
+    .lead b { color: var(--ink); font-weight: 600; }
+    section.doc { padding: 56px 0 8px; }
+    section.doc > h2 { font-size: clamp(30px, 3.6vw, 44px); letter-spacing: -0.035em; line-height: 1.05; font-weight: 800; margin-bottom: 14px; }
+    section.doc > h2 .n { font-family: var(--mono); font-size: 14px; color: var(--leaf); letter-spacing: .08em; display: block; margin-bottom: 10px; font-weight: 400; }
+    h3 { font-size: 22px; letter-spacing: -0.02em; margin: 36px 0 10px; font-weight: 700; }
+    p { margin: 0 0 14px; color: #CBD6C8; }
+    p.sub { color: var(--muted); font-weight: 300; font-size: 18px; max-width: 760px; }
+    ul.list, ol.list { margin: 0 0 16px 22px; color: #CBD6C8; }
+    ul.list li, ol.list li { margin: 6px 0; }
+
+    /* cards / grids */
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 20px 0; }
+    .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin: 20px 0; }
+    @media (max-width: 820px) { .grid2, .grid3 { grid-template-columns: 1fr; } }
+    .grid2 > *, .grid3 > * { min-width: 0; }
+    .card { background: var(--ground-2); border: 1px solid var(--line); border-radius: 18px; padding: 22px 24px; }
+    .card h4 { font-size: 19px; letter-spacing: -0.01em; margin-bottom: 6px; }
+    .card p { font-size: 15.5px; color: var(--muted); margin: 0; }
+    .card .k { font-family: var(--mono); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--leaf); margin-bottom: 10px; }
+    .card.em { border-color: rgba(92,191,58,.45); }
+
+    /* code */
+    .code { position: relative; background: var(--ground-2); border: 1px solid var(--line); border-radius: 14px; margin: 14px 0 20px; }
+    .code .hd { display: flex; justify-content: space-between; align-items: center; padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 12px; color: var(--muted); }
+    .code pre { padding: 16px 18px; font: 13.5px/1.7 var(--mono); overflow-x: auto; color: var(--ink); font-variant-ligatures: none; }
+    .code pre .c { color: var(--muted); } .code pre .p { color: var(--leaf); user-select: none; } .code pre .s { color: var(--lime); } .code pre .k { color: var(--gold); }
+    .cp { font: 12px var(--mono); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+    .cp:hover { color: var(--ink); border-color: var(--leaf); }
+
+    /* tables */
+    .tbl { overflow-x: auto; margin: 14px 0 22px; border: 1px solid var(--line); border-radius: 14px; }
+    table { border-collapse: collapse; width: 100%; font-size: 15px; min-width: 560px; }
+    th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { font-family: var(--mono); font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); font-weight: 400; background: var(--ground-2); }
+    tr:last-child td { border-bottom: 0; }
+    td { color: #CBD6C8; }
+    td code { white-space: nowrap; }
+    td.num { font-family: var(--mono); color: var(--lime); font-weight: 700; }
+    .yes { color: var(--ember); font-weight: 600; } .no { color: var(--leaf); font-weight: 600; }
+
+    /* callouts */
+    .note { border-left: 3px solid var(--leaf); background: rgba(92,191,58,.07); padding: 14px 18px; border-radius: 0 12px 12px 0; margin: 18px 0; font-size: 15.5px; color: #CBD6C8; }
+    .note.warn { border-left-color: var(--gold); background: rgba(232,197,71,.07); }
+    .note b { color: var(--ink); }
+
+    /* figures */
+    figure { margin: 22px 0 28px; background: var(--ground-2); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+    figure .scroll { overflow-x: auto; padding: 18px 14px 8px; }
+    figure svg.dg { display: block; width: 100%; min-width: 720px; height: auto; }
+    figcaption { padding: 12px 20px 16px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--line); }
+    figcaption b { color: var(--ink); font-weight: 600; }
+    .dg text { font-family: var(--display); fill: var(--ink); }
+    .dg .t { font-size: 15px; font-weight: 700; }
+    .dg .s { font-size: 12px; fill: var(--muted); font-family: var(--mono); }
+    .dg .l { font-size: 11.5px; fill: var(--muted); font-family: var(--mono); }
+    .dg .lg { font-size: 11.5px; fill: var(--lime); font-family: var(--mono); }
+    .dg .zone { fill: none; stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 5 5; }
+    .dg .zt { font-family: var(--mono); font-size: 11.5px; letter-spacing: .16em; fill: var(--muted); }
+    .dg .nd { fill: var(--ground-3); stroke: var(--line); stroke-width: 1.5; }
+    .dg .nd.g { stroke: var(--leaf); }
+    .dg .nd.e { stroke: var(--ember); }
+    .dg .nd.y { stroke: var(--gold); }
+    .dg .ar { fill: none; stroke: var(--muted); stroke-width: 1.6; }
+    .dg .ar.g { stroke: var(--leaf); }
+    .dg .ar.e { stroke: var(--ember); }
+    .dg .ar.d { stroke-dasharray: 5 4; }
+    .dg .life { stroke: var(--line); stroke-width: 1.5; stroke-dasharray: 3 5; }
+
+    /* decision flow (HTML) */
+    .flow { margin: 22px 0 28px; display: grid; gap: 0; }
+    .fq { display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(0, 260px); gap: 14px; align-items: center; position: relative; padding: 10px 0; }
+    .fq::before { content: ""; position: absolute; left: 16px; top: 0; bottom: 0; width: 2px; background: var(--line); }
+    .fq:first-child::before { top: 50%; } .fq:last-child::before { bottom: 50%; }
+    .fq .dot { position: relative; z-index: 1; width: 34px; height: 34px; border-radius: 50%; border: 2px solid var(--line); background: var(--ground); display: grid; place-items: center; font: 700 13px var(--mono); color: var(--muted); }
+    .fq .q { background: var(--ground-2); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; font-size: 15.5px; }
+    .fq .q small { display: block; color: var(--muted); font-size: 13.5px; margin-top: 2px; }
+    .fq .r { font: 13px/1.4 var(--mono); padding: 10px 14px; border-radius: 12px; border: 1px solid var(--line); }
+    .fq .r b { display: block; font-size: 12px; letter-spacing: .1em; margin-bottom: 2px; }
+    .fq .r.stop { border-color: rgba(255,122,77,.55); } .fq .r.stop b { color: var(--ember); }
+    .fq .r.keep { border-color: rgba(92,191,58,.55); } .fq .r.keep b { color: var(--leaf); }
+    .fq .r.mix b { color: var(--gold); } .fq .r.mix { border-color: rgba(232,197,71,.5); }
+    @media (max-width: 640px) { .fq { grid-template-columns: 34px minmax(0, 1fr); } .fq .r { grid-column: 2; } }
+
+    /* steps strip */
+    .strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 18px 0 24px; counter-reset: st; }
+    @media (max-width: 820px) { .strip { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 460px) { .strip { grid-template-columns: 1fr; } }
+    .strip div { background: var(--ground-2); border: 1px solid var(--line); border-top: 2px solid var(--leaf); border-radius: 12px; padding: 14px; font-size: 14.5px; color: var(--muted); counter-increment: st; }
+    .strip div::before { content: counter(st, decimal-leading-zero); display: block; font: 700 12px var(--mono); color: var(--leaf); margin-bottom: 6px; }
+    .strip div b { display: block; color: var(--ink); font-size: 15.5px; margin-bottom: 4px; }
+
+    /* charts */
+    .chart { margin: 22px 0 28px; background: var(--ground-2); border: 1px solid var(--line); border-radius: 18px; padding: 20px 20px 14px; position: relative; }
+    .chart h4 { font-size: 17px; letter-spacing: -0.01em; }
+    .chart .cs { font-size: 14px; color: var(--muted); margin: 2px 0 14px; }
+    .chart svg { display: block; width: 100%; height: auto; overflow: visible; }
+    .chart .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font: 12.5px var(--mono); color: var(--muted); margin: 4px 0 6px; }
+    .chart .legend i { display: inline-block; width: 18px; height: 0; border-top: 2.5px solid; vertical-align: middle; margin-right: 8px; }
+    .chart .legend i.sq { width: 12px; height: 12px; border: 0; border-radius: 3px; }
+    .chart .ax { font: 11.5px var(--mono); fill: var(--muted); }
+    .chart .gl { stroke: var(--line); stroke-width: 1; }
+    .chart .lab { font: 700 12px var(--mono); fill: var(--ink); }
+    .chart .labm { font: 12px var(--mono); fill: var(--muted); }
+    .tip { position: absolute; pointer-events: none; background: var(--ground); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font: 12.5px/1.55 var(--mono); color: var(--ink); opacity: 0; transition: opacity .12s; white-space: nowrap; z-index: 5; box-shadow: 0 10px 30px rgba(0,0,0,.4); }
+    .tip .m { color: var(--muted); }
+    .tview { margin-top: 10px; font-size: 13.5px; }
+    .tview summary { cursor: pointer; color: var(--muted); font-family: var(--mono); font-size: 12.5px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 18px 0 6px; }
+    @media (max-width: 720px) { .stats { grid-template-columns: 1fr 1fr; } }
+    .stat { background: var(--ground); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+    .stat .v { font: 700 24px var(--mono); letter-spacing: -0.02em; color: var(--ink); }
+    .stat .d { font-size: 13px; color: var(--muted); }
+
+    footer { border-top: 1px solid var(--line); padding: 36px var(--gutter) 52px; color: var(--muted); font-size: 15px; }
+    footer .in { max-width: 1440px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 16px 32px; justify-content: space-between; }
+    footer a { color: var(--muted); } footer a:hover { color: var(--ink); }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--leaf); color: #0A0F0B; font: 700 14px var(--mono); padding: 10px 18px; border-radius: 10px; opacity: 0; transition: all .2s; pointer-events: none; z-index: 40; }
+    .toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+  <nav class="top" aria-label="Main">
+    <div class="in">
+      <a class="logo" href="/" aria-label="GPU for Agents home">
+        <svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="15" r="10" fill="#5CBF3A"/><path d="M50 74 C 24 72 8 52 10 32 C 32 32 50 48 50 74 Z" fill="#5CBF3A"/><path d="M50 74 C 54 50 70 34 92 32 C 92 54 74 72 50 74 Z" fill="#B4E06C"/><path d="M50 74 V 92 M50 80 C 40 80 30 78 20 70 M50 80 C 60 80 70 78 80 70" stroke="#5CBF3A" stroke-width="5" fill="none" stroke-linecap="round"/></svg>
+        GPU for Agents <span class="tag">DOCS</span>
+      </a>
+      <ul>
+        <li class="opt"><a href="/">Home</a></li>
+        <li class="opt"><a href="/#install">Install</a></li>
+        <li><a href="https://github.com/jambuai/gpu4agents" rel="noopener">GitHub</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <div class="layout">
+    <aside class="toc" aria-label="On this page">
+      <div class="grp">Start</div>
+      <a href="#overview">Overview</a>
+      <a href="#quickstart">Quickstart</a>
+      <a href="#architecture">Architecture</a>
+      <div class="grp">How it runs</div>
+      <a href="#setup-flow">Process flow: setup</a>
+      <a href="#lifecycle">Lifecycle states</a>
+      <a href="#watchdog">The watchdog</a>
+      <a href="#decision">The shutdown rule</a>
+      <a href="#data-flow">Data flow</a>
+      <a href="#audit">Audit and cost</a>
+      <div class="grp">Integrate</div>
+      <a href="#agents">Coding agents</a>
+      <a href="#apps">Applications</a>
+      <a href="#serving">Serving models</a>
+      <a href="#jobs">Running jobs</a>
+      <div class="grp">Contracts</div>
+      <a href="#cli-contract">CLI output</a>
+      <a href="#exit-codes">Exit codes</a>
+      <a href="#mcp-tools">MCP tools</a>
+      <a href="#watchdog-api">Watchdog API</a>
+      <a href="#provider-contract">Provider adapters</a>
+      <a href="#config">Configuration</a>
+      <a href="#security">Security</a>
+      <a href="#reference">Full reference</a>
+    </aside>
+
+    <main id="top">
+      <header class="hero">
+        <span class="eyebrow">Documentation · v0.9.1</span>
+        <h1>How GPU for Agents works</h1>
+        <p class="lead">A coding agent can only read and write text. With its own GPU it can make images and voices, transcribe audio, run open models and test GPU code on real hardware. <b>GPU for Agents</b> gives it that machine with the controls built in: a budget it can't exceed, a log of every step, and a watchdog on the machine that stops it when the work stops.</p>
+        <details class="mtoc"><summary>On this page</summary><div>
+          <a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#architecture">Architecture</a><a href="#setup-flow">Process flow</a><a href="#lifecycle">Lifecycle</a><a href="#watchdog">Watchdog</a><a href="#decision">Shutdown rule</a><a href="#data-flow">Data flow</a><a href="#audit">Audit and cost</a><a href="#agents">Coding agents</a><a href="#apps">Applications</a><a href="#serving">Serving</a><a href="#jobs">Jobs</a><a href="#cli-contract">CLI output</a><a href="#exit-codes">Exit codes</a><a href="#mcp-tools">MCP tools</a><a href="#watchdog-api">Watchdog API</a><a href="#provider-contract">Providers</a><a href="#config">Config</a><a href="#security">Security</a><a href="#reference">Reference</a>
+        </div></details>
+      </header>
+
+      <!-- ================= OVERVIEW ================= -->
+      <section class="doc" id="overview">
+        <h2><span class="n">01</span>Overview</h2>
+        <p class="sub">One command, <code>gpu</code>, rents a GPU from a cloud provider, serves a model or runs code on it, and makes sure it stops. Agents reach it through a skill and an MCP server. Applications call the same command with <code>--json</code>.</p>
+        <div class="grid3">
+          <div class="card em"><div class="k">Controllable</div><h4>Limits in a file</h4><p><code>gpu.yaml</code> sets the hourly price cap, the session budget and the maximum lifetime. The agent can't go past them without editing the file you can read.</p></div>
+          <div class="card em"><div class="k">Auditable</div><h4>Every step logged</h4><p>Each rent, start, idle period, stop and refusal is one JSON line in <code>events.jsonl</code>, with the reason. <code>gpu events</code> reads it.</p></div>
+          <div class="card em"><div class="k">Watched from inside</div><h4>A watchdog on the GPU</h4><p>The machine checks itself every 60 seconds and calls the provider to stop itself after 15 idle minutes, even if your laptop is closed.</p></div>
+        </div>
+        <h3>Two planes</h3>
+        <div class="tbl"><table>
+          <tr><th>Plane</th><th>What</th><th>Who uses it, and how</th></tr>
+          <tr><td><b>Control</b></td><td>the <code>gpu</code> command (and the MCP tools that wrap it)</td><td>an agent through MCP; an app as a subprocess with <code>--json</code>, reading stdout and the exit code</td></tr>
+          <tr><td><b>Data</b></td><td>an OpenAI-compatible HTTP API on the rented machine</td><td>any OpenAI SDK or plain HTTP, with the <code>base_url</code>, <code>api_key</code> and <code>model</code> that <code>gpu setup</code> printed</td></tr>
+        </table></div>
+        <p>You never have to stop the GPU yourself. The one thing a client has to handle is a machine that has been stopped: it calls <code>gpu setup</code> again and gets a fresh endpoint.</p>
+      </section>
+
+      <!-- ================= QUICKSTART ================= -->
+      <section class="doc" id="quickstart">
+        <h2><span class="n">02</span>Quickstart</h2>
+        <h3>Let the agent install it</h3>
+        <p>Paste this into Claude Code, Codex, Gemini CLI or Cursor, naming the one you use:</p>
+        <div class="code"><div class="hd"><span>prompt</span><button class="cp">copy</button></div><pre style="white-space:pre-wrap">Set up GPU for Agents for me. I'm using Claude Code. Fetch https://gpu4agents.jambu.ai/install.md with curl and follow its steps.</pre></div>
+        <p>The agent runs the installer, gives itself the skill and the MCP server, and checks your provider account. Nothing is rented during installation. When it asks, connect the account in your own terminal, so the key never passes through the chat:</p>
+        <div class="code"><div class="hd"><span>your terminal</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu login            <span class="c"># hidden prompt; checks the key with the provider, saves it to ~/.gpu/credentials</span>
+<span class="p">$ </span>gpu login --check    <span class="c"># exit 0 when a key is found</span></pre></div>
+        <h3>Or by hand</h3>
+        <div class="code"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent auto
+<span class="c"># or: uv tool install --python 3.12 gpu4agents  /  pipx install gpu4agents</span>
+<span class="p">$ </span>gpu init --model Qwen/Qwen2.5-7B-Instruct   <span class="c"># writes gpu.yaml</span>
+<span class="p">$ </span>gpu validate                                <span class="c"># config, credentials, real capacity; fails before renting</span>
+<span class="p">$ </span>gpu offers                                  <span class="c"># matching machines and their hourly price</span>
+<span class="p">$ </span>gpu setup                                   <span class="c"># rent, install the watchdog, serve, wait until ready</span>
+<span class="p">$ </span>eval "$(gpu env)"                           <span class="c"># OPENAI_BASE_URL, OPENAI_API_KEY, JAMBU_MODEL_ID</span></pre></div>
+        <div class="note">Vast.ai is built in. Any other provider (RunPod, Lambda, a company cluster, your own servers) is one adapter file, and the agent can write it from the provider's API docs: see <a href="#provider-contract">Provider adapters</a>.</div>
+      </section>
+
+      <!-- ================= ARCHITECTURE ================= -->
+      <section class="doc" id="architecture">
+        <h2><span class="n">03</span>Architecture</h2>
+        <p class="sub">Three places are involved: your machine, the provider's API, and the rented GPU machine. Control goes through the <code>gpu</code> command and the watchdog. Data goes straight from your client to the model on the GPU.</p>
+        <figure>
+          <div class="scroll">
+          <svg class="dg" viewBox="0 0 960 450" role="img" aria-labelledby="arch-t">
+            <title id="arch-t">Architecture: your machine, the provider API and the rented GPU machine</title>
+            <defs>
+              <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9CAA9D"/></marker>
+              <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5CBF3A"/></marker>
+              <marker id="ae" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#FF7A4D"/></marker>
+            </defs>
+            <rect class="zone" x="16" y="30" width="334" height="404" rx="18"/>
+            <text class="zt" x="34" y="56">YOUR MACHINE</text>
+            <rect class="zone" x="610" y="30" width="334" height="404" rx="18"/>
+            <text class="zt" x="628" y="56">RENTED GPU MACHINE</text>
+
+            <rect class="nd" x="40" y="74" width="286" height="62" rx="12"/>
+            <text class="t" x="58" y="100">Coding agent or your app</text>
+            <text class="s" x="58" y="122">Claude Code · Codex · Cursor</text>
+            <rect class="nd" x="40" y="156" width="286" height="44" rx="12"/>
+            <text class="t" x="58" y="184" style="font-size:14px">skill + MCP server (gpu mcp)</text>
+            <rect class="nd g" x="40" y="220" width="286" height="62" rx="12"/>
+            <text class="t" x="58" y="246">gpu CLI</text>
+            <text class="s" x="58" y="268">--json · exit codes · file lock</text>
+            <rect class="nd" x="40" y="318" width="136" height="92" rx="12"/>
+            <text class="t" x="54" y="346" style="font-size:13.5px">gpu.yaml</text>
+            <text class="s" x="54" y="368">limits, model</text>
+            <text class="s" x="54" y="388">no credentials</text>
+            <rect class="nd" x="190" y="318" width="136" height="92" rx="12"/>
+            <text class="t" x="204" y="346" style="font-size:13.5px">.gpu/</text>
+            <text class="s" x="204" y="368">state.json</text>
+            <text class="s" x="204" y="388">logs/events.jsonl</text>
+
+            <rect class="nd g" x="634" y="74" width="286" height="86" rx="12"/>
+            <text class="t" x="652" y="100">model server :8000</text>
+            <text class="s" x="652" y="122">vLLM · hf · custom · none</text>
+            <text class="s" x="652" y="142">/v1 OpenAI routes · /metrics</text>
+            <rect class="nd g" x="634" y="196" width="286" height="96" rx="12"/>
+            <text class="t" x="652" y="222">watchdog :8777</text>
+            <text class="s" x="652" y="244">policy check every 60 s</text>
+            <text class="s" x="652" y="264">activity, workloads, locks, jobs</text>
+            <text class="s" x="652" y="282">X-Jambu-Token auth</text>
+            <rect class="nd" x="634" y="318" width="286" height="44" rx="12"/>
+            <text class="t" x="652" y="346" style="font-size:14px">supervisor (respawn loop)</text>
+            <rect class="nd" x="634" y="378" width="286" height="40" rx="12"/>
+            <text class="s" x="652" y="403">/var/lib/jambu/activity.json</text>
+
+            <rect class="nd y" x="400" y="330" width="170" height="80" rx="12"/>
+            <text class="t" x="418" y="358">Provider API</text>
+            <text class="s" x="418" y="380">Vast.ai built in</text>
+            <text class="s" x="418" y="398">any other: adapter</text>
+
+            <path class="ar" d="M183,136 V152" marker-end="url(#a)"/>
+            <path class="ar" d="M183,200 V216" marker-end="url(#a)"/>
+            <path class="ar" d="M108,282 V314" marker-end="url(#a)"/>
+            <path class="ar" d="M258,282 V314" marker-end="url(#a)"/>
+
+            <path class="ar g" d="M326,104 H630" marker-end="url(#ag)"/>
+            <text class="lg" x="350" y="94">data: /v1 OpenAI API · Bearer api_key</text>
+
+            <path class="ar" d="M326,250 H630" marker-end="url(#a)"/>
+            <text class="l" x="350" y="240">control · X-Jambu-Token</text>
+
+            <path class="ar" d="M300,282 L404,330" marker-end="url(#a)"/>
+            <text class="l" x="420" y="320">rent · stop · destroy</text>
+
+            <path class="ar e" d="M634,288 L574,332" marker-end="url(#ae)"/>
+            <text class="l" x="644" y="311" style="fill:#FF7A4D">stops itself</text>
+
+            <path class="ar d" d="M776,196 V164" marker-end="url(#a)"/>
+            <text class="l" x="784" y="185">reads /metrics</text>
+            <path class="ar" d="M846,318 V296" marker-end="url(#a)"/>
+            <text class="l" x="854" y="311">respawns</text>
+          </svg>
+          </div>
+          <figcaption><b>Control and data stay apart.</b> Prompts and outputs travel from your client to the model on the GPU and never through a third-party inference API. The watchdog holds a provider key so it can stop its own machine.</figcaption>
+        </figure>
+        <h3>What is in the package</h3>
+        <div class="tbl"><table>
+          <tr><th>Module</th><th>Does</th></tr>
+          <tr><td><code>core/policy.py</code></td><td>The only shutdown rule. Pure Python, no dependencies. Its source is copied into the watchdog, so the machine and <code>gpu status</code> apply exactly the same rule.</td></tr>
+          <tr><td><code>core/engine.py</code></td><td>setup, restart, reconcile, stop, destroy, jobs; serialized by a file lock per project</td></tr>
+          <tr><td><code>core/state.py</code>, <code>core/events.py</code></td><td><code>.gpu/state.json</code> and the append-only event log</td></tr>
+          <tr><td><code>providers/</code></td><td>the provider contract (<code>base.py</code>), the registry, the Vast.ai adapter and the skeleton for new ones</td></tr>
+          <tr><td><code>runtime/</code>, <code>serve/</code></td><td>how the model runs: vLLM, gpu's own server for any Hugging Face model, or your server</td></tr>
+          <tr><td><code>watchdog/</code></td><td>the agent that runs on the machine (<code>agent_body.py</code>), its builder, and the jobs extension</td></tr>
+          <tr><td><code>agent/</code></td><td>the skill, the MCP server and <code>gpu agent install</code></td></tr>
+        </table></div>
+        <p>The core never checks which provider it is talking to. It checks what the provider can do (<code>provider.capabilities</code>), and a test fails the build if <code>core/</code> ever mentions a provider by name.</p>
+      </section>
+
+      <!-- ================= SETUP FLOW ================= -->
+      <section class="doc" id="setup-flow">
+        <h2><span class="n">04</span>Process flow: <code style="font-size:.7em">gpu setup</code></h2>
+        <p class="sub">What happens between "rent a GPU" and a working endpoint. The first rent usually takes 5 to 15 minutes, mostly the image pull and the model download. Restarting a stopped machine took 41 seconds for a small model.</p>
+        <figure>
+          <div class="scroll">
+          <svg class="dg" viewBox="0 0 960 640" role="img" aria-labelledby="seq-t">
+            <title id="seq-t">Sequence of gpu setup between the agent, the CLI, the provider, the watchdog and the model server</title>
+            <defs>
+              <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9CAA9D"/></marker>
+              <marker id="bg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5CBF3A"/></marker>
+              <marker id="be" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#FF7A4D"/></marker>
+            </defs>
+            <!-- heads -->
+            <g>
+              <rect class="nd" x="20" y="16" width="150" height="44" rx="10"/><text class="t" x="95" y="44" text-anchor="middle" style="font-size:14px">Agent / app</text>
+              <rect class="nd g" x="210" y="16" width="150" height="44" rx="10"/><text class="t" x="285" y="44" text-anchor="middle" style="font-size:14px">gpu CLI</text>
+              <rect class="nd y" x="400" y="16" width="150" height="44" rx="10"/><text class="t" x="475" y="44" text-anchor="middle" style="font-size:14px">Provider API</text>
+              <rect class="nd g" x="590" y="16" width="150" height="44" rx="10"/><text class="t" x="665" y="44" text-anchor="middle" style="font-size:14px">Watchdog</text>
+              <rect class="nd g" x="780" y="16" width="150" height="44" rx="10"/><text class="t" x="855" y="44" text-anchor="middle" style="font-size:14px">Model server</text>
+            </g>
+            <line class="life" x1="95" y1="60" x2="95" y2="630"/>
+            <line class="life" x1="285" y1="60" x2="285" y2="630"/>
+            <line class="life" x1="475" y1="60" x2="475" y2="630"/>
+            <line class="life" x1="665" y1="60" x2="665" y2="630"/>
+            <line class="life" x1="855" y1="60" x2="855" y2="630"/>
+
+            <path class="ar" d="M95,92 H281" marker-end="url(#b)"/><text class="l" x="105" y="84">1  gpu_offers / gpu offers</text>
+            <path class="ar" d="M285,112 H471" marker-end="url(#b)"/><text class="l" x="295" y="104">2  find offers (VRAM, disk, CUDA)</text>
+            <path class="ar d" d="M471,130 H289" marker-end="url(#b)"/><text class="l" x="300" y="146">cheapest first, with $/h</text>
+            <path class="ar d" d="M281,166 H99" marker-end="url(#b)"/><text class="l" x="112" y="184">price shown; user says yes</text>
+
+            <path class="ar g" d="M95,214 H281" marker-end="url(#bg)"/><text class="lg" x="105" y="206">3  gpu_setup</text>
+            <rect x="291" y="222" width="244" height="40" rx="8" fill="rgba(255,122,77,.08)" stroke="#FF7A4D" stroke-width="1"/>
+            <text class="l" x="299" y="238" style="fill:#FF7A4D">over max_hourly_cost_usd?</text>
+            <text class="l" x="299" y="254" style="fill:#FF7A4D">refuse: exit 10, nothing rented</text>
+            <path class="ar" d="M285,288 H471" marker-end="url(#b)"/><text class="l" x="295" y="280">4  rent: image, label jambu-…, ports, onstart</text>
+            <path class="ar" d="M475,308 H661" marker-end="url(#b)"/><text class="l" x="485" y="300">5  boot, pull image, run onstart</text>
+            <rect x="485" y="314" width="232" height="54" rx="8" fill="rgba(232,197,71,.07)" stroke="#E8C547" stroke-width="1"/>
+            <text class="l" x="493" y="330" style="fill:#E8C547">pull stalls 10 min or</text>
+            <text class="l" x="493" y="346" style="fill:#E8C547">boot past 30 min: host_failed,</text>
+            <text class="l" x="493" y="362" style="fill:#E8C547">destroy, next host (up to 3)</text>
+            <path class="ar" d="M665,388 H851" marker-end="url(#b)"/><text class="l" x="675" y="382">6  watchdog up first, then model</text>
+            <path class="ar g" d="M285,408 H661" marker-end="url(#bg)"/><text class="lg" x="295" y="400">7  POST /identify ($/h, policy) · /starting</text>
+            <path class="ar" d="M285,440 H851" marker-end="url(#b)"/><text class="l" x="295" y="432">8  poll GET /health until 200 (startup_timeout 10 min)</text>
+            <rect x="291" y="450" width="462" height="24" rx="6" fill="rgba(255,122,77,.08)" stroke="#FF7A4D" stroke-width="1"/>
+            <text class="l" x="299" y="466" style="fill:#FF7A4D">server died (runtime_alive false): exit 11 + log tail, destroyed</text>
+            <path class="ar g" d="M285,500 H661" marker-end="url(#bg)"/><text class="lg" x="295" y="492">9  POST /ready → runtime_ready event</text>
+            <path class="ar g" d="M281,534 H99" marker-end="url(#bg)"/><text class="lg" x="105" y="526">10  {base_url, api_key, model}</text>
+            <path class="ar g" d="M95,580 H851" marker-end="url(#bg)"/><text class="lg" x="105" y="572">11  /v1/chat/completions, /v1/images/generations, … (Bearer api_key)</text>
+            <path class="ar d" d="M851,606 H669" marker-end="url(#b)"/><text class="l" x="680" y="624">every request counts as activity</text>
+          </svg>
+          </div>
+          <figcaption><b>setup is idempotent.</b> Ten processes calling it at once rent one machine; the other nine wait on the project's file lock and get the same answer. On a stopped machine it restarts it instead of renting a new one.</figcaption>
+        </figure>
+        <h3>Through MCP, setup never blocks the agent</h3>
+        <p>A first rent outlasts any client's tool timeout, so <code>gpu_setup</code> starts setup as a background job, waits up to 45 seconds, and answers <code>status: "running"</code> until the model is ready. Calling it again re-attaches to the same job and never rents a second machine. The job outlives the MCP server, so a restarted client finds it again.</p>
+      </section>
+
+      <!-- ================= LIFECYCLE ================= -->
+      <section class="doc" id="lifecycle">
+        <h2><span class="n">05</span>Lifecycle states</h2>
+        <p class="sub">Every provider's states are mapped onto one set, so the CLI and the rule behave the same on any provider.</p>
+        <figure>
+          <div class="scroll">
+          <svg class="dg" viewBox="0 0 960 370" role="img" aria-labelledby="sm-t">
+            <title id="sm-t">State machine of an instance</title>
+            <defs>
+              <marker id="c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9CAA9D"/></marker>
+              <marker id="cg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5CBF3A"/></marker>
+              <marker id="ce" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#FF7A4D"/></marker>
+            </defs>
+            <g text-anchor="middle">
+              <rect class="nd" x="25" y="57" width="150" height="46" rx="23"/><text class="t" x="100" y="86" style="font-size:14px">provisioning</text>
+              <rect class="nd" x="215" y="57" width="150" height="46" rx="23"/><text class="t" x="290" y="86" style="font-size:14px">starting</text>
+              <rect class="nd g" x="405" y="57" width="150" height="46" rx="23"/><text class="t" x="480" y="86" style="font-size:14px">ready</text>
+              <rect class="nd g" x="595" y="57" width="150" height="46" rx="23"/><text class="t" x="670" y="86" style="font-size:14px">busy</text>
+              <rect class="nd e" x="25" y="217" width="150" height="46" rx="23"/><text class="t" x="100" y="246" style="font-size:14px">failed</text>
+              <rect class="nd e" x="405" y="217" width="150" height="46" rx="23"/><text class="t" x="480" y="246" style="font-size:14px">idle</text>
+              <rect class="nd y" x="595" y="217" width="150" height="46" rx="23"/><text class="t" x="670" y="246" style="font-size:14px">stopped</text>
+              <rect class="nd" x="785" y="217" width="150" height="46" rx="23"/><text class="t" x="860" y="246" style="font-size:14px">destroyed</text>
+            </g>
+            <path class="ar" d="M175,80 H211" marker-end="url(#c)"/>
+            <path class="ar" d="M365,80 H401" marker-end="url(#c)"/>
+            <text class="l" x="362" y="62">/ready</text>
+            <path class="ar g" d="M555,72 H591" marker-end="url(#cg)"/>
+            <path class="ar" d="M591,90 H559" marker-end="url(#c)"/>
+            <text class="lg" x="556" y="50">workload</text>
+            <path class="ar" d="M465,103 V213" marker-end="url(#c)"/>
+            <text class="l" x="358" y="162">no activity</text>
+            <path class="ar g" d="M497,213 V107" marker-end="url(#cg)"/>
+            <text class="lg" x="505" y="162">request, job,</text>
+            <text class="lg" x="505" y="177">heartbeat, lock</text>
+            <path class="ar e" d="M555,240 H591" marker-end="url(#ce)"/>
+            <text class="l" x="548" y="206" style="fill:#FF7A4D">idle_timeout</text>
+            <path class="ar e" d="M670,103 V213" marker-end="url(#ce)"/>
+            <text class="l" x="680" y="150" style="fill:#FF7A4D">max_lifetime</text>
+            <text class="l" x="680" y="165" style="fill:#FF7A4D">or session budget</text>
+            <path class="ar e" d="M745,240 H781" marker-end="url(#ce)"/>
+            <text class="l" x="752" y="190" style="fill:#FF7A4D">stopped_ttl</text>
+            <text class="l" x="752" y="205" style="fill:#FF7A4D">gpu destroy</text>
+            <path class="ar e" d="M262,103 L140,213" marker-end="url(#ce)"/>
+            <text class="l" x="125" y="150" style="fill:#FF7A4D">boot fails</text>
+            <path class="ar g" d="M640,263 V302 H290 V107" marker-end="url(#cg)"/>
+            <text class="lg" x="310" y="296">gpu setup on a stopped machine: restart (41 s measured)</text>
+            <path class="ar" d="M100,263 V336 H860 V267" marker-end="url(#c)"/>
+            <text class="l" x="120" y="354">cleanup_on_setup_failure: destroyed, setup rents another host</text>
+          </svg>
+          </div>
+          <figcaption><b>idle</b> and <b>stopped</b> are where cost hides: an idle machine bills GPU time, a stopped one still bills its disk on Vast.ai. The watchdog ends the first; <code>stopped_ttl</code> (24 h) ends the second.</figcaption>
+        </figure>
+        <div class="tbl"><table>
+          <tr><th>Event</th><th>What a client sees</th><th>What it does</th></tr>
+          <tr><td>first <code>setup</code></td><td>blocks 5 to 15 minutes while the machine is rented and the model downloads</td><td>waits; setup bounds itself</td></tr>
+          <tr><td>idle for <code>idle_timeout</code></td><td>connection refused or a timeout</td><td>calls <code>setup</code> again, retries once</td></tr>
+          <tr><td><code>setup</code> on a stopped machine</td><td>restart, no new rent, no new download; the IP and port may change</td><td>uses the new <code>base_url</code></td></tr>
+          <tr><td>stopped for <code>stopped_ttl</code></td><td>the machine is gone</td><td>the next <code>setup</code> rents a new one, with a new key</td></tr>
+          <tr><td><code>max_lifetime</code> reached</td><td>stopped even under traffic</td><td>same as idle</td></tr>
+        </table></div>
+      </section>
+
+      <!-- ================= WATCHDOG ================= -->
+      <section class="doc" id="watchdog">
+        <h2><span class="n">06</span>The watchdog</h2>
+        <p class="sub">The CLI process can't be in charge of shutdown: close the laptop and a local timer dies while the GPU keeps billing. So <code>setup</code> installs a watchdog on the machine itself, and the machine stops itself.</p>
+        <div class="grid2">
+          <div class="card"><div class="k">Where it runs</div><h4>Inside the rented machine</h4><p>A small HTTP service on port 8777, started by the boot script before the model server, inside a bash respawn loop. If it crashes, the loop starts it again 5 seconds later.</p></div>
+          <div class="card"><div class="k">How often</div><h4>Every 60 seconds</h4><p>It evaluates the same rule as <code>gpu status</code>, from <code>core/policy.py</code>, and reads the model server's <code>/metrics</code> every 15 seconds to see traffic.</p></div>
+          <div class="card"><div class="k">What it can do</div><h4>Stop or destroy its own machine</h4><p>The provider adapter injects two calls, <code>provider_stop</code> and <code>provider_destroy</code>. Nothing else of the provider's API is used from the machine.</p></div>
+          <div class="card"><div class="k">What survives</div><h4>State on disk</h4><p><code>/var/lib/jambu/activity.json</code> survives a stop and start. A restart opens a new session with a fresh lease, so a restarted machine isn't killed the moment it boots.</p></div>
+        </div>
+        <h3 id="activity">What counts as activity</h3>
+        <div class="tbl"><table>
+          <tr><th>Counts</th><th>Does not count</th></tr>
+          <tr><td>a running or queued workload with a live heartbeat (<code>gpu run</code>, a job)<br>model startup<br>inference traffic: requests running or waiting, completed requests, prompt tokens<br>an active lock (<code>gpu lock --for 2h</code>)</td><td>a healthy server nobody calls<br>a health check or a metrics scrape<br>an open SSH session<br>a dead heartbeat: after <code>heartbeat_grace</code> (5 min) the workload is stale</td></tr>
+        </table></div>
+        <p>Traffic is read from the server's own counters. The first read only sets a baseline, so old totals don't keep a machine up, and a counter that goes down means the server restarted, so it rebaselines. A failed probe never counts as activity.</p>
+        <h3>When the provider call fails</h3>
+        <ul class="list">
+          <li>A failed stop never disarms the guard. It logs <code>provider_error</code> and <code>guard_retry</code> and tries again on the next tick.</li>
+          <li>If the provider accepted the call but the machine is still running after 5 minutes, the watchdog issues it again (<code>guard_reissue</code>).</li>
+          <li>After 30 minutes of failed stops it destroys the machine instead (<code>stop_failed_escalation</code>): a machine that bills forever costs more than a lost disk.</li>
+        </ul>
+        <h3>A second line of defense</h3>
+        <p>The same rule runs from outside too. <code>gpu guard</code> evaluates it from cron or CI, and <code>gpu sweep --install-timer</code> runs every 5 minutes over every registered project, then stops orphans running longer than 24 hours and destroys orphans stopped longer than 24 hours. It only ever sees machines labeled <code>jambu-</code>; nothing else in the account is touched. It's a dry run until <code>--apply</code>.</p>
+      </section>
+
+      <!-- ================= DECISION ================= -->
+      <section class="doc" id="decision">
+        <h2><span class="n">07</span>The shutdown rule</h2>
+        <p class="sub">One pure function, <code>evaluate(snapshot, config)</code>, decides whether a machine may keep billing. It checks in this order and stops at the first answer. Every automatic shutdown records its reason.</p>
+        <div class="flow">
+          <div class="fq"><span class="dot">1</span><div class="q">Is it already stopped?<small>and stopped longer than <code>stopped_ttl</code>, not locked</small></div><div class="r mix"><b>DESTROY · stopped_ttl</b>otherwise nothing to do</div></div>
+          <div class="fq"><span class="dot">2</span><div class="q">Session older than <code>max_lifetime</code> (6 h)?<small>measured from the last start, not from creation</small></div><div class="r stop"><b>STOP · max_lifetime</b>unless a lock is active</div></div>
+          <div class="fq"><span class="dot">3</span><div class="q">Session cost over <code>max_session_cost_usd</code>?<small>hourly price × session age</small></div><div class="r stop"><b>STOP · budget_exceeded</b>unless a lock is active</div></div>
+          <div class="fq"><span class="dot">4</span><div class="q">Is a lock active?<small><code>gpu lock --for 2h</code>; indefinite locks only if the project allows them</small></div><div class="r keep"><b>KEEP · locked</b></div></div>
+          <div class="fq"><span class="dot">5</span><div class="q">Is the model still starting?</div><div class="r keep"><b>KEEP · startup_in_progress</b></div></div>
+          <div class="fq"><span class="dot">6</span><div class="q">Is a workload running or queued?<small>with a heartbeat younger than <code>heartbeat_grace</code></small></div><div class="r keep"><b>KEEP · workload_active</b>work in flight is never interrupted</div></div>
+          <div class="fq"><span class="dot">7</span><div class="q">Idle longer than <code>idle_timeout</code> (15 min)?</div><div class="r stop"><b>STOP · idle_timeout</b></div></div>
+          <div class="fq"><span class="dot">8</span><div class="q">Anything else</div><div class="r keep"><b>KEEP · within_policy</b></div></div>
+        </div>
+        <p>"STOP" is the cheapest action that ends billing: a stop where a stopped machine is free, a destroy with <code>auto_destroy: true</code> or when the provider can't stop. <code>gpu status</code> prints the decision it would take right now, so you can see the watchdog's next move before it happens.</p>
+        <div class="note"><b>The invariant.</b> A machine may stay billable only while useful work runs, useful work is queued or due within the idle window, or you locked it. Everything else ends stopped, or destroyed where stopping doesn't end billing.</div>
+      </section>
+
+      <!-- ================= DATA FLOW ================= -->
+      <section class="doc" id="data-flow">
+        <h2><span class="n">08</span>Data flow</h2>
+        <p class="sub">What lives where, what crosses the network, and which secrets go where.</p>
+        <figure>
+          <div class="scroll">
+          <svg class="dg" viewBox="0 0 960 300" role="img" aria-labelledby="df-t">
+            <title id="df-t">Data flow between your machine, the provider and the GPU</title>
+            <defs>
+              <marker id="d" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9CAA9D"/></marker>
+              <marker id="dg2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5CBF3A"/></marker>
+            </defs>
+            <rect class="nd" x="20" y="40" width="220" height="220" rx="14"/>
+            <text class="t" x="38" y="70">Your client</text>
+            <text class="s" x="38" y="96">prompts, audio, images</text>
+            <text class="s" x="38" y="116">job code (≤ 2 GB bundle)</text>
+            <text class="s" x="38" y="150" style="fill:#B4E06C">receives:</text>
+            <text class="s" x="38" y="170">completions, images,</text>
+            <text class="s" x="38" y="190">speech, transcripts,</text>
+            <text class="s" x="38" y="210">embeddings, job outputs</text>
+            <text class="s" x="38" y="240">→ gpu-outputs/&lt;job id&gt;/</text>
+
+            <rect class="nd g" x="720" y="40" width="220" height="220" rx="14"/>
+            <text class="t" x="738" y="70">GPU machine</text>
+            <text class="s" x="738" y="96">model weights (HF cache)</text>
+            <text class="s" x="738" y="116">/workspace/jobs/&lt;id&gt;/</text>
+            <text class="s" x="738" y="136">  code · log · outputs</text>
+            <text class="s" x="738" y="166">/etc/jambu/watchdog.json</text>
+            <text class="s" x="738" y="186">  provider key + token, 0600</text>
+            <text class="s" x="738" y="216">/var/log/jambu/events.jsonl</text>
+            <text class="s" x="738" y="236">  pulled into your local log</text>
+
+            <rect class="nd y" x="370" y="196" width="220" height="64" rx="14"/>
+            <text class="t" x="388" y="224">Provider API</text>
+            <text class="s" x="388" y="246">HTTPS · rent, price, stop</text>
+
+            <path class="ar g" d="M240,82 H716" marker-end="url(#dg2)"/>
+            <text class="lg" x="262" y="72">:8000  request + Bearer api_key</text>
+            <path class="ar g" d="M716,112 H244" marker-end="url(#dg2)"/>
+            <text class="lg" x="262" y="130">response, straight from your model</text>
+            <path class="ar d" d="M240,160 H716" marker-end="url(#d)"/>
+            <text class="l" x="262" y="152">:8777  control + X-Jambu-Token · job bundle up, outputs down</text>
+            <path class="ar" d="M240,228 H366" marker-end="url(#d)"/>
+            <path class="ar" d="M716,228 H594" marker-end="url(#d)"/>
+          </svg>
+          </div>
+          <figcaption><b>No third-party inference API.</b> Requests go from your client to the model you rented. The provider sees the machine (image, ports, price) and never your prompts.</figcaption>
+        </figure>
+        <h3>Files on your machine</h3>
+        <div class="tbl"><table>
+          <tr><th>Path</th><th>Holds</th><th>Secret</th></tr>
+          <tr><td><code>gpu.yaml</code></td><td>what to run and how long it may live; credentials are refused here</td><td class="no">no</td></tr>
+          <tr><td><code>~/.gpu/credentials</code> or <code>.env</code></td><td>the provider key, written by <code>gpu login</code> (mode 600)</td><td class="yes">yes</td></tr>
+          <tr><td><code>.gpu/state.json</code></td><td>the rented instance, the endpoint key, the watchdog token (mode 600)</td><td class="yes">yes</td></tr>
+          <tr><td><code>.gpu/logs/events.jsonl</code></td><td>the event log of this project</td><td class="no">no</td></tr>
+          <tr><td><code>~/.gpu/projects.json</code></td><td>projects registered by <code>setup</code>, guarded by <code>gpu sweep</code></td><td class="no">no</td></tr>
+          <tr><td><code>~/.gpu/sweep.json</code>, <code>bad_hosts.json</code></td><td>when orphans were first seen stopped; hosts that failed to boot (skipped for 24 h)</td><td class="no">no</td></tr>
+        </table></div>
+        <p>Keep <code>.gpu/</code> on persistent storage. A container that loses it forgets its instance and rents a second one, leaving the first to the watchdog and the sweep. Add <code>.gpu/</code> and <code>.env</code> to <code>.gitignore</code>.</p>
+      </section>
+
+      <!-- ================= AUDIT ================= -->
+      <section class="doc" id="audit">
+        <h2><span class="n">09</span>Audit and cost</h2>
+        <p class="sub">Every lifecycle action appends one JSON object to the event log, so any GPU cost can be traced back to a decision and a reason. The watchdog keeps its own log on the machine, and <code>gpu status</code> and <code>gpu events</code> merge it into yours.</p>
+        <div class="code"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu events                 <span class="c"># the lifecycle log, newest last</span>
+<span class="p">$ </span>gpu --json status          <span class="c"># state, cost so far, idle time, the watchdog's next move</span>
+<span class="p">$ </span>gpu ls                     <span class="c"># every jambu- machine in the account, and which project owns it</span></pre></div>
+        <p>Each line carries <code>ts</code>, <code>event</code> and <code>pid</code>, plus the project's context (instance id, provider) and the event's own fields, such as the reason, the price or the decision detail.</p>
+
+        <div class="chart" id="ch-session">
+          <h4>A real session, from the event log</h4>
+          <p class="cs">sd-turbo on one RTX 3060 at $0.065/h, 4 Nov 2026 (UTC). The machine was rented, served images, went quiet, and stopped itself.</p>
+          <div class="legend"><span><i class="sq" style="background:#5E6B60"></i>booting</span><span><i class="sq" style="background:#5CBF3A"></i>serving</span><span><i class="sq" style="background:#FF7A4D"></i>idle countdown (15 min)</span><span><i class="sq" style="background:#22302A;outline:1px solid #9CAA9D"></i>stopped</span></div>
+          <svg id="sv-session" viewBox="0 0 900 190" role="img" aria-label="Timeline of a real session"></svg>
+          <div class="stats">
+            <div class="stat"><div class="v">3 min</div><div class="d">rent to model ready</div></div>
+            <div class="stat"><div class="v">27 min</div><div class="d">billed GPU time</div></div>
+            <div class="stat"><div class="v">$0.03</div><div class="d">GPU cost of the session</div></div>
+            <div class="stat"><div class="v">0</div><div class="d">commands needed to stop it</div></div>
+          </div>
+          <details class="tview"><summary>Show as a table</summary>
+            <div class="tbl"><table>
+              <tr><th>Time (UTC)</th><th>Event</th><th>Detail</th></tr>
+              <tr><td>02:23:25</td><td><code>provision_requested</code></td><td>sd-turbo, min 12 GB VRAM</td></tr>
+              <tr><td>02:23:26</td><td><code>instance_created</code></td><td>RTX 3060, $0.065/h</td></tr>
+              <tr><td>02:25:18</td><td><code>watchdog_started</code></td><td>idle_timeout 900 s</td></tr>
+              <tr><td>02:26:27</td><td><code>runtime_ready</code></td><td>startup 65.8 s</td></tr>
+              <tr><td>02:35:18</td><td><code>instance_idle</code></td><td>pending_workloads 0</td></tr>
+              <tr><td>02:50:43</td><td><code>state_reconciled</code></td><td>idle → stopped</td></tr>
+            </table></div>
+          </details>
+          <div class="tip" id="tip-session"></div>
+        </div>
+
+        <div class="chart" id="ch-cost">
+          <h4>What that session cost, against leaving it on</h4>
+          <p class="cs">GPU cost over 24 hours at the same $0.065/h. The solid line is what happened; the dashed line is the same machine with nobody watching it.</p>
+          <div class="legend"><span><i style="border-color:#5CBF3A"></i>with the watchdog (real)</span><span><i style="border-color:#9CAA9D;border-top-style:dashed"></i>left running</span></div>
+          <svg id="sv-cost" viewBox="0 0 900 300" role="img" aria-label="Cumulative cost: about 3 cents with the watchdog, 1.56 dollars if left running for 24 hours"></svg>
+          <details class="tview"><summary>Show as a table</summary>
+            <div class="tbl"><table>
+              <tr><th>After</th><th>With the watchdog</th><th>Left running</th></tr>
+              <tr><td>1 h</td><td>$0.03</td><td>$0.07</td></tr>
+              <tr><td>8 h</td><td>$0.03</td><td>$0.52</td></tr>
+              <tr><td>24 h</td><td>$0.03</td><td>$1.56</td></tr>
+            </table></div>
+          </details>
+          <div class="tip" id="tip-cost"></div>
+        </div>
+        <div class="note warn">The cheap card makes the gap look small. The same 24 hours on a $2/h GPU is $48, and the watchdog's rule doesn't depend on the price. A stopped Vast.ai machine still bills a little for its disk until <code>stopped_ttl</code> destroys it; the chart shows GPU time only.</div>
+
+        <h3>Event vocabulary</h3>
+        <div class="tbl"><table>
+          <tr><th>Group</th><th>Events</th></tr>
+          <tr><td>Rent and boot</td><td><code>provision_requested</code> <code>budget_rejected</code> <code>instance_created</code> <code>host_failed</code> <code>runtime_starting</code> <code>runtime_ready</code> <code>setup_failed</code> <code>cleanup_performed</code></td></tr>
+          <tr><td>Work</td><td><code>workload_started</code> <code>workload_finished</code> <code>job_submitted</code> <code>job_finished</code> <code>job_outputs_pulled</code></td></tr>
+          <tr><td>Lifecycle</td><td><code>instance_idle</code> <code>instance_locked</code> <code>instance_unlocked</code> <code>lifecycle_guard_triggered</code> <code>instance_stopped</code> <code>instance_started</code> <code>instance_destroyed</code> <code>state_reconciled</code></td></tr>
+          <tr><td>Watchdog</td><td><code>watchdog_started</code> <code>watchdog_identified</code> <code>session_started</code> <code>runtime_exited</code> <code>guard_retry</code> <code>guard_reissue</code> <code>activity_probe_error</code></td></tr>
+          <tr><td>Errors and sweep</td><td><code>provider_error</code> <code>watchdog_error</code> <code>sweep_action</code> (in <code>~/.gpu/logs/events.jsonl</code>)</td></tr>
+        </table></div>
+      </section>
+
+      <!-- ================= AGENTS ================= -->
+      <section class="doc" id="agents">
+        <h2><span class="n">10</span>Integrating a coding agent</h2>
+        <p class="sub">The agent gets two things: a skill that teaches it the rules, and a local MCP server that exposes the <code>gpu</code> commands as tools.</p>
+        <div class="tbl"><table>
+          <tr><th>Agent</th><th>Skill</th><th>MCP server</th></tr>
+          <tr><td>Claude Code</td><td><code>.claude/skills/gpu4agents/</code></td><td><code>.mcp.json</code>, or user scope with <code>--global</code></td></tr>
+          <tr><td>Codex</td><td><code>.agents/skills/gpu4agents/</code></td><td><code>[mcp_servers.gpu]</code> in <code>~/.codex/config.toml</code></td></tr>
+          <tr><td>Gemini CLI</td><td><code>.agents/skills/gpu4agents/</code></td><td><code>mcpServers.gpu</code> in <code>.gemini/settings.json</code></td></tr>
+          <tr><td>Cursor</td><td><code>.agents/skills/gpu4agents/</code></td><td><code>.cursor/mcp.json</code></td></tr>
+          <tr><td>Claude Desktop</td><td><code>~/.gpu/gpu-skill.zip</code>, uploaded under Settings</td><td><code>claude_desktop_config.json</code></td></tr>
+        </table></div>
+        <div class="code"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu agent install -t claude            <span class="c"># this project; --global for every project</span>
+<span class="p">$ </span>gpu agent install -t auto --global     <span class="c"># every agent found on this machine</span>
+<span class="p">$ </span>gpu mcp --project /path/to/project     <span class="c"># any other MCP client, over stdio</span></pre></div>
+        <h3>What keeps the agent in line</h3>
+        <ul class="list">
+          <li>The skill tells it to show the price and ask before renting, to wait out a slow setup instead of starting over, never to touch the provider key, and to offer stop or destroy when done.</li>
+          <li>The tools are annotated: <code>gpu_destroy</code> is marked destructive and the read-only tools read-only, so your client can let <code>gpu_status</code> run freely and ask for every <code>gpu_setup</code>. In Claude Code: <code>"allow": ["mcp__gpu__gpu_status", "mcp__gpu__gpu_offers", "mcp__gpu__gpu_ls"]</code>.</li>
+          <li><code>gpu.yaml</code> holds the hard limits. The agent can't raise them without editing a file you can see in the diff.</li>
+          <li>The watchdog stops the machine whatever the agent does, and the sweep catches anything left behind.</li>
+        </ul>
+      </section>
+
+      <!-- ================= APPS ================= -->
+      <section class="doc" id="apps">
+        <h2><span class="n">11</span>Integrating an application</h2>
+        <p class="sub">No SDK. An app in any language runs <code>gpu --json setup</code>, reads the JSON, and points its OpenAI client at the result. When a request fails because the machine is gone, it runs setup again and retries once.</p>
+        <div class="strip">
+          <div><b>Ensure</b><code>gpu --json setup</code> at boot or on the first request</div>
+          <div><b>Call</b>any OpenAI client, timeout 1 to 2 min</div>
+          <div><b>Detect</b>connection refused, reset or timeout</div>
+          <div><b>Heal</b>setup again; share one in-flight setup</div>
+          <div><b>Retry</b>once, with the new <code>base_url</code></div>
+        </div>
+        <div class="code"><div class="hd"><span>python</span><button class="cp">copy</button></div><pre><span class="k">import</span> json, subprocess
+<span class="k">from</span> openai <span class="k">import</span> OpenAI, APIConnectionError
+
+<span class="k">def</span> ensure_gpu(cwd=<span class="s">"/srv/my-app"</span>):
+    out = subprocess.run([<span class="s">"gpu"</span>, <span class="s">"--json"</span>, <span class="s">"setup"</span>], cwd=cwd, check=<span class="k">True</span>,
+                         capture_output=<span class="k">True</span>, text=<span class="k">True</span>).stdout
+    <span class="k">return</span> json.loads(out)
+
+conn = ensure_gpu()
+<span class="k">def</span> ask(prompt):
+    <span class="k">global</span> conn
+    <span class="k">for</span> attempt <span class="k">in</span> (1, 2):
+        client = OpenAI(base_url=conn[<span class="s">"base_url"</span>], api_key=conn[<span class="s">"api_key"</span>], max_retries=0, timeout=120)
+        <span class="k">try</span>:
+            <span class="k">return</span> client.chat.completions.create(
+                model=conn[<span class="s">"model"</span>], messages=[{<span class="s">"role"</span>: <span class="s">"user"</span>, <span class="s">"content"</span>: prompt}]
+            ).choices[0].message.content
+        <span class="k">except</span> APIConnectionError:
+            <span class="k">if</span> attempt == 2:
+                <span class="k">raise</span>
+            conn = ensure_gpu()   <span class="c"># stopped while idle: restart it, then retry</span></pre></div>
+        <p>Retry only on connection errors. A <code>400</code> or <code>401</code> comes from a live server. For TypeScript, <a href="https://github.com/jambuai/gpu4agents/blob/main/examples/typescript-client/src/gpu.ts" rel="noopener"><code>examples/typescript-client/src/gpu.ts</code></a> is one file with no dependencies that does all of this.</p>
+        <h3>Short jobs: wrap them</h3>
+        <div class="code"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu run python score.py --input data.jsonl   <span class="c"># heartbeats keep the machine up while it runs</span>
+<span class="p">$ </span>gpu lock --for 3h &amp;&amp; ./batch.sh; gpu unlock     <span class="c"># a batch with quiet stretches longer than idle_timeout</span></pre></div>
+        <p><code>gpu run</code> sets <code>OPENAI_BASE_URL</code>, <code>OPENAI_API_KEY</code>, <code>JAMBU_MODEL_ID</code>, <code>JAMBU_GPU_ENDPOINT</code> and the instance identity, so any OpenAI SDK picks the endpoint up by itself.</p>
+      </section>
+
+      <!-- ================= SERVING ================= -->
+      <section class="doc" id="serving">
+        <h2><span class="n">12</span>Serving models</h2>
+        <p class="sub"><code>gpu init --model &lt;repo&gt;</code> reads the Hugging Face model card and picks the engine and the OpenAI routes. Any OpenAI client works unchanged.</p>
+        <div class="tbl"><table>
+          <tr><th>The model</th><th>Engine</th><th>Routes</th></tr>
+          <tr><td>chat, vision-language</td><td><code>vllm</code></td><td><code>/v1/chat/completions</code> (with tools) · <code>/v1/completions</code> · <code>/v1/responses</code></td></tr>
+          <tr><td>images (diffusers)</td><td><code>hf</code></td><td><code>/v1/images/generations</code></td></tr>
+          <tr><td>voice</td><td><code>hf</code></td><td><code>/v1/audio/speech</code></td></tr>
+          <tr><td>transcription</td><td><code>hf</code></td><td><code>/v1/audio/transcriptions</code> · <code>/v1/audio/translations</code></td></tr>
+          <tr><td>embeddings</td><td><code>hf</code></td><td><code>/v1/embeddings</code></td></tr>
+          <tr><td>any other pipeline (detection, depth, …)</td><td><code>hf</code></td><td><code>/v1/pipeline</code></td></tr>
+          <tr><td>a model none of these load</td><td><code>custom</code></td><td>yours, from a server the agent writes</td></tr>
+          <tr><td>no server, only jobs</td><td><code>none</code></td><td>none</td></tr>
+        </table></div>
+        <p><code>GET /v1/models</code> lists the model, its task and its routes. Changing the model keeps the machine: edit <code>model.id</code> and run <code>gpu setup</code>, which redeploys on the same GPU. Use models as their licenses and your purpose allow; open models with their own policies are for legitimate work you own, such as research, evaluation, red-teaming your own systems and creative work.</p>
+        <h3>The custom server contract</h3>
+        <ol class="list">
+          <li>Listen on <code>0.0.0.0:$PORT</code>.</li>
+          <li>Answer <code>GET /health</code> with 503 until the model is loaded, then 200.</li>
+          <li>Require <code>Authorization: Bearer $JAMBU_API_KEY</code> on every route except <code>/health</code> and <code>/metrics</code>.</li>
+          <li>Serve <code>/metrics</code> with <code>jambu_requests_running</code> (gauge) and <code>jambu_requests_total</code> (counter). Without them requests don't count as activity, and the machine stops after <code>idle_timeout</code> even while in use.</li>
+          <li>Use the OpenAI request and response shapes where one exists.</li>
+          <li>Exit non-zero when loading fails, after printing why. Never print secrets.</li>
+        </ol>
+      </section>
+
+      <!-- ================= JOBS ================= -->
+      <section class="doc" id="jobs">
+        <h2><span class="n">13</span>Running jobs</h2>
+        <p class="sub">A job is the agent's own code on the GPU: training, a kernel benchmark, a batch over a dataset. <code>gpu job run</code> packs it, runs it, streams the log and brings the outputs back.</p>
+        <div class="strip">
+          <div><b>Pack</b>the directory, minus <code>.git</code>, venvs, <code>.env</code> (≤ 2 GB)</div>
+          <div><b>Upload</b><code>PUT /jobs/&lt;id&gt;/bundle</code></div>
+          <div><b>Run</b><code>setup:</code> then <code>run:</code>, with a timeout</div>
+          <div><b>Stream</b>log by offset; heartbeats count as work</div>
+          <div><b>Pull</b><code>$JAMBU_OUTPUT_DIR</code> → <code>gpu-outputs/&lt;id&gt;/</code></div>
+        </div>
+        <div class="grid2">
+          <div class="code" style="margin:0"><div class="hd"><span>gpujob.yaml</span><button class="cp">copy</button></div><pre><span class="k">run</span>: python train.py --epochs 3
+<span class="k">setup</span>: pip install -r requirements.txt
+<span class="k">env</span>:
+  <span class="k">EPOCHS</span>: <span class="s">"3"</span>
+<span class="k">timeout</span>: 2h
+<span class="k">exclude</span>: [data/raw, <span class="s">"*.ckpt"</span>]
+<span class="k">label</span>: lora-qwen-7b</pre></div>
+          <div class="code" style="margin:0"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu init --jobs --min-vram-gb 24
+<span class="p">$ </span>gpu job run
+<span class="p">$ </span>gpu job run -- python test_kernel.py
+<span class="p">$ </span>gpu job status     <span class="c"># state, exit, cost_usd</span>
+<span class="p">$ </span>gpu job logs -f
+<span class="p">$ </span>gpu job pull       <span class="c"># works mid-run</span>
+<span class="p">$ </span>gpu job cancel</pre></div>
+        </div>
+        <p>Job states: <code>running</code>, <code>succeeded</code>, <code>failed</code>, <code>timeout</code> (exit 124), <code>cancelled</code> (exit 130), <code>lost</code> (the machine restarted under it). The provider credential the watchdog uses is removed from the job's environment.</p>
+      </section>
+
+      <!-- ================= CLI CONTRACT ================= -->
+      <section class="doc" id="cli-contract">
+        <h2><span class="n">14</span>Contract: CLI output</h2>
+        <p class="sub">Pass <code>--json</code> before the command name. stdout then carries exactly one JSON document; errors go to stderr as one line, <code>error: &lt;message&gt;</code>, with a non-zero exit code.</p>
+        <div class="tbl"><table>
+          <tr><th>Command</th><th>Use it to</th><th>Blocks</th><th>Bills</th></tr>
+          <tr><td><code>gpu --json setup</code></td><td>get a working endpoint: rent, or restart a stopped machine, and wait for the model</td><td>until ready</td><td class="yes">yes</td></tr>
+          <tr><td><code>gpu --json env</code></td><td>read the endpoint without starting anything</td><td>no</td><td class="no">no</td></tr>
+          <tr><td><code>gpu --json status</code></td><td>full state, cost so far, the guard's decision</td><td>no</td><td class="no">no</td></tr>
+          <tr><td><code>gpu --json stop</code></td><td>stop now; disk and model cache kept</td><td>until stopped</td><td>ends GPU time</td></tr>
+          <tr><td><code>gpu --json destroy --yes</code></td><td>delete it; nothing billed afterwards</td><td>until gone</td><td>ends all</td></tr>
+          <tr><td><code>gpu --json lock --for 2h</code> / <code>unlock</code></td><td>keep it up through a quiet period, then return to the rules</td><td>no</td><td>while locked</td></tr>
+        </table></div>
+        <div class="code"><div class="hd"><span>gpu --json setup</span><button class="cp">copy</button></div><pre>{
+  <span class="s">"instance_id"</span>: "27581234",
+  <span class="s">"state"</span>: "ready",
+  <span class="s">"endpoint"</span>: "http://203.0.113.7:41022",
+  <span class="s">"base_url"</span>: "http://203.0.113.7:41022/v1",
+  <span class="s">"api_key"</span>: "k6V0…  (43 characters, per machine)",
+  <span class="s">"model"</span>: "Qwen/Qwen2.5-7B-Instruct",
+  <span class="s">"hourly_cost_usd"</span>: 0.196
+}</pre></div>
+        <p>The key is per machine: it survives stops and restarts and changes only when a new machine is rented. Take <code>base_url</code>, <code>api_key</code> and <code>model</code> from the latest <code>setup</code> instead of caching them across restarts. <code>gpu env</code> without <code>--json</code> prints shell exports.</p>
+      </section>
+
+      <section class="doc" id="exit-codes">
+        <h2><span class="n">15</span>Contract: exit codes</h2>
+        <div class="tbl"><table>
+          <tr><th>Code</th><th>Meaning</th><th>What to do</th></tr>
+          <tr><td class="num">0</td><td>success</td><td></td></tr>
+          <tr><td class="num">1</td><td>unexpected error</td><td>log stderr, retry later</td></tr>
+          <tr><td class="num">2</td><td>config error, or config changed since setup</td><td>fix it; <code>setup --recreate</code> replaces a machine built from the old one</td></tr>
+          <tr><td class="num">3</td><td>no instance, no endpoint</td><td>call <code>setup</code></td></tr>
+          <tr><td class="num">4</td><td>provider API error</td><td>retry with backoff</td></tr>
+          <tr><td class="num">5</td><td>provider authentication failed</td><td>the user runs <code>gpu login</code></td></tr>
+          <tr><td class="num">6</td><td>no capacity matches</td><td>retry later, or relax VRAM or the budget</td></tr>
+          <tr><td class="num">7</td><td>provisioning failed</td><td>retry; the failed machine was already destroyed</td></tr>
+          <tr><td class="num">8</td><td>provider timed out</td><td>retry with backoff</td></tr>
+          <tr><td class="num">9</td><td>the provider can't do this</td><td>change the config</td></tr>
+          <tr><td class="num">10</td><td>over <code>budget.max_hourly_cost_usd</code></td><td>raise the cap or wait for cheaper offers</td></tr>
+          <tr><td class="num">11</td><td>the model server didn't start</td><td>stderr has its log tail; the machine was destroyed</td></tr>
+          <tr><td class="num">12</td><td>another <code>gpu</code> command holds the project lock</td><td>wait and retry; <code>status</code> answers with <code>"busy": true</code></td></tr>
+        </table></div>
+      </section>
+
+      <section class="doc" id="mcp-tools">
+        <h2><span class="n">16</span>Contract: MCP tools</h2>
+        <p class="sub">Each tool runs the CLI with <code>--json</code> in the project directory, so errors carry the same <code>exit_code</code>, plus <code>meaning</code> and <code>next</code> for the agent.</p>
+        <div class="tbl"><table>
+          <tr><th>Tool</th><th>Does</th><th>Costs money</th></tr>
+          <tr><td><code>gpu_init</code></td><td>write <code>gpu.yaml</code> for a model, with an optional price cap and VRAM</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_validate</code></td><td>check config and credentials</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_offers</code></td><td>cheapest matching machines and their price</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_setup</code></td><td>rent or restart, wait for the model (background job, re-attachable)</td><td class="yes">yes</td></tr>
+          <tr><td><code>gpu_status</code></td><td>state, cost so far, idle time, the watchdog's next move</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_connection</code></td><td><code>base_url</code>, <code>api_key</code>, <code>model</code> without starting anything</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_run</code></td><td>run a local command with the endpoint in its environment</td><td>if it has to start the machine</td></tr>
+          <tr><td><code>gpu_job_run</code> · <code>_status</code> · <code>_pull</code> · <code>_cancel</code></td><td>run code on the GPU and bring the outputs back</td><td class="yes">yes</td></tr>
+          <tr><td><code>gpu_logs</code></td><td>runtime, onstart, watchdog or provider log</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_lock</code> / <code>gpu_unlock</code></td><td>keep the machine up through a quiet period</td><td>while locked</td></tr>
+          <tr><td><code>gpu_stop</code></td><td>stop now; restart takes about a minute</td><td>ends GPU time</td></tr>
+          <tr><td><code>gpu_destroy</code></td><td>delete; needs <code>confirm=true</code></td><td>ends all</td></tr>
+          <tr><td><code>gpu_ls</code></td><td>every machine in the account, from any project</td><td class="no">no</td></tr>
+        </table></div>
+      </section>
+
+      <section class="doc" id="watchdog-api">
+        <h2><span class="n">17</span>Contract: the watchdog API</h2>
+        <p class="sub">HTTP on port 8777 of the machine. Every route except <code>/health</code> needs the header <code>X-Jambu-Token</code>, compared in constant time. The token lives in <code>.gpu/state.json</code> and is never printed. The CLI is the usual caller; you rarely need these directly.</p>
+        <div class="tbl"><table>
+          <tr><th>Route</th><th>Purpose</th></tr>
+          <tr><td><code>GET /health</code></td><td>liveness, no auth</td></tr>
+          <tr><td><code>GET /state</code></td><td>state, idle and session age, workloads, lock, last traffic probe, <code>runtime_alive</code>, and the decision it would take now</td></tr>
+          <tr><td><code>GET /events?limit=N</code></td><td>the machine's event log</td></tr>
+          <tr><td><code>GET /logs?name=runtime|onstart|watchdog&amp;lines=N</code></td><td>log tails without SSH (default 200, at most 2000)</td></tr>
+          <tr><td><code>POST /identify</code></td><td>the CLI tells the machine its instance id, hourly price and policy</td></tr>
+          <tr><td><code>POST /starting</code> · <code>/ready</code></td><td>model startup began, model answers</td></tr>
+          <tr><td><code>POST /activity</code></td><td>mark activity now</td></tr>
+          <tr><td><code>POST /workload/start</code> · <code>/heartbeat</code> · <code>/end</code></td><td>register work, keep it alive, end it with a return code</td></tr>
+          <tr><td><code>POST /lock</code> · <code>/unlock</code> · <code>/extend</code></td><td>locks with a TTL (indefinite only when the project allows it)</td></tr>
+          <tr><td><code>POST /shutdown</code></td><td><code>{"action": "stop"|"destroy", "reason"}</code>; remembered and retried if the provider call fails</td></tr>
+          <tr><td><code>/jobs</code>, <code>/jobs/&lt;id&gt;/bundle|start|log|outputs|cancel</code></td><td>the jobs extension</td></tr>
+        </table></div>
+      </section>
+
+      <section class="doc" id="provider-contract">
+        <h2><span class="n">18</span>Contract: provider adapters</h2>
+        <p class="sub">Vast.ai ships built in. Any other provider is one Python class that implements <code>providers/base.py</code>. The core, the watchdog, the CLI and the MCP tools stay the same.</p>
+        <div class="code"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu providers new runpod --display-name "RunPod"   <span class="c"># writes gpu_providers/runpod.py</span>
+<span class="p">$ </span>gpu init --provider runpod --model Qwen/Qwen2.5-0.5B-Instruct
+<span class="p">$ </span>gpu login --provider runpod
+<span class="p">$ </span>gpu --json validate &amp;&amp; gpu --json offers           <span class="c"># real GPUs, real prices, nothing rented</span></pre></div>
+        <div class="tbl"><table>
+          <tr><th>Part</th><th>Must do</th></tr>
+          <tr><td><code>capabilities</code></td><td>declare only what the API supports; <code>stop_eliminates_billing=False</code> if a stopped machine still bills</td></tr>
+          <tr><td><code>verify_credentials</code></td><td>check the key; return only safe fields such as a balance, never an email, a name or the key</td></tr>
+          <tr><td><code>find_offers</code></td><td>GPUs that fit VRAM, count, disk and the price cap, cheapest first</td></tr>
+          <tr><td><code>setup</code></td><td>rent with the image, env, <code>jambu-</code> label, ports and onstart script</td></tr>
+          <tr><td><code>status</code></td><td>map states onto <code>provisioning … destroyed</code>, ports onto <code>model</code> and <code>watchdog</code></td></tr>
+          <tr><td><code>stop</code>, <code>destroy</code></td><td>succeed when already stopped or gone</td></tr>
+          <tr><td><code>list_instances</code></td><td>only machines labeled <code>jambu-</code>; never anything else in the account</td></tr>
+          <tr><td><code>WATCHDOG_ACTIONS</code></td><td>stdlib-only <code>provider_stop(ctx)</code> and <code>provider_destroy(ctx)</code> that run on the machine</td></tr>
+        </table></div>
+        <p>An adapter can live in the project (<code>provider.plugin: ./gpu_providers/acme.py:AcmeProvider</code>), in an installed package (entry point group <code>gpu4agents.providers</code>), or in this repository. Errors are the normalized ones from <code>core/errors.py</code>, so exit codes are the same on every provider.</p>
+      </section>
+
+      <!-- ================= CONFIG ================= -->
+      <section class="doc" id="config">
+        <h2><span class="n">19</span>Configuration</h2>
+        <p class="sub"><code>gpu.yaml</code> is the desired state. <code>gpu</code> reads only its <code>gpu_runtime:</code> key. Unknown keys are a hard error, so a typo in <code>idle_timeout</code> can't silently switch off the protection.</p>
+        <div class="grid2">
+          <div class="code" style="margin:0"><div class="hd"><span>gpu.yaml</span><button class="cp">copy</button></div><pre><span class="k">gpu_runtime</span>:
+  <span class="k">version</span>: 1
+  <span class="k">model</span>: {<span class="k">id</span>: stabilityai/sd-turbo}
+  <span class="k">compute</span>:
+    <span class="k">gpu</span>: {<span class="k">min_vram_gb</span>: 12}
+  <span class="k">budget</span>:
+    <span class="k">max_hourly_cost_usd</span>: 1.00
+    <span class="k">max_session_cost_usd</span>: 5.00
+  <span class="k">lifecycle</span>:
+    <span class="k">idle_timeout</span>: 15m
+    <span class="k">max_lifetime</span>: 6h
+    <span class="k">stopped_ttl</span>: 24h</pre></div>
+          <div class="tbl" style="margin:0"><table style="min-width:0">
+            <tr><th>Field</th><th>Default</th></tr>
+            <tr><td><code>lifecycle.idle_timeout</code></td><td>15m</td></tr>
+            <tr><td><code>lifecycle.max_lifetime</code></td><td>6h</td></tr>
+            <tr><td><code>lifecycle.stopped_ttl</code></td><td>24h</td></tr>
+            <tr><td><code>lifecycle.heartbeat_grace</code></td><td>5m</td></tr>
+            <tr><td><code>lifecycle.watchdog.interval</code></td><td>60s</td></tr>
+            <tr><td><code>lifecycle.traffic_counts_as_activity</code></td><td>true</td></tr>
+            <tr><td><code>health.boot_timeout</code></td><td>30m</td></tr>
+            <tr><td><code>health.pull_stall_timeout</code></td><td>10m</td></tr>
+            <tr><td><code>compute.host_attempts</code></td><td>3</td></tr>
+            <tr><td><code>budget.*</code></td><td>unset</td></tr>
+          </table></div>
+        </div>
+        <p>At least one of <code>idle_timeout</code> and <code>max_lifetime</code> must be set, and <code>idle_timeout</code> may not exceed <code>max_lifetime</code>. Override the price cap once with <code>gpu setup --allow-cost-override</code>. Every field: <a href="https://github.com/jambuai/gpu4agents/blob/main/docs/CONFIG.md" rel="noopener">CONFIG.md</a>.</p>
+      </section>
+
+      <!-- ================= SECURITY ================= -->
+      <section class="doc" id="security">
+        <h2><span class="n">20</span>Security</h2>
+        <ul class="list">
+          <li><b>The model endpoint needs a key.</b> Unless <code>runtime.api_key</code> is set, setup generates one per machine (43 random URL-safe characters). <code>/health</code> and <code>/metrics</code> stay open; they reveal no data.</li>
+          <li><b>The endpoint is plain HTTP</b> on a public IP and port, so the key and prompts travel unencrypted. For sensitive data, use a private network or a tunnel, or put a TLS proxy in front.</li>
+          <li><b>The watchdog holds a provider key</b> on the machine (<code>/etc/jambu/watchdog.json</code>, mode 600) so it can stop itself. Use a dedicated, restricted key. Opting out (<code>lifecycle.watchdog.enabled: false</code>) leaves shutdown to <code>gpu guard</code>, and <code>validate</code> warns.</li>
+          <li><b>The key never goes through the chat.</b> <code>gpu login</code> takes it in a hidden prompt in your terminal, and the skill tells the agent never to ask for it, read it or print it.</li>
+          <li><b>Account hygiene.</b> <code>gpu ls</code> and <code>gpu sweep</code> only see machines labeled <code>jambu-</code>.</li>
+        </ul>
+      </section>
+
+      <!-- ================= REFERENCE ================= -->
+      <section class="doc" id="reference">
+        <h2><span class="n">21</span>Full reference</h2>
+        <p class="sub">The pages agents read are served from this site as Markdown. The long-form references live in the repository.</p>
+        <div class="grid3">
+          <a class="card" href="/install.md" style="text-decoration:none"><div class="k">for agents</div><h4>install.md</h4><p>install, connect the account, learn the rules</p></a>
+          <a class="card" href="/serving.md" style="text-decoration:none"><div class="k">for agents</div><h4>serving.md</h4><p>serve any model behind OpenAI routes</p></a>
+          <a class="card" href="/jobs.md" style="text-decoration:none"><div class="k">for agents</div><h4>jobs.md</h4><p>run your own code on the GPU</p></a>
+          <a class="card" href="/providers.md" style="text-decoration:none"><div class="k">for agents</div><h4>providers.md</h4><p>write an adapter for another provider</p></a>
+          <a class="card" href="https://github.com/jambuai/gpu4agents/blob/main/docs/INTEGRATION.md" rel="noopener" style="text-decoration:none"><div class="k">reference</div><h4>INTEGRATION.md</h4><p>the application contract in full</p></a>
+          <a class="card" href="https://github.com/jambuai/gpu4agents/blob/main/docs/LIFECYCLE.md" rel="noopener" style="text-decoration:none"><div class="k">reference</div><h4>LIFECYCLE.md</h4><p>how shutdown works, in detail</p></a>
+          <a class="card" href="https://github.com/jambuai/gpu4agents/blob/main/docs/CONFIG.md" rel="noopener" style="text-decoration:none"><div class="k">reference</div><h4>CONFIG.md</h4><p>every <code>gpu.yaml</code> field</p></a>
+          <a class="card" href="https://github.com/jambuai/gpu4agents/blob/main/docs/USAGE.md" rel="noopener" style="text-decoration:none"><div class="k">reference</div><h4>USAGE.md</h4><p>every command, the sweep, timers</p></a>
+          <a class="card" href="https://github.com/jambuai/gpu4agents/blob/main/docs/ACCEPTANCE.md" rel="noopener" style="text-decoration:none"><div class="k">reference</div><h4>ACCEPTANCE.md</h4><p>the guarantees and the tests that hold them</p></a>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer>
+    <div class="in">
+      <span>GPU for Agents by <a href="https://jambu.ai" rel="noopener">Jambu.ai</a> · created by <a href="https://www.linkedin.com/in/joaogabriellima" rel="noopener">João Gabriel Lima</a> · MIT</span>
+      <span><a href="/">Home</a> · <a href="https://github.com/jambuai/gpu4agents" rel="noopener">GitHub</a> · <a href="https://pypi.org/project/gpu4agents/" rel="noopener">PyPI</a> · <a href="/llms.txt">llms.txt</a></span>
+    </div>
+  </footer>
+  <div class="toast" id="toast" role="status">Copied</div>
+
+  <script>
+  (() => {
+    const NS = "http://www.w3.org/2000/svg";
+    const el = (tag, attrs, parent, text) => {
+      const n = document.createElementNS(NS, tag);
+      for (const k in attrs) n.setAttribute(k, attrs[k]);
+      if (text != null) n.textContent = text;
+      if (parent) parent.appendChild(n);
+      return n;
+    };
+
+    /* copy buttons */
+    const toast = document.getElementById("toast");
+    document.querySelectorAll(".cp").forEach((b) => b.addEventListener("click", () => {
+      const pre = b.closest(".code").querySelector("pre");
+      const text = pre.innerText.split("\n").map((l) => l.replace(/^\$ /, "")).join("\n");
+      const done = () => { toast.classList.add("on"); setTimeout(() => toast.classList.remove("on"), 1200); };
+      try { navigator.clipboard.writeText(text).then(done, () => {}); } catch (e) {}
+    }));
+
+    /* table of contents highlight */
+    const links = [...document.querySelectorAll("aside.toc a")];
+    const byId = new Map(links.map((a) => [a.getAttribute("href").slice(1), a]));
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting && byId.has(e.target.id)) {
+          links.forEach((a) => a.classList.remove("on"));
+          byId.get(e.target.id).classList.add("on");
+        }
+      });
+    }, { rootMargin: "-20% 0px -70% 0px" });
+    document.querySelectorAll("section.doc").forEach((s) => io.observe(s));
+
+    const placeTip = (tip, box, evt, html) => {
+      tip.innerHTML = html;
+      const r = box.getBoundingClientRect();
+      let x = evt.clientX - r.left + 14, y = evt.clientY - r.top - 10;
+      const w = tip.offsetWidth;
+      if (x + w > r.width - 8) x = evt.clientX - r.left - w - 14;
+      tip.style.left = Math.max(8, x) + "px"; tip.style.top = y + "px"; tip.style.opacity = 1;
+    };
+
+    /* chart 1: the real session timeline (seconds from 02:23:00 UTC) */
+    (() => {
+      const svg = document.getElementById("sv-session"), box = document.getElementById("ch-session"), tip = document.getElementById("tip-session");
+      const t = (h, m, s) => (h - 2) * 3600 + (m - 23) * 60 + s;
+      const T0 = t(2, 23, 0), T1 = t(2, 53, 0);
+      const L = 20, R = 880, x = (s) => L + (s - T0) / (T1 - T0) * (R - L);
+      const stopAt = t(2, 35, 18) + 900; // idle_timeout after the machine went idle
+      const segs = [
+        { a: t(2, 23, 26), b: t(2, 26, 27), c: "#5E6B60", n: "booting", d: "rent, image pull, model load: 3 min 1 s" },
+        { a: t(2, 26, 27), b: t(2, 35, 18), c: "#5CBF3A", n: "serving", d: "model ready, requests answered: 8 min 51 s" },
+        { a: t(2, 35, 18), b: stopAt, c: "#FF7A4D", n: "idle countdown", d: "no activity; idle_timeout is 15 min" },
+        { a: stopAt, b: T1, c: "#22302A", n: "stopped", d: "GPU billing over; disk kept for a restart" },
+      ];
+      const Y = 64, H = 34;
+      for (let m = 0; m <= 30; m += 5) {
+        const s = T0 + m * 60;
+        el("line", { x1: x(s), x2: x(s), y1: 40, y2: 112, class: "gl" }, svg);
+        el("text", { x: x(s), y: 132, class: "ax", "text-anchor": "middle" }, svg, "02:" + String(23 + m).padStart(2, "0"));
+      }
+      segs.forEach((g, i) => {
+        const r = el("rect", { x: x(g.a) + (i ? 1 : 0), y: Y, width: Math.max(2, x(g.b) - x(g.a) - 2), height: H, rx: 4, fill: g.c, stroke: i === 3 ? "#9CAA9D" : "none", "stroke-width": i === 3 ? 1 : 0 }, svg);
+        const w = x(g.b) - x(g.a);
+        if (w > 70) el("text", { x: x(g.a) + 10, y: Y + 22, class: "lab", fill: i === 1 || i === 2 ? "#0A0F0B" : "#ECF2E8", style: "fill:" + (i === 1 || i === 2 ? "#0A0F0B" : "#ECF2E8") }, svg, g.n);
+        r.addEventListener("mousemove", (e) => placeTip(tip, box, e, "<b>" + g.n + "</b><br><span class='m'>" + g.d + "</span>"));
+        r.addEventListener("mouseleave", () => (tip.style.opacity = 0));
+      });
+      const evs = [
+        [t(2, 23, 25), "provision_requested", "sd-turbo · min 12 GB"],
+        [t(2, 23, 26), "instance_created", "RTX 3060 · $0.065/h"],
+        [t(2, 25, 18), "watchdog_started", "idle_timeout 900 s"],
+        [t(2, 26, 27), "runtime_ready", "startup 65.8 s"],
+        [t(2, 35, 18), "instance_idle", "pending_workloads 0"],
+        [t(2, 50, 43), "state_reconciled", "idle → stopped"],
+      ];
+      const fmt = (s) => { const tt = s + 2 * 3600 + 23 * 60; return [Math.floor(tt / 3600), Math.floor(tt / 60) % 60, tt % 60].map((v) => String(v).padStart(2, "0")).join(":"); };
+      evs.forEach(([s, n, d], i) => {
+        const cx = x(s), up = i % 2 === 0;
+        if (up) el("line", { x1: cx, x2: cx, y1: 28, y2: Y, stroke: "#9CAA9D", "stroke-width": 1 }, svg);
+        else { el("line", { x1: cx, x2: cx, y1: Y + H, y2: 116, stroke: "#9CAA9D", "stroke-width": 1 }, svg); el("line", { x1: cx, x2: cx, y1: 138, y2: 150, stroke: "#9CAA9D", "stroke-width": 1 }, svg); }
+        el("circle", { cx, cy: up ? 28 : 150, r: 5, fill: "#ECF2E8", stroke: "#111912", "stroke-width": 2 }, svg);
+        const hit = el("circle", { cx, cy: up ? 28 : 150, r: 12, fill: "transparent", style: "cursor:pointer" }, svg);
+        hit.addEventListener("mousemove", (e) => placeTip(tip, box, e, fmt(s) + "<br><b>" + n + "</b><br><span class='m'>" + d + "</span>"));
+        hit.addEventListener("mouseleave", () => (tip.style.opacity = 0));
+      });
+      el("text", { x: x(t(2, 26, 27)) + 8, y: 176, class: "labm" }, svg, "hover the dots: real events");
+      el("text", { x: x(stopAt), y: 22, class: "labm", "text-anchor": "middle" }, svg, "stopped itself ≈ 02:50");
+    })();
+
+    /* chart 2: cumulative GPU cost */
+    (() => {
+      const svg = document.getElementById("sv-cost"), box = document.getElementById("ch-cost"), tip = document.getElementById("tip-cost");
+      const rate = 0.065, billedH = (27 * 60 + 17) / 3600; // 02:23:26 → ~02:50:43
+      const L = 56, R = 800, T = 20, B = 250, maxH = 24, maxY = 1.6;
+      const x = (h) => L + h / maxH * (R - L), y = (v) => B - v / maxY * (B - T);
+      for (let v = 0; v <= 1.6; v += 0.4) {
+        el("line", { x1: L, x2: R, y1: y(v), y2: y(v), class: "gl" }, svg);
+        el("text", { x: L - 10, y: y(v) + 4, class: "ax", "text-anchor": "end" }, svg, "$" + v.toFixed(2));
+      }
+      for (let h = 0; h <= 24; h += 4) el("text", { x: x(h), y: B + 22, class: "ax", "text-anchor": "middle" }, svg, h + " h");
+      el("line", { x1: L, x2: R, y1: B, y2: B, stroke: "#9CAA9D", "stroke-width": 1 }, svg);
+      el("path", { d: `M${x(0)},${y(0)} L${x(maxH)},${y(rate * maxH)}`, fill: "none", stroke: "#9CAA9D", "stroke-width": 2, "stroke-dasharray": "6 5" }, svg);
+      el("path", { d: `M${x(0)},${y(0)} L${x(billedH)},${y(rate * billedH)} L${x(maxH)},${y(rate * billedH)}`, fill: "none", stroke: "#5CBF3A", "stroke-width": 2.5, "stroke-linejoin": "round" }, svg);
+      el("circle", { cx: x(maxH), cy: y(rate * maxH), r: 4.5, fill: "#9CAA9D" }, svg);
+      el("circle", { cx: x(maxH), cy: y(rate * billedH), r: 4.5, fill: "#5CBF3A" }, svg);
+      el("text", { x: x(maxH) + 10, y: y(rate * maxH) + 4, class: "lab" }, svg, "$1.56");
+      el("text", { x: x(maxH) + 10, y: y(rate * maxH) + 20, class: "labm" }, svg, "left running");
+      el("text", { x: x(maxH) + 10, y: y(rate * billedH) - 10, class: "lab" }, svg, "$0.03");
+      el("text", { x: x(maxH) + 10, y: y(rate * billedH) + 6, class: "labm" }, svg, "watchdog");
+      const cross = el("line", { x1: 0, x2: 0, y1: T, y2: B, stroke: "#9CAA9D", "stroke-width": 1, opacity: 0 }, svg);
+      const hit = el("rect", { x: L, y: T, width: R - L, height: B - T, fill: "transparent" }, svg);
+      hit.addEventListener("mousemove", (e) => {
+        const r = svg.getBoundingClientRect(), sx = (e.clientX - r.left) / r.width * 900;
+        const h = Math.max(0, Math.min(maxH, (sx - L) / (R - L) * maxH));
+        cross.setAttribute("x1", x(h)); cross.setAttribute("x2", x(h)); cross.setAttribute("opacity", 1);
+        const real = rate * Math.min(h, billedH), left = rate * h;
+        const hh = Math.floor(h), mm = Math.round((h - hh) * 60);
+        placeTip(tip, box, e, `after ${hh} h ${String(mm).padStart(2, "0")} min<br><span style="color:#5CBF3A">━</span> watchdog $${real.toFixed(3)}<br><span class="m">┅ left running $${left.toFixed(3)}</span>`);
+      });
+      hit.addEventListener("mouseleave", () => { tip.style.opacity = 0; cross.setAttribute("opacity", 0); });
+    })();
+  })();
+  </script>
+</body>
+</html>

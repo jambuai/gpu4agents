@@ -1,6 +1,7 @@
 # GPU for Agents: site and VSL
 
 - `web/`: the static site (Cloudflare Pages project `gpu4agents`, served at gpu4agents.jambu.ai). No build step.
+  `web/docs/index.html` is the documentation at `/docs/`: architecture, process and data flow, the watchdog, and the contracts, with inline SVG diagrams and two charts built from a real session's event log.
 - `video/`: the 116-second VSL as a HyperFrames composition (`video/index.html`).
 - `DESIGN.md`: palette and type shared by both.
 

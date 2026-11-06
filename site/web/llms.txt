@@ -14,6 +14,7 @@ GPU for Agents (`gpu4agents`, the `gpu` command) lets a coding agent rent a clou
 
 ## Use
 
+- [Documentation](https://gpu4agents.jambu.ai/docs/): architecture, setup flow, lifecycle states, the watchdog and its shutdown rule, data flow, event log, and every contract (CLI JSON, exit codes, MCP tools, watchdog API, provider adapters)
 - [The skill (SKILL.md)](https://raw.githubusercontent.com/jambuai/gpu4agents/main/skills/gpu4agents/SKILL.md): rules, commands, monitoring, exit codes
 - [Agents guide](https://github.com/jambuai/gpu4agents/blob/main/docs/AGENTS.md)
 - [Provider contract](https://github.com/jambuai/gpu4agents/blob/main/docs/ADDING_A_PROVIDER.md)
