@@ -1,131 +1,174 @@
 {
- "total": 60.0,
+ "total": 104.0,
  "bpm": 120.0,
- "stop_at": 44.0,
+ "stop_at": 81.5,
  "scenes": [
   {
    "scene": 1,
    "start": 0.0,
-   "end": 8.0,
+   "end": 10.0,
    "lines": [
     {
-     "id": "s1a",
-     "text": "Your agent can write the eval and score every model.",
+     "id": "a1",
+     "text": "Twenty twenty-eight.",
      "start": 0.5,
-     "end": 3.398
+     "end": 1.94
     },
     {
-     "id": "s1b",
-     "text": "Until it needs a GPU. Then it waits for you.",
-     "start": 3.678,
-     "end": 6.428
+     "id": "a2",
+     "text": "Agents draw, listen, speak, and train their own models.",
+     "start": 2.26,
+     "end": 6.522
+    },
+    {
+     "id": "a3",
+     "text": "Nobody remembers when they couldn't.",
+     "start": 6.842,
+     "end": 8.743
     }
    ]
   },
   {
    "scene": 2,
-   "start": 8.0,
-   "end": 18.0,
+   "start": 10.0,
+   "end": 32.0,
    "lines": [
     {
-     "id": "s2a",
-     "text": "Paste one line into Claude Code, Codex, Gemini or Cursor.",
-     "start": 8.5,
-     "end": 12.413
+     "id": "b1",
+     "text": "But in twenty twenty-six, your smartest worker is locked in a room.",
+     "start": 10.5,
+     "end": 15.455
     },
     {
-     "id": "s2b",
-     "text": "The agent installs GPU for Agents by itself.",
-     "start": 12.693,
-     "end": 15.898
+     "id": "b2",
+     "text": "It writes the code for an image model, and never sees the picture.",
+     "start": 15.775,
+     "end": 20.223
+    },
+    {
+     "id": "b3",
+     "text": "It reads every transcript, and never hears a voice.",
+     "start": 20.543,
+     "end": 23.876
+    },
+    {
+     "id": "b4",
+     "text": "And when it needs a GPU, it stops. And waits. For you.",
+     "start": 24.196,
+     "end": 30.651
     }
    ]
   },
   {
    "scene": 3,
-   "start": 18.0,
-   "end": 30.0,
+   "start": 32.0,
+   "end": 42.0,
    "lines": [
     {
-     "id": "s3a",
-     "text": "Ask for a benchmark.",
-     "start": 18.5,
-     "end": 19.595
+     "id": "c1",
+     "text": "Sign up. Pick a GPU. Copy a key. Babysit a server.",
+     "start": 32.5,
+     "end": 37.066
     },
     {
-     "id": "s3b",
-     "text": "It checks prices against your budget, asks you once, and rents the GPU.",
-     "start": 19.875,
-     "end": 24.041
-    },
-    {
-     "id": "s3c",
-     "text": "Minutes later, the model answers on an OpenAI-compatible endpoint.",
-     "start": 24.321,
-     "end": 28.468
+     "id": "c2",
+     "text": "Forget it running on Friday, and pay for it on Monday.",
+     "start": 37.386,
+     "end": 41.25
     }
    ]
   },
   {
    "scene": 4,
-   "start": 30.0,
-   "end": 38.0,
+   "start": 42.0,
+   "end": 54.0,
    "lines": [
     {
-     "id": "s4a",
-     "text": "Vast.ai works out of the box.",
-     "start": 30.5,
-     "end": 32.407
+     "id": "d1",
+     "text": "So we opened the door.",
+     "start": 42.5,
+     "end": 43.83
     },
     {
-     "id": "s4b",
-     "text": "For RunPod, Lambda or your own cluster, the agent writes the adapter.",
-     "start": 32.687,
-     "end": 36.833
+     "id": "d2",
+     "text": "Paste one line, and your agent rents its own GPU, from any provider, in minutes, under your budget.",
+     "start": 44.15,
+     "end": 52.576
     }
    ]
   },
   {
    "scene": 5,
-   "start": 38.0,
-   "end": 48.0,
+   "start": 54.0,
+   "end": 78.0,
    "lines": [
     {
-     "id": "s5a",
-     "text": "A watchdog runs on the machine itself.",
-     "start": 38.5,
-     "end": 40.551
+     "id": "e1",
+     "text": "Any model. Images. Voices. Transcription. Embeddings.",
+     "start": 54.5,
+     "end": 59.011
     },
     {
-     "id": "s5b",
-     "text": "Fifteen minutes with no requests, and it shuts the GPU down, even after the chat is closed.",
-     "start": 40.831,
-     "end": 46.798
+     "id": "e2",
+     "text": "On an OpenAI-compatible endpoint that every tool you have can call.",
+     "start": 59.331,
+     "end": 63.848
+    },
+    {
+     "id": "e3",
+     "text": "Its own code, too: it fine-tunes on your data and hands you a model that is yours.",
+     "start": 64.168,
+     "end": 69.817
+    },
+    {
+     "id": "e4",
+     "text": "Open models, under your rules. The data stays on the machine; the agent sees the results.",
+     "start": 70.137,
+     "end": 76.97
     }
    ]
   },
   {
    "scene": 6,
-   "start": 48.0,
-   "end": 60.0,
+   "start": 78.0,
+   "end": 90.0,
    "lines": [
     {
-     "id": "s6a",
-     "text": "GPU for Agents.",
-     "start": 48.5,
-     "end": 49.968
+     "id": "f1",
+     "text": "And when the work stops, the GPU stops.",
+     "start": 78.5,
+     "end": 81.663
     },
     {
-     "id": "s6b",
-     "text": "Your agent rents the GPU it needs, on its own.",
-     "start": 50.248,
-     "end": 53.076
+     "id": "f2",
+     "text": "A watchdog on the machine shuts it down, even if the chat is closed, even if you're asleep.",
+     "start": 81.983,
+     "end": 88.14
+    }
+   ]
+  },
+  {
+   "scene": 7,
+   "start": 90.0,
+   "end": 104.0,
+   "lines": [
+    {
+     "id": "g1",
+     "text": "Someday, this will look obvious.",
+     "start": 90.5,
+     "end": 92.465
     },
     {
-     "id": "s6c",
-     "text": "You pay only while it works.",
-     "start": 53.356,
-     "end": 54.928
+     "id": "g2",
+     "text": "Today, it's one line.",
+     "start": 92.785,
+     "end": 95.105
+    },
+    {
+     "id": "g3",
+     "text": "GPU for Agents. Give your agent a GPU.",
+     "start": 95.425,
+     "end": 99.389
     }
    ]
   }

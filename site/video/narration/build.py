@@ -1,9 +1,13 @@
 """Lay the narration on a 120 BPM bar grid, then write a beat that follows the story.
 
 usage: build.py <voice dir> <out dir>
+Reads lines.json (id, scene, text) and <voice dir>/<id>.mp3 or .wav (eleven.py writes them).
 Writes narration.wav, timing.json (scenes, lines, the GPU stop moment) and vsl-audio.wav.
+
+Story and sound: 1 is 2028 (pad and a soft arp), 2-3 are the problem in 2026 (a heartbeat kick,
+no arp), 4 is the turn (riser, then the full beat), 6 goes quiet when the GPU stops, 7 resolves.
 """
-import json, sys
+import json, os, subprocess, sys
 import numpy as np, soundfile as sf
 from scipy.signal import butter, lfilter, resample_poly
 
@@ -12,10 +16,14 @@ SR = 44100
 BPM = 120.0
 BEAT = 60.0 / BPM
 BAR = 4 * BEAT
-LINES = {l["id"]: l["text"] for l in json.load(open("lines.json"))}
-SCENES = [["s1a", "s1b"], ["s2a", "s2b"], ["s3a", "s3b", "s3c"], ["s4a", "s4b"], ["s5a", "s5b"], ["s6a", "s6b", "s6c"]]
-LEAD, GAP = BEAT, 0.28
-TAIL = {0: 0.5, 1: 0.6, 2: 0.6, 3: 0.6, 4: 1.2, 5: 3.4}
+RAW = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lines.json")))
+LINES = {l["id"]: l["text"] for l in RAW}
+SCENES = [[l["id"] for l in RAW if l["scene"] == k] for k in sorted({l["scene"] for l in RAW})]
+LEAD, GAP = BEAT, 0.32
+# silence after the last line of each scene, before the bar rounds it up
+TAIL = {0: 0.9, 1: 0.5, 2: 0.2, 3: 0.4, 4: 0.5, 5: 1.0, 6: 3.4}
+PAIN, TURN, STOP, CTA_SCENE = (1, 2), 3, 5, 6   # 0-based scene indexes
+STOP_LINE = "f1"                                 # "...the GPU stops."
 
 
 def trim(x):
@@ -23,10 +31,16 @@ def trim(x):
     return x[max(0, idx[0] - 240): idx[-1] + 1200] if len(idx) else x
 
 
-clips = {}
-for k in LINES:
-    x, r = sf.read(f"{VO}/{k}.wav")
-    clips[k] = resample_poly(trim(x), SR, r) if r != SR else trim(x)
+def load(k):
+    wav = f"{VO}/{k}.wav"
+    if not os.path.exists(wav):
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", f"{VO}/{k}.mp3", "-ac", "1", "-ar", str(SR), wav], check=True)
+    x, r = sf.read(wav)
+    x = x.mean(axis=1) if x.ndim > 1 else x
+    return resample_poly(trim(x), SR, r) if r != SR else trim(x)
+
+
+clips = {k: load(k) for k in LINES}
 
 t, plan, placed = 0.0, [], []
 for i, ids in enumerate(SCENES):
@@ -42,10 +56,9 @@ for i, ids in enumerate(SCENES):
     plan.append({"scene": i + 1, "start": round(start, 3), "end": round(end, 3), "lines": caps})
     t = end
 total = t
-# the GPU stops on the bar after "...shuts the GPU down" starts being said
-s5b = plan[4]["lines"][1]
-stop_at = plan[4]["start"] + np.ceil((s5b["start"] + 0.5 * (s5b["end"] - s5b["start"]) - plan[4]["start"]) / BAR) * BAR
-stop_at = min(stop_at, plan[4]["end"] - BAR)
+# the GPU stops on the beat nearest the end of "...the GPU stops."
+sl = next(l for l in plan[STOP]["lines"] if l["id"] == STOP_LINE)
+stop_at = plan[STOP]["start"] + np.round((sl["end"] - 0.25 - plan[STOP]["start"]) / BEAT) * BEAT
 
 n = int(total * SR) + SR
 vo = np.zeros(n)
@@ -100,7 +113,8 @@ PROG = [[57, 60, 64], [53, 57, 60], [48, 52, 55], [55, 59, 62]]
 CTA = [[48, 52, 55], [53, 57, 60], [55, 59, 62], [48, 52, 55]]
 
 drums, bass, arp, pad, fx = (np.zeros(n) for _ in range(5))
-s1, s2, s5, s6 = plan[0]["start"], plan[1]["start"], plan[4]["start"], plan[5]["start"]
+s1, s2, s6 = plan[0]["start"], plan[TURN]["start"], plan[CTA_SCENE]["start"]
+pain = (plan[PAIN[0]]["start"], plan[PAIN[-1]]["end"])
 bars = int(np.ceil(total / BAR))
 for b in range(bars):
     t0 = b * BAR
@@ -109,6 +123,10 @@ for b in range(bars):
     stopped = stop_at - 1e-6 <= t0 < stop_at + BAR - 1e-6
     tail_bars = t0 >= total - 2 * BAR - 1e-6
     full = (t0 >= s2 - 1e-6) and not stopped and not tail_bars
+    in_pain = pain[0] - 1e-6 <= t0 < pain[1] - 1e-6
+    if in_pain:  # heartbeat: two kicks at the top of the bar, nothing else
+        add(drums, t0, kick, 0.7)
+        add(drums, t0 + 0.32, kick, 0.45)
     for q in range(4):
         tb = t0 + q * BEAT
         if full:
@@ -117,7 +135,7 @@ for b in range(bars):
                 add(drums, tb, clap, 0.42)
         for e in range(2):
             th = tb + e * BEAT / 2
-            if (full or (t0 < s2 and b >= 1)) and not stopped:
+            if full and not stopped:
                 add(drums, th, ohat if e == 1 and full else hat, 0.20 if e else 0.12)
         # bass: root on the off-beats, octave pop on beat 4
         if (full or in_cta) and not stopped and not tail_bars:
@@ -128,19 +146,20 @@ for b in range(bars):
                 saw = sum(np.sin(2 * np.pi * hz(note) * k * st) / k for k in range(1, 7))
                 add(bass, tb + e * BEAT / 2, saw * np.exp(-st / 0.18) * (0.55 if e else 0.8))
     # arp: 16ths through the chord, plucked
-    if not stopped and t0 >= s1 + BAR - 1e-6 and not tail_bars:
+    if not stopped and not in_pain and t0 >= s1 + BAR - 1e-6 and not tail_bars:
         seq = [chord[0] + 12, chord[1] + 12, chord[2] + 12, chord[1] + 24]
         for s16 in range(16):
             note = seq[s16 % 4]
             ln = int(0.2 * SR)
             st = np.arange(ln) / SR
             pl = (np.sin(2 * np.pi * hz(note) * st) + 0.3 * np.sin(4 * np.pi * hz(note) * st)) * np.exp(-st / 0.07)
-            add(arp, t0 + s16 * BEAT / 4, pl, 0.22 if s16 % 4 == 0 else 0.14)
+            soft = 0.5 if t0 < pain[0] else 1.0   # 2028 intro: a quieter arp
+            add(arp, t0 + s16 * BEAT / 4, pl, (0.22 if s16 % 4 == 0 else 0.14) * soft)
     # pad, every bar
     st = np.arange(int(BAR * SR)) / SR
     env = np.minimum(1, st / 0.3) * np.minimum(1, (BAR - st) / 0.3)
     p = sum(np.sin(2 * np.pi * hz(m + det) * st + rng.uniform(0, 6.28)) for m in chord for det in (-0.08, 0, 0.07))
-    add(pad, t0, p * env, 0.35 if not stopped else 0.18)
+    add(pad, t0, p * env, 0.18 if stopped else (0.5 if in_pain else 0.35))
 
 bass = lp(bass, 700)
 arp = lp(arp, 4200)

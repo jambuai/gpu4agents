@@ -1,7 +1,7 @@
 # GPU for Agents: site and VSL
 
 - `web/`: the static site (Cloudflare Pages project `gpu4agents`, served at gpu4agents.jambu.ai). No build step.
-- `video/`: the 64-second VSL as a HyperFrames composition (`video/index.html`).
+- `video/`: the 104-second VSL as a HyperFrames composition (`video/index.html`).
 - `DESIGN.md`: palette and type shared by both.
 
 ## Video
@@ -12,17 +12,21 @@ npm run check                                   # lint, layout, contrast
 npx hyperframes render --quality high --output renders/gpu4agents-vsl.mp4
 ```
 
-Narration is Kokoro TTS (`am_michael`), one clip per line so scenes and captions sync to it:
+The story is in `video/narration/lines.json`: one entry per spoken line, with the scene it belongs to,
+the caption (`text`) and what the voice says (`say`, with ElevenLabs v3 audio tags such as `[whispers]`
+or `[excited]` for emotion). The voice is ElevenLabs "George" (`JBFqnCBsd6RMkjVDRZzb`), model `eleven_v3`:
 
 ```bash
-# venv with kokoro-onnx, soundfile, numpy, phonemizer-fork; system espeak-ng
-python narration/synth.py am_michael 1.0 <out>/vo < narration/lines.json > <out>/durs.json
-python narration/build.py <workdir> assets      # -> assets/narration.wav, assets/timing.json
-python narration/music.py assets                # pad, ticks, whooshes, ducking -> assets/vsl-audio.wav
+set -a; . ../.env; set +a                        # ELEVENLABS_API_KEY
+python video/narration/eleven.py JBFqnCBsd6RMkjVDRZzb <workdir>/vo < video/narration/lines.json
+python video/narration/eleven.py JBFqnCBsd6RMkjVDRZzb <workdir>/vo e3 < video/narration/lines.json   # redo one line (delete its mp3 first)
+cd video/narration && python build.py <workdir>/vo ../assets   # narration.wav, timing.json, vsl-audio.wav (needs numpy, scipy, soundfile)
 ```
 
-`build.py` reads `<workdir>/tts/lines.json`, `durs.json` and `vo/*.wav`. When a line changes, update the
-caption times in `index.html` (`CAPS`) from `assets/timing.json`.
+`build.py` lays the lines on a 120 BPM grid and writes the music to follow the story: a soft intro (2028),
+a heartbeat under the problem, the full beat from "So we opened the door", silence when the GPU stops.
+After a line changes, paste `assets/timing.json` into `index.html` between `/*TIMING*/` and `/*END*/`.
+The fox, the waveform and the transcript on screen are real outputs from the 0.9.0 validation run.
 
 ## Site
 
