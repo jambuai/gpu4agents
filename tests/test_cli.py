@@ -591,8 +591,9 @@ def test_login_another_provider_points_to_the_agent_and_saves_nothing(tmp_path, 
 
 
 def test_gpu4agents_is_installed_as_a_second_command_name():
-    import tomllib
     from pathlib import Path
 
-    scripts = tomllib.loads((Path(__file__).parents[1] / "pyproject.toml").read_text())["project"]["scripts"]
-    assert scripts["gpu"] == scripts["gpu4agents"] == "gpu4agents.cli.main:main"
+    text = (Path(__file__).parents[1] / "pyproject.toml").read_text()
+    scripts = text.split("[project.scripts]", 1)[1].split("\n[", 1)[0]
+    assert 'gpu = "gpu4agents.cli.main:main"' in scripts
+    assert 'gpu4agents = "gpu4agents.cli.main:main"' in scripts
