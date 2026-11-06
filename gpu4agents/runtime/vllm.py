@@ -12,14 +12,16 @@ extra layer in between.
 
 from __future__ import annotations
 
+import base64
 import json
 import shlex
+import zlib
 import re
 from typing import Any, Optional
 
 from ..core.models import ValidationResult
 from ..core.tool_parsers import guess_tool_call_parser  # noqa: F401 (re-exported)
-from .base import ModelRuntime, cuda_from_tag, image_repo, image_tag
+from .base import HOST_NETWORK_FAILURE_PATTERN, THREAD_CAPS, ModelRuntime, cuda_from_tag, image_repo, image_tag
 
 # vLLM flags gpu already manages explicitly - collided with via
 # runtime.vllm_args, these would fight the config fields meant to control
@@ -80,6 +82,12 @@ def flatten_vllm_args(mapping: dict[str, Any]) -> list[str]:
 
 LOG_PATH = "/var/log/jambu/vllm.log"
 PID_PATH = "/var/run/jambu/vllm.pid"
+LAUNCHER_PATH = "/opt/jambu/vllm-run.sh"
+
+# A dropped connection while vLLM downloads the weights kills the server, and
+# used to cost the whole machine. The launcher restarts it in place instead;
+# the download resumes from the files already on disk.
+NETWORK_RESTARTS = 4
 
 # Pinned, never `latest`: it moved to CUDA 13 under us and landed on a host
 # whose driver tops out at 12.2. The main build, not a `-cuNNN` variant: the
@@ -204,18 +212,45 @@ class VllmRuntime(ModelRuntime):
         args += list(cfg.runtime.extra_args)
         return args
 
-    def start_command(self) -> str:
+    def launcher_script(self) -> str:
+        """Bash that runs vLLM on the instance: ``bash <file> <python> <log>``.
+
+        Its pid is the one the watchdog watches: it lives while the server
+        runs or is about to be restarted, and exits with the server's code.
+        """
         args = " ".join(shlex.quote(a) for a in self.server_args())
+        return "\n".join(
+            [
+                *THREAD_CAPS,
+                'PY="$1"; L=$2; c=',
+                "trap '[ -n \"$c\" ] && kill $c; exit 143' TERM INT",
+                f"for i in $(seq 0 {NETWORK_RESTARTS}); do",
+                "  n=$(wc -l < $L)",
+                f'  "$PY" -m vllm.entrypoints.openai.api_server {args} & c=$!',
+                "  wait $c; r=$?",
+                f"  tail -n +$((n + 1)) $L | tail -40 | grep -qE {shlex.quote(HOST_NETWORK_FAILURE_PATTERN)} || exit $r",
+                f"  [ $i -lt {NETWORK_RESTARTS} ] || exit $r",
+                '  echo "jambu: the model server hit a network error; restart $((i + 1)) in $((15 * i + 15))s"',
+                "  sleep $((15 * i + 15))",
+                "done",
+                "",
+            ]
+        )
+
+    def start_command(self) -> str:
         # The interpreter that can import vllm: images that put a Python shim
         # first on PATH (vastai/vllm) keep vllm under /usr/bin/python3.
         find_python = (
             "PY=python3; for p in /usr/bin/python3 python3 python; do "
             "$p -c 'import vllm' 2>/dev/null && PY=$p && break; done"
         )
+        # Deflated: the boot script rides in a size-capped field (Vast: 16 KB).
+        blob = base64.b85encode(zlib.compress(self.launcher_script().encode(), 9)).decode()
+        unpack = "import base64,sys,zlib;open(sys.argv[1],'wb').write(zlib.decompress(base64.b85decode(sys.argv[2])))"
         return (
-            f"mkdir -p $(dirname {LOG_PATH}) && {find_python}; "
-            f"nohup $PY -m vllm.entrypoints.openai.api_server {args} "
-            f">> {LOG_PATH} 2>&1 & echo $! > {PID_PATH}"
+            f"mkdir -p $(dirname {LOG_PATH}) $(dirname {PID_PATH}) $(dirname {LAUNCHER_PATH}) && {find_python}; "
+            f"\"$PY\" -c \"{unpack}\" {LAUNCHER_PATH} '{blob}'; touch {LOG_PATH}; "
+            f'nohup bash {LAUNCHER_PATH} "$PY" {LOG_PATH} >> {LOG_PATH} 2>&1 & echo $! > {PID_PATH}'
         )
 
     def routes(self) -> list[str]:

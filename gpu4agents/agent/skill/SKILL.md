@@ -17,7 +17,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.10.0 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.10.1 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>

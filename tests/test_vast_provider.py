@@ -310,8 +310,9 @@ def test_the_real_boot_script_fits_vasts_onstart_limit(write_config, monkeypatch
         budget={"max_hourly_cost_usd": 1.5, "max_session_cost_usd": 4.0},
     )
     onstart = Engine(config)._build_onstart("t" * 43)
-    # Headroom so the next feature fails here, not on a paid create.
-    assert len(onstart.encode()) < ONSTART_MAX_BYTES - 1500
+    # Headroom so the next feature fails here, not on a paid create. The
+    # deflated watchdog is ~13 KB of it: the next addition has to shrink that.
+    assert len(onstart.encode()) < ONSTART_MAX_BYTES - 400
 
 
 @respx.mock

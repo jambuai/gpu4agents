@@ -2,6 +2,15 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] - 2026-11-06
+
+### Fixed
+- A dropped connection while vLLM downloads the model no longer costs the machine. vLLM dies on such an error, and gpu used to destroy the host, rent another and pull the image again; three in a row ended the setup. Now the model server is restarted on the same machine, up to 4 times with a growing pause, and the download resumes from the files already on disk. Only a network that keeps failing counts as a host failure.
+- On hosts where the container sees many CPUs but may start few processes (a low `pids.max`), thread pools sized to the visible cores (the Hugging Face downloader, OpenMP, torch) failed to start and crashed the download or the server. The model server now runs with those pools capped to the CPU quota on such hosts, as Vast.ai's own images do. Values you set yourself are kept.
+
+### Changed
+- The vLLM launcher travels compressed in the boot script, which is close to Vast.ai's 16 KB limit.
+
 ## [0.10.0] - 2026-11-06
 
 ### Added

@@ -259,5 +259,76 @@ def test_the_start_command_finds_the_python_that_has_vllm(config, tmp_path):
     import subprocess
 
     command = VllmRuntime(config).start_command()
-    assert "import vllm" in command and "nohup $PY -m vllm.entrypoints" in command
+    assert "import vllm" in command
     subprocess.run(["bash", "-n", "-c", command], check=True)
+
+
+def test_the_start_command_unpacks_the_launcher_on_the_instance(config, tmp_path):
+    """Run the start command for real, with a fake python that has no vllm."""
+    import shutil
+    import subprocess
+    import sys
+
+    runtime = VllmRuntime(config)
+    command = runtime.start_command()
+    root = tmp_path / "root"
+    for path in ("/var/log/jambu", "/var/run/jambu", "/opt/jambu"):
+        command = command.replace(path, str(root) + path)
+    fake = tmp_path / "bin"
+    fake.mkdir()
+    (fake / "python3").symlink_to(sys.executable)
+    real_bash = shutil.which("bash")
+    # The launcher itself must not run: only check it was unpacked.
+    command = command.replace("nohup bash", "true")
+    subprocess.run([real_bash, "-c", command], check=True, env={"PATH": f"{fake}:/usr/bin:/bin"})
+    unpacked = (root / "opt/jambu/vllm-run.sh").read_text()
+    assert unpacked == runtime.launcher_script().replace("/var/log/jambu", "/var/log/jambu")
+    assert '"$PY" -m vllm.entrypoints.openai.api_server' in unpacked
+    subprocess.run([real_bash, "-n", str(root / "opt/jambu/vllm-run.sh")], check=True)
+
+
+def _run_launcher(config, tmp_path, crashes, message="httpx.ConnectError: boom"):
+    """Run the generated launcher with a fake python whose server dies N times."""
+    import subprocess
+
+    launcher = VllmRuntime(config).launcher_script()
+    script = tmp_path / "run.sh"
+    script.write_text(launcher.replace("sleep $((15 * i + 15))", "true"))
+    counter, log = tmp_path / "starts", tmp_path / "vllm.log"
+    log.write_text("an old session's line: ConnectError\n")
+    fake = tmp_path / "py"
+    fake.write_text(
+        "#!/bin/bash\n"
+        "n=$(cat %s 2>/dev/null || echo 0); n=$((n+1)); echo $n > %s\n"
+        '[ "$n" -le %d ] && { echo "%s"; exit 1; }\n'
+        'echo "server ran: $*"\n' % (counter, counter, crashes, message)
+    )
+    fake.chmod(0o755)
+    with log.open("a") as out:
+        code = subprocess.run(["bash", str(script), str(fake), str(log)], stdout=out, stderr=out).returncode
+    return code, int(counter.read_text()), log.read_text()
+
+
+def test_a_server_killed_by_the_network_is_restarted_in_place(config, tmp_path):
+    code, starts, log = _run_launcher(config, tmp_path, crashes=2)
+    assert code == 0, log
+    assert starts == 3
+    assert "restart 2 in" in log
+    assert "server ran: -m vllm.entrypoints.openai.api_server --model" in log
+
+
+def test_a_network_that_never_recovers_ends_as_a_host_failure(config, tmp_path):
+    from gpu4agents.core.engine import _HOST_NETWORK_FAILURE
+    from gpu4agents.runtime.vllm import NETWORK_RESTARTS
+
+    code, starts, log = _run_launcher(config, tmp_path, crashes=99)
+    assert code == 1
+    assert starts == NETWORK_RESTARTS + 1
+    assert _HOST_NETWORK_FAILURE.search("\n".join(log.splitlines()[-30:]))
+
+
+def test_a_server_that_fails_for_another_reason_is_not_restarted(config, tmp_path):
+    """Earlier lines of the log (another session's) do not count."""
+    code, starts, _ = _run_launcher(config, tmp_path, crashes=99, message="ValueError: bad model config")
+    assert code == 1
+    assert starts == 1

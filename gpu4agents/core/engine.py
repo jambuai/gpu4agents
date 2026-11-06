@@ -18,7 +18,7 @@ from .. import watchdog as watchdog_pkg
 from ..providers.base import GPUProvider
 from ..providers.registry import load_builtin_providers
 from ..runtime import runtime_registry
-from ..runtime.base import ENDPOINT_NAME, ModelRuntime, image_tag, max_cuda
+from ..runtime.base import ENDPOINT_NAME, HOST_NETWORK_FAILURE_PATTERN, ModelRuntime, image_tag, max_cuda
 from ..watchdog.builder import build_agent_config, build_agent_source, build_onstart_script
 from . import events as ev
 from . import policy
@@ -66,13 +66,7 @@ from .state import RuntimeState, StateStore, WatchdogInfo, utc_now
 
 Echo = Callable[[str], None]
 
-# Signatures, in a dead model server's log, of a network that failed it - not
-# of a model or config that would fail on any machine.
-_HOST_NETWORK_FAILURE = re.compile(
-    r"RemoteProtocolError|ConnectError|ConnectTimeout|ReadTimeout|"
-    r"Connection (?:reset|refused|aborted)|TLS handshake timeout|"
-    r"Temporary failure in name resolution|Network is unreachable"
-)
+_HOST_NETWORK_FAILURE = re.compile(HOST_NETWORK_FAILURE_PATTERN)
 
 # A pull stuck retrying a layer: its countdown changes, but it is no progress.
 _PULL_RETRY = re.compile(r"\bretrying\b", re.IGNORECASE)

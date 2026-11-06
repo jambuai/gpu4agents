@@ -270,7 +270,9 @@ def test_a_configured_key_is_used_and_not_repeated_in_the_environment(write_conf
     state = engine.setup(wait=False)
     assert state.api_key == "my-key"
     assert "VLLM_API_KEY" not in engine.provider.last_spec.onstart
-    assert "--api-key my-key" in engine.provider.last_spec.onstart
+    # The server's arguments travel deflated inside the boot script.
+    assert "--api-key my-key" in engine.runtime.launcher_script()
+    assert engine.runtime.start_command() in engine.provider.last_spec.onstart
 
 
 def test_an_instance_from_before_generated_keys_still_gets_a_client_key(engine):

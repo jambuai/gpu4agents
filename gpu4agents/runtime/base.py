@@ -16,6 +16,41 @@ from ..core.config import RuntimeConfig
 from ..core.errors import ConfigError
 from ..core.models import ValidationResult
 
+# Signatures, in a dead model server's log, of a network that failed it (most
+# often while it downloaded the weights), not of a model or config that would
+# fail on any machine. Plain alternation: Python re and grep -E both read it.
+HOST_NETWORK_FAILURE_PATTERN = (
+    "RemoteProtocolError|ConnectError|ConnectTimeout|ReadTimeout|"
+    "Connection (reset|refused|aborted)|TLS handshake timeout|"
+    "Temporary failure in name resolution|Network is unreachable|"
+    "IncompleteRead|ChunkedEncodingError"
+)
+
+# Some rented containers see every core of the host but may start only a few
+# processes (cgroup pids.max). Thread pools sized to the visible cores
+# (OpenMP, torch, the Hugging Face downloader's Tokio) then fail to spawn and
+# crash the download or the server. Below 16 pids per visible core, cap them
+# to the CPU quota (2 to 16), as Vast's own images do. Values already set win.
+THREAD_CAP_VARS = (
+    "OMP_NUM_THREADS OPENBLAS_NUM_THREADS MKL_NUM_THREADS NUMEXPR_NUM_THREADS "
+    "NUMEXPR_MAX_THREADS RAYON_NUM_THREADS TOKIO_WORKER_THREADS"
+)
+THREAD_CAPS = [
+    "_pm=$(cat /sys/fs/cgroup/pids.max 2>/dev/null || cat /sys/fs/cgroup/pids/pids.max 2>/dev/null)",
+    "_nc=$(nproc 2>/dev/null || echo 1)",
+    'case "$_pm" in',
+    "  ''|*[!0-9]*) ;;",
+    "  *) if [ $((_pm / _nc)) -lt 16 ]; then",
+    "       _cap=$(awk '$1 != \"max\" && $2 > 0 {printf \"%d\", $1 / $2 + 0.5}' /sys/fs/cgroup/cpu.max 2>/dev/null)",
+    '       _cap=${_cap:-16}; [ "$_cap" -gt 16 ] && _cap=16; [ "$_cap" -lt 2 ] && _cap=2',
+    f"       for _v in {THREAD_CAP_VARS}; do",
+    '         [ -n "$(printenv "$_v")" ] || export "$_v=$_cap"',
+    "       done",
+    '       echo "jambu: pids.max=$_pm for $_nc visible CPUs; thread pools capped to $_cap"',
+    "     fi ;;",
+    "esac",
+]
+
 ENDPOINT_NAME = "model"
 
 # `-cu129` -> 12.9, `cu130` -> 13.0, `-cuda12.1-` -> 12.1: the CUDA toolkit an
