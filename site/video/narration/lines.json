@@ -1,28 +1,26 @@
 [
-{"id": "a1", "scene": 1, "text": "Twenty twenty-eight.", "say": "[softly] Twenty twenty-eight."},
-{"id": "a2", "scene": 1, "text": "Agents draw, listen, speak, and train their own models.", "say": "Agents draw... listen... speak... and train their own models."},
-{"id": "a3", "scene": 1, "text": "Nobody remembers when they couldn't.", "say": "[pause] Nobody remembers when they couldn't."},
+{"id": "a1", "scene": 1, "text": "Ask your agent for a picture. It writes you a prompt.", "say": "[calm] Ask your agent for a picture. [pause] It writes you a prompt."},
+{"id": "a2", "scene": 1, "text": "Ask it to listen to a recording. It asks you for the transcript.", "say": "Ask it to listen to a recording... It asks you for the transcript."},
+{"id": "a3", "scene": 1, "text": "Ask if its GPU code works. It says it should.", "say": "Ask if its GPU code works. [pause] [softly] It says it should."},
 
-{"id": "b1", "scene": 2, "text": "But in twenty twenty-six, your smartest worker is locked in a room.", "say": "[sighs] But in twenty twenty-six... your smartest worker is locked in a room."},
-{"id": "b2", "scene": 2, "text": "It writes the code for an image model, and never sees the picture.", "say": "It writes the code for an image model... and never sees the picture."},
-{"id": "b3", "scene": 2, "text": "It reads every transcript, and never hears a voice.", "say": "It reads every transcript... and never hears a voice."},
-{"id": "b4", "scene": 2, "text": "And when it needs a GPU, it stops. And waits. For you.", "say": "[frustrated] And when it needs a GPU... it stops. [pause] And waits. [whispers] For you."},
+{"id": "b1", "scene": 2, "text": "You could give it a GPU yourself.", "say": "You could give it a GPU yourself."},
+{"id": "b2", "scene": 2, "text": "Open an account. Paste a cloud key into the chat. Install CUDA. Keep an eye on the box.", "say": "[quickly] Open an account. Paste a cloud key into the chat. Install CUDA. Keep an eye on the box."},
+{"id": "b3", "scene": 2, "text": "Then nobody watches it, and the bill keeps running. One developer expected a hundred dollars. The bill was a thousand.", "say": "[sighs] Then nobody watches it... and the bill keeps running. One developer expected a hundred dollars. [pause] The bill was a thousand."},
+{"id": "b4", "scene": 2, "text": "And an agent holding a cloud key with no limits? Someone called that “terrifying.”", "say": "And an agent holding a cloud key, with no limits? [pause] Someone called that... terrifying."},
 
-{"id": "c1", "scene": 3, "text": "Sign up. Pick a GPU. Copy a key. Babysit a server.", "say": "[quickly] Sign up. Pick a GPU. Copy a key. Babysit a server."},
-{"id": "c2", "scene": 3, "text": "Forget it running on Friday, and pay for it on Monday.", "say": "[whispers] Forget it running on Friday... [pause] and pay for it on Monday."},
+{"id": "c1", "scene": 3, "text": "GPU for Agents gives it the power, with the controls built in.", "say": "[determined] GPU for Agents gives it the power... with the controls built in."},
+{"id": "c2", "scene": 3, "text": "Paste one line. The agent rents its own GPU and sets it up in minutes.", "say": "Paste one line. The agent rents its own GPU, and sets it up in minutes."},
 
-{"id": "d1", "scene": 4, "text": "So we opened the door.", "say": "[determined] So we opened the door."},
-{"id": "d2", "scene": 4, "text": "Paste one line, and your agent rents its own GPU, from any provider, in minutes, under your budget.", "say": "Paste one line... and your agent rents its own GPU. From any provider. In minutes. Under your budget."},
+{"id": "d1", "scene": 4, "text": "Now it makes images and voices.", "say": "[excited] Now it makes images! And voices."},
+{"id": "d2", "scene": 4, "text": "It transcribes audio on its own GPU, without a third-party API.", "say": "It transcribes audio on its own GPU, without a third-party API."},
+{"id": "d3", "scene": 4, "text": "It runs open models, under your rules, and tests its own GPU code on real hardware.", "say": "It runs open models, under your rules... and tests its own GPU code on real hardware."},
+{"id": "d4", "scene": 4, "text": "Everything sits behind an OpenAI-compatible endpoint that its tools already call.", "say": "Everything sits behind an OpenAI-compatible endpoint that its tools already call."},
 
-{"id": "e1", "scene": 5, "text": "Any model. Images. Voices. Transcription. Embeddings.", "say": "[excited] Any model. Images! Voices! Transcription. Embeddings."},
-{"id": "e2", "scene": 5, "text": "On an OpenAI-compatible endpoint that every tool you have can call.", "say": "On an OpenAI-compatible endpoint... that every tool you have can call."},
-{"id": "e3", "scene": 5, "text": "Its own code, too: it fine-tunes on your data and hands you a model that is yours.", "say": "Its own code, too. It fine-tunes on your data... and hands you a model that is yours."},
-{"id": "e4", "scene": 5, "text": "Open models, under your rules. The data stays on the machine; the agent sees the results.", "say": "Open models, under your rules. The data stays on the machine... the agent sees the results."},
+{"id": "e1", "scene": 5, "text": "You set the budget. The agent sees the price before it rents, and the machine shuts itself down at your cap.", "say": "[calm] You set the budget. The agent sees the price before it rents... and the machine shuts itself down at your cap."},
+{"id": "e2", "scene": 5, "text": "Every step goes into an event log, so you can audit what it did and what it cost.", "say": "Every step goes into an event log, so you can audit what it did, and what it cost."},
+{"id": "e3", "scene": 5, "text": "A watchdog runs inside the machine. When the work stops, the GPU stops.", "say": "A watchdog runs inside the machine. When the work stops... the GPU stops."},
+{"id": "e4", "scene": 5, "text": "Even if you closed the chat.", "say": "[softly] Even if you closed the chat."},
 
-{"id": "f1", "scene": 6, "text": "And when the work stops, the GPU stops.", "say": "[calm] And when the work stops... the GPU stops."},
-{"id": "f2", "scene": 6, "text": "A watchdog on the machine shuts it down, even if the chat is closed, even if you're asleep.", "say": "A watchdog on the machine shuts it down. Even if the chat is closed. [softly] Even if you're asleep."},
-
-{"id": "g1", "scene": 7, "text": "Someday, this will look obvious.", "say": "[warmly] Someday... this will look obvious."},
-{"id": "g2", "scene": 7, "text": "Today, it's one line.", "say": "Today... it's one line."},
-{"id": "g3", "scene": 7, "text": "GPU for Agents. Give your agent a GPU.", "say": "[excited] GPU for Agents. Give your agent a GPU."}
+{"id": "f1", "scene": 6, "text": "New powers for your agent. And you keep the controls.", "say": "[warmly] New powers for your agent. [pause] And you keep the controls."},
+{"id": "f2", "scene": 6, "text": "GPU for Agents.", "say": "GPU for Agents."}
 ]

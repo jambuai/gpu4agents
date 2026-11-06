@@ -4,8 +4,9 @@ usage: build.py <voice dir> <out dir>
 Reads lines.json (id, scene, text) and <voice dir>/<id>.mp3 or .wav (eleven.py writes them).
 Writes narration.wav, timing.json (scenes, lines, the GPU stop moment) and vsl-audio.wav.
 
-Story and sound: 1 is 2028 (pad and a soft arp), 2-3 are the problem in 2026 (a heartbeat kick,
-no arp), 4 is the turn (riser, then the full beat), 6 goes quiet when the GPU stops, 7 resolves.
+Story and sound: 1 is what the agent can't do alone (pad and a soft arp), 2 is doing it by hand
+(a heartbeat kick, no arp), 3 is the turn (riser, then the full beat), 5 goes quiet when the GPU
+stops, 6 resolves.
 """
 import json, os, subprocess, sys
 import numpy as np, soundfile as sf
@@ -21,9 +22,9 @@ LINES = {l["id"]: l["text"] for l in RAW}
 SCENES = [[l["id"] for l in RAW if l["scene"] == k] for k in sorted({l["scene"] for l in RAW})]
 LEAD, GAP = BEAT, 0.32
 # silence after the last line of each scene, before the bar rounds it up
-TAIL = {0: 0.9, 1: 0.5, 2: 0.2, 3: 0.4, 4: 0.5, 5: 1.0, 6: 3.4}
-PAIN, TURN, STOP, CTA_SCENE = (1, 2), 3, 5, 6   # 0-based scene indexes
-STOP_LINE = "f1"                                 # "...the GPU stops."
+TAIL = {0: 0.6, 1: 0.4, 2: 0.4, 3: 0.6, 4: 0.8, 5: 3.4}
+PAIN, TURN, STOP, CTA_SCENE = (1, 1), 2, 4, 5   # 0-based scene indexes
+STOP_LINE = "e3"                                 # "...the GPU stops."
 
 
 def trim(x):
@@ -153,7 +154,7 @@ for b in range(bars):
             ln = int(0.2 * SR)
             st = np.arange(ln) / SR
             pl = (np.sin(2 * np.pi * hz(note) * st) + 0.3 * np.sin(4 * np.pi * hz(note) * st)) * np.exp(-st / 0.07)
-            soft = 0.5 if t0 < pain[0] else 1.0   # 2028 intro: a quieter arp
+            soft = 0.5 if t0 < pain[0] else 1.0   # intro: a quieter arp
             add(arp, t0 + s16 * BEAT / 4, pl, (0.22 if s16 % 4 == 0 else 0.14) * soft)
     # pad, every bar
     st = np.arange(int(BAR * SR)) / SR

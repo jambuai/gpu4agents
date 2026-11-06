@@ -1,174 +1,161 @@
 {
- "total": 104.0,
+ "total": 116.0,
  "bpm": 120.0,
- "stop_at": 81.5,
+ "stop_at": 99.0,
  "scenes": [
   {
    "scene": 1,
    "start": 0.0,
-   "end": 10.0,
+   "end": 18.0,
    "lines": [
     {
      "id": "a1",
-     "text": "Twenty twenty-eight.",
+     "text": "Ask your agent for a picture. It writes you a prompt.",
      "start": 0.5,
-     "end": 1.94
+     "end": 4.463
     },
     {
      "id": "a2",
-     "text": "Agents draw, listen, speak, and train their own models.",
-     "start": 2.26,
-     "end": 6.522
+     "text": "Ask it to listen to a recording. It asks you for the transcript.",
+     "start": 4.783,
+     "end": 9.135
     },
     {
      "id": "a3",
-     "text": "Nobody remembers when they couldn't.",
-     "start": 6.842,
-     "end": 8.743
+     "text": "Ask if its GPU code works. It says it should.",
+     "start": 9.455,
+     "end": 16.575
     }
    ]
   },
   {
    "scene": 2,
-   "start": 10.0,
-   "end": 32.0,
+   "start": 18.0,
+   "end": 46.0,
    "lines": [
     {
      "id": "b1",
-     "text": "But in twenty twenty-six, your smartest worker is locked in a room.",
-     "start": 10.5,
-     "end": 15.455
+     "text": "You could give it a GPU yourself.",
+     "start": 18.5,
+     "end": 20.209
     },
     {
      "id": "b2",
-     "text": "It writes the code for an image model, and never sees the picture.",
-     "start": 15.775,
-     "end": 20.223
+     "text": "Open an account. Paste a cloud key into the chat. Install CUDA. Keep an eye on the box.",
+     "start": 20.529,
+     "end": 26.403
     },
     {
      "id": "b3",
-     "text": "It reads every transcript, and never hears a voice.",
-     "start": 20.543,
-     "end": 23.876
+     "text": "Then nobody watches it, and the bill keeps running. One developer expected a hundred dollars. The bill was a thousand.",
+     "start": 26.723,
+     "end": 36.33
     },
     {
      "id": "b4",
-     "text": "And when it needs a GPU, it stops. And waits. For you.",
-     "start": 24.196,
-     "end": 30.651
+     "text": "And an agent holding a cloud key with no limits? Someone called that \u201cterrifying.\u201d",
+     "start": 36.65,
+     "end": 43.79
     }
    ]
   },
   {
    "scene": 3,
-   "start": 32.0,
-   "end": 42.0,
+   "start": 46.0,
+   "end": 58.0,
    "lines": [
     {
      "id": "c1",
-     "text": "Sign up. Pick a GPU. Copy a key. Babysit a server.",
-     "start": 32.5,
-     "end": 37.066
+     "text": "GPU for Agents gives it the power, with the controls built in.",
+     "start": 46.5,
+     "end": 50.719
     },
     {
      "id": "c2",
-     "text": "Forget it running on Friday, and pay for it on Monday.",
-     "start": 37.386,
-     "end": 41.25
+     "text": "Paste one line. The agent rents its own GPU and sets it up in minutes.",
+     "start": 51.039,
+     "end": 56.687
     }
    ]
   },
   {
    "scene": 4,
-   "start": 42.0,
-   "end": 54.0,
+   "start": 58.0,
+   "end": 80.0,
    "lines": [
     {
      "id": "d1",
-     "text": "So we opened the door.",
-     "start": 42.5,
-     "end": 43.83
+     "text": "Now it makes images and voices.",
+     "start": 58.5,
+     "end": 61.045
     },
     {
      "id": "d2",
-     "text": "Paste one line, and your agent rents its own GPU, from any provider, in minutes, under your budget.",
-     "start": 44.15,
-     "end": 52.576
+     "text": "It transcribes audio on its own GPU, without a third-party API.",
+     "start": 61.365,
+     "end": 66.082
+    },
+    {
+     "id": "d3",
+     "text": "It runs open models, under your rules, and tests its own GPU code on real hardware.",
+     "start": 66.402,
+     "end": 72.551
+    },
+    {
+     "id": "d4",
+     "text": "Everything sits behind an OpenAI-compatible endpoint that its tools already call.",
+     "start": 72.871,
+     "end": 78.598
     }
    ]
   },
   {
    "scene": 5,
-   "start": 54.0,
-   "end": 78.0,
+   "start": 80.0,
+   "end": 104.0,
    "lines": [
     {
      "id": "e1",
-     "text": "Any model. Images. Voices. Transcription. Embeddings.",
-     "start": 54.5,
-     "end": 59.011
+     "text": "You set the budget. The agent sees the price before it rents, and the machine shuts itself down at your cap.",
+     "start": 80.5,
+     "end": 87.507
     },
     {
      "id": "e2",
-     "text": "On an OpenAI-compatible endpoint that every tool you have can call.",
-     "start": 59.331,
-     "end": 63.848
+     "text": "Every step goes into an event log, so you can audit what it did and what it cost.",
+     "start": 87.827,
+     "end": 92.758
     },
     {
      "id": "e3",
-     "text": "Its own code, too: it fine-tunes on your data and hands you a model that is yours.",
-     "start": 64.168,
-     "end": 69.817
+     "text": "A watchdog runs inside the machine. When the work stops, the GPU stops.",
+     "start": 93.078,
+     "end": 99.165
     },
     {
      "id": "e4",
-     "text": "Open models, under your rules. The data stays on the machine; the agent sees the results.",
-     "start": 70.137,
-     "end": 76.97
+     "text": "Even if you closed the chat.",
+     "start": 99.485,
+     "end": 101.239
     }
    ]
   },
   {
    "scene": 6,
-   "start": 78.0,
-   "end": 90.0,
+   "start": 104.0,
+   "end": 116.0,
    "lines": [
     {
      "id": "f1",
-     "text": "And when the work stops, the GPU stops.",
-     "start": 78.5,
-     "end": 81.663
+     "text": "New powers for your agent. And you keep the controls.",
+     "start": 104.5,
+     "end": 109.206
     },
     {
      "id": "f2",
-     "text": "A watchdog on the machine shuts it down, even if the chat is closed, even if you're asleep.",
-     "start": 81.983,
-     "end": 88.14
-    }
-   ]
-  },
-  {
-   "scene": 7,
-   "start": 90.0,
-   "end": 104.0,
-   "lines": [
-    {
-     "id": "g1",
-     "text": "Someday, this will look obvious.",
-     "start": 90.5,
-     "end": 92.465
-    },
-    {
-     "id": "g2",
-     "text": "Today, it's one line.",
-     "start": 92.785,
-     "end": 95.105
-    },
-    {
-     "id": "g3",
-     "text": "GPU for Agents. Give your agent a GPU.",
-     "start": 95.425,
-     "end": 99.389
+     "text": "GPU for Agents.",
+     "start": 109.526,
+     "end": 110.932
     }
    ]
   }

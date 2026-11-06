@@ -40,134 +40,115 @@
       .term { font-family: "JetBrains Mono", monospace; font-size: 24px; line-height: 1.85; padding: 22px 30px; }
       .term .ok { color: #5CBF3A; } .term .c { color: #9CAA9D; } .term .done { color: #B4E06C; font-weight: 700; }
 
-      /* ---------- 1: 2028 ---------- */
-      #v1 .content { flex-direction: column; justify-content: center; gap: 46px; }
-      #v1 .h { font-size: 104px; max-width: 1500px; }
-      .caps { display: flex; gap: 26px; }
-      .cap4 { width: 300px; height: 230px; padding: 28px; display: flex; flex-direction: column; justify-content: space-between; border-color: rgba(92,191,58,0.55); }
-      .cap4 svg { width: 70px; height: 70px; }
-      .cap4 .n { font-size: 44px; font-weight: 800; letter-spacing: -0.02em; }
-      .cap4 .m { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; }
-      #v1-h2 { font-size: 64px; }
+      /* ---------- 1: what it can't do alone ---------- */
+      #v1 .left { width: 700px; display: flex; flex-direction: column; justify-content: center; gap: 34px; }
+      #v1 .h { font-size: 104px; }
+      #v1 .right { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+      #v1-chat .body { padding: 18px 34px 26px; display: flex; flex-direction: column; gap: 22px; }
+      .ex { display: flex; flex-direction: column; gap: 10px; }
+      .ex .u { font-family: "JetBrains Mono", monospace; font-size: 26px; color: #ECF2E8; }
+      .ex .u .gt { color: #5CBF3A; margin-right: 10px; }
+      .ex .a { font-size: 28px; line-height: 1.35; color: #9CAA9D; padding-left: 34px; border-left: 3px solid #22302A; }
+      .ex .a b { color: #FF7A4D; font-weight: 700; }
+      .cant .lbl { font-family: "JetBrains Mono", monospace; font-size: 22px; letter-spacing: 0.14em; text-transform: uppercase; color: #9CAA9D; margin-bottom: 16px; }
+      .chips { display: flex; flex-wrap: wrap; gap: 12px; }
+      .chip { padding: 10px 18px; border-radius: 12px; border: 2px solid rgba(255,122,77,0.45); font-family: "JetBrains Mono", monospace; font-size: 22px; color: #ECF2E8; }
+      .chip i { font-style: normal; color: #FF7A4D; margin-right: 8px; font-weight: 700; }
 
-      /* ---------- 2: locked in a room ---------- */
-      #v2 .left { width: 760px; display: flex; flex-direction: column; justify-content: center; gap: 30px; }
-      #v2 .h { font-size: 100px; }
-      #v2 .right { flex: 1; display: flex; flex-direction: column; justify-content: center; }
-      #v2-room { position: relative; border-color: rgba(255,122,77,0.45); }
-      .row2 { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 30px 34px; border-bottom: 2px solid #22302A; font-family: "JetBrains Mono", monospace; font-size: 27px; }
-      .row2:last-child { border-bottom: none; }
-      .row2 .yes { color: #5CBF3A; } .row2 .no { color: #FF7A4D; font-weight: 700; }
-      #v2-lock { position: absolute; right: -36px; top: -46px; width: 112px; height: 112px; border-radius: 26px; background: #0A0F0B; border: 4px solid #FF7A4D; display: grid; place-items: center; }
-      #v2-lock svg { width: 56px; height: 56px; }
-      .waitpill { background: rgba(255,122,77,0.16); color: #FF7A4D; }
-      .waitpill b { display: inline-block; }
-      .yearbox { position: absolute; top: 34px; right: 120px; width: 150px; height: 40px; overflow: hidden; font-family: "JetBrains Mono", monospace; font-size: 30px; font-weight: 700; text-align: right; }
-      .yearbox span { position: absolute; right: 0; top: 0; }
-
-      /* ---------- 3: chores ---------- */
-      #v3 .content { flex-direction: column; gap: 40px; }
-      #v3 .h { font-size: 110px; }
-      #v3 .row { display: flex; gap: 36px; flex: 1; }
-      #v3-list { width: 700px; padding: 14px 0; align-self: flex-start; }
-      .chore { display: flex; align-items: center; gap: 24px; padding: 18px 34px; font-size: 40px; font-weight: 700; }
-      .box { width: 44px; height: 44px; border-radius: 10px; border: 3px solid #9CAA9D; display: grid; place-items: center; font-family: "JetBrains Mono", monospace; font-size: 28px; color: #0A0F0B; }
-      #v3-cal { flex: 1; padding: 34px 40px; display: flex; flex-direction: column; gap: 26px; border-color: rgba(255,122,77,0.45); }
-      .days { display: grid; grid-template-columns: repeat(4, 1fr); font-family: "JetBrains Mono", monospace; font-size: 26px; color: #9CAA9D; letter-spacing: 0.12em; }
-      .days span:last-child { color: #FF7A4D; font-weight: 700; }
-      .calrail { position: relative; height: 26px; border-radius: 13px; background: #22302A; overflow: hidden; }
-      .calrail i { position: absolute; left: 0; top: 0; bottom: 0; width: 100%; background: #FF7A4D; transform-origin: left center; display: block; }
-      .calstats { display: flex; justify-content: space-between; align-items: flex-end; }
-      .calstats .big { font-family: "JetBrains Mono", monospace; font-size: 88px; font-weight: 700; font-variant-numeric: tabular-nums; color: #FF7A4D; line-height: 1; }
-      .calstats .lbl { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 12px; }
-      .calstats .req0 { font-family: "JetBrains Mono", monospace; font-size: 30px; text-align: right; line-height: 1.5; }
+      /* ---------- 2: by hand ---------- */
+      #v2 .content { flex-direction: column; gap: 40px; }
+      #v2 .h { font-size: 104px; }
+      #v2 .row { display: flex; gap: 36px; flex: 1; }
+      #v2-list { width: 760px; padding: 14px 0; align-self: flex-start; }
+      .chore { display: flex; align-items: center; gap: 24px; padding: 18px 34px; font-size: 38px; font-weight: 700; }
+      .box .tk { color: #0A0F0B; font-weight: 700; }
+      .box { width: 44px; height: 44px; flex: none; border-radius: 10px; border: 3px solid #9CAA9D; display: grid; place-items: center; font-family: "JetBrains Mono", monospace; font-size: 28px; color: #0A0F0B; }
+      #v2 .stack { flex: 1; display: flex; flex-direction: column; gap: 26px; }
+      #v2-bill { padding: 30px 38px; display: flex; justify-content: space-between; align-items: flex-end; border-color: rgba(255,122,77,0.45); }
+      .billcol .lbl { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 10px; }
+      .billcol .num { font-family: "JetBrains Mono", monospace; font-size: 84px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
+      #v2-quote { padding: 30px 38px; display: flex; flex-direction: column; gap: 14px; }
+      #v2-quote .q { font-size: 36px; font-weight: 600; line-height: 1.25; }
+      #v2-quote .src { font-family: "JetBrains Mono", monospace; font-size: 21px; color: #9CAA9D; }
 
       /* ---------- door ---------- */
       .door { position: absolute; top: 0; bottom: 0; width: 960px; background: #111912; z-index: 30; }
       #door-l { left: 0; border-right: 3px solid #22302A; transform: translateX(-100%); }
       #door-r { right: 0; border-left: 3px solid #22302A; transform: translateX(100%); }
+      #door-txt { position: absolute; left: 0; right: 0; top: 400px; z-index: 32; text-align: center; opacity: 0; }
+      #door-txt .dt1 { font-size: 120px; font-weight: 800; letter-spacing: -0.045em; color: #ECF2E8; }
+      #door-txt .dt2 { font-family: "JetBrains Mono", monospace; font-size: 30px; color: #5CBF3A; margin-top: 18px; letter-spacing: 0.04em; }
       #door-seam { position: absolute; left: 958px; top: 0; bottom: 0; width: 4px; background: #5CBF3A; z-index: 31; opacity: 0; }
 
-      /* ---------- 4: one line ---------- */
-      #v4 .content { flex-direction: column; gap: 36px; }
-      #v4 .top { display: flex; justify-content: space-between; align-items: flex-end; }
-      #v4 .h { font-size: 116px; }
-      .provs { display: flex; gap: 14px; }
-      .prov { padding: 12px 22px; border-radius: 14px; border: 2px dashed #22302A; font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; }
-      .prov.on { border-style: solid; border-color: #5CBF3A; color: #ECF2E8; }
-      #v4 .bottom { display: flex; gap: 30px; flex: 1; }
-      #v4-prompt { width: 720px; }
-      #v4-prompt .body { padding: 28px 32px; font-family: "JetBrains Mono", monospace; font-size: 30px; line-height: 1.55; }
-      #v4-prompt .gt { color: #5CBF3A; }
+      /* ---------- 3: one line ---------- */
+      #v3 .content { flex-direction: column; gap: 36px; }
+      #v3 .top { display: flex; justify-content: space-between; align-items: flex-end; }
+      #v3 .h { font-size: 116px; }
+      #v3 .bottom { display: flex; gap: 30px; flex: 1; }
+      #v3-prompt { width: 720px; }
+      #v3-prompt .body { padding: 28px 32px; font-family: "JetBrains Mono", monospace; font-size: 30px; line-height: 1.55; }
+      #v3-prompt .gt { color: #5CBF3A; }
       .caret { display: inline-block; width: 14px; height: 32px; background: #5CBF3A; vertical-align: -5px; margin-left: 4px; }
-      #v4-term { flex: 1; }
+      #v3-term { flex: 1; }
       .budget { background: rgba(92,191,58,0.14); color: #5CBF3A; }
 
-      /* ---------- 5: any model ---------- */
-      #v5 .content { flex-direction: column; gap: 34px; }
-      #v5 .h { font-size: 116px; }
+      /* ---------- 4: new powers ---------- */
+      #v4 .content { flex-direction: column; gap: 34px; }
+      #v4 .top { display: flex; justify-content: space-between; align-items: flex-end; }
+      #v4 .h { font-size: 116px; }
+      .opens { display: flex; gap: 12px; }
+      .opens span { padding: 10px 20px; border-radius: 12px; border: 2px solid #5CBF3A; font-family: "JetBrains Mono", monospace; font-size: 22px; color: #B4E06C; }
       .models { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; flex: 1; }
       .mcard { display: flex; flex-direction: column; overflow: hidden; }
       .mcard .vis { flex: 1; position: relative; display: grid; place-items: center; border-bottom: 2px solid #22302A; overflow: hidden; }
       .mcard .meta { padding: 18px 22px; display: flex; flex-direction: column; gap: 6px; }
       .mcard .t { font-size: 38px; font-weight: 800; letter-spacing: -0.02em; }
       .mcard .id { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; white-space: nowrap; }
-      #v5-fox { width: 100%; height: 100%; object-fit: cover; display: block; }
+      #v4-fox { width: 100%; height: 100%; object-fit: cover; display: block; }
       .wave { display: flex; align-items: center; gap: 4px; height: 200px; }
       .wave i { width: 5px; border-radius: 3px; background: #5CBF3A; display: block; }
       .quote { padding: 0 26px; font-family: "JetBrains Mono", monospace; font-size: 24px; line-height: 1.6; }
       .quote .ts { color: #9CAA9D; font-size: 21px; }
-      .sims { width: 100%; padding: 0 26px; display: flex; flex-direction: column; gap: 22px; font-family: "JetBrains Mono", monospace; }
-      .sims .lbl { font-size: 22px; color: #9CAA9D; margin-bottom: 8px; display: flex; justify-content: space-between; }
-      .sims .lbl b { color: #ECF2E8; font-size: 24px; }
-      .sims .track { height: 16px; background: #22302A; border-radius: 8px; overflow: hidden; }
-      .sims .fill { height: 100%; background: #5CBF3A; border-radius: 8px; transform-origin: left center; }
-      .sims .fill.lo { background: #9CAA9D; }
+      .mini { width: 100%; padding: 0 22px; font-family: "JetBrains Mono", monospace; font-size: 21px; line-height: 1.9; }
+      .mini .c { color: #9CAA9D; } .mini .ok { color: #5CBF3A; } .mini .done { color: #B4E06C; font-weight: 700; }
       .routes { display: flex; gap: 14px; align-items: center; font-family: "JetBrains Mono", monospace; font-size: 22px; }
       .routes .base { color: #9CAA9D; margin-right: 8px; }
       .routes span.r { padding: 10px 18px; border-radius: 12px; background: #111912; border: 2px solid #22302A; color: #B4E06C; }
 
-      /* ---------- 6: its own code ---------- */
-      #v6 .left { width: 980px; display: flex; flex-direction: column; justify-content: center; }
-      #v6 .right { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 34px; }
-      #v6 .h { font-size: 100px; }
-      #v6-term .term { font-size: 29px; line-height: 1.9; padding: 28px 34px; }
-      .rules { display: flex; flex-direction: column; gap: 18px; }
-      .rule3 { display: flex; align-items: center; gap: 20px; padding: 20px 26px; font-size: 32px; font-weight: 700; }
-      .rule3 .ico { width: 46px; height: 46px; border-radius: 12px; background: rgba(92,191,58,0.16); display: grid; place-items: center; font-family: "JetBrains Mono", monospace; color: #5CBF3A; font-size: 26px; }
-
-      /* ---------- 7: the watchdog ---------- */
-      #v7 .content { flex-direction: column; gap: 40px; }
-      #v7 .top { display: flex; justify-content: space-between; align-items: flex-end; }
-      #v7 .h { font-size: 116px; }
-      .yaml { font-family: "JetBrains Mono", monospace; font-size: 30px; padding: 22px 30px; }
+      /* ---------- 5: the controls ---------- */
+      #v5 .content { flex-direction: column; gap: 34px; padding-top: 100px; }
+      #v5 .h { font-size: 100px; }
+      #v5 .row { display: flex; gap: 28px; }
+      #v5-yaml { width: 680px; }
+      .yaml { font-family: "JetBrains Mono", monospace; font-size: 30px; line-height: 1.75; padding: 22px 30px; }
       .yaml .key { color: #9CAA9D; } .yaml .val { color: #B4E06C; font-weight: 700; }
-      .timeline { position: relative; padding: 40px 48px 36px; }
-      .tl-head { display: flex; justify-content: space-between; font-family: "JetBrains Mono", monospace; font-size: 24px; color: #9CAA9D; margin-bottom: 26px; }
+      .offer { margin: 0 30px 26px; padding: 14px 20px; border-radius: 14px; background: rgba(92,191,58,0.12); font-family: "JetBrains Mono", monospace; font-size: 24px; color: #5CBF3A; font-weight: 700; }
+      #v5-ev { flex: 1; }
+      .ev { font-family: "JetBrains Mono", monospace; font-size: 24px; line-height: 1.95; padding: 20px 30px; }
+      .ev .ln { display: flex; gap: 22px; }
+      .ev .ts { color: #9CAA9D; width: 118px; flex: none; }
+      .ev .e { width: 290px; flex: none; color: #ECF2E8; }
+      .ev .e.g { color: #5CBF3A; } .ev .e.y { color: #E8C547; }
+      .ev .d { color: #9CAA9D; }
+      #v5-tl { padding: 30px 40px; display: flex; align-items: center; gap: 40px; }
+      #v5-tl .railbox { flex: 1; }
+      .tl-head { display: flex; justify-content: space-between; font-family: "JetBrains Mono", monospace; font-size: 24px; color: #9CAA9D; margin-bottom: 10px; }
       .tl-head b { color: #ECF2E8; font-variant-numeric: tabular-nums; }
       .rail { position: relative; height: 70px; }
       .rail .base { position: absolute; left: 0; right: 0; top: 33px; height: 4px; background: #22302A; }
       .req { position: absolute; top: 18px; width: 7px; height: 34px; border-radius: 3px; background: #5CBF3A; transform-origin: center bottom; }
-      .idlebar { position: absolute; left: 520px; right: 140px; top: 26px; height: 18px; border-radius: 9px; background: #FF7A4D; transform-origin: left center; }
-      .stopmark { position: absolute; right: 60px; top: 2px; width: 66px; height: 66px; border-radius: 50%; border: 4px solid #5CBF3A; display: grid; place-items: center; }
+      .idlebar { position: absolute; left: 330px; right: 100px; top: 26px; height: 18px; border-radius: 9px; background: #FF7A4D; transform-origin: left center; }
+      .stopmark { position: absolute; right: 20px; top: 2px; width: 66px; height: 66px; border-radius: 50%; border: 4px solid #5CBF3A; display: grid; place-items: center; }
       .stopmark i { width: 22px; height: 22px; border-radius: 4px; background: #5CBF3A; display: block; }
-      .tl-foot { display: flex; justify-content: space-between; font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; margin-top: 18px; }
-      #v7 .bottom { display: flex; gap: 30px; }
-      .state { flex: 1.2; padding: 28px 36px; display: flex; justify-content: space-between; align-items: center; }
-      .state .lbl { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; letter-spacing: 0.1em; text-transform: uppercase; }
-      .rate { position: relative; width: 340px; height: 76px; font-family: "JetBrains Mono", monospace; font-size: 64px; font-weight: 700; font-variant-numeric: tabular-nums; }
-      .rate span { position: absolute; right: 0; top: 0; }
-      .pillwrap { position: relative; width: 250px; height: 56px; margin-top: 14px; }
+      .statebox { width: 420px; display: flex; flex-direction: column; gap: 12px; }
+      .pillwrap { position: relative; width: 250px; height: 56px; }
       .pillwrap .pill { position: absolute; left: 0; top: 0; }
-      .closed { flex: 1; padding: 24px 34px; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
-      .closed .t1 { font-size: 32px; font-weight: 800; display: flex; align-items: center; gap: 16px; }
-      .closed .t1 .x { width: 44px; height: 44px; border-radius: 12px; border: 3px solid #22302A; display: grid; place-items: center; font-family: "JetBrains Mono", monospace; font-size: 22px; color: #9CAA9D; }
-      .closed .t2 { font-family: "JetBrains Mono", monospace; font-size: 22px; color: #5CBF3A; }
+      .closed { font-family: "JetBrains Mono", monospace; font-size: 24px; color: #9CAA9D; white-space: nowrap; }
+      .closed b { color: #5CBF3A; }
 
-      /* ---------- 8: close ---------- */
-      #v8 .content { flex-direction: column; justify-content: center; gap: 40px; }
-      #v8-h1 { font-size: 92px; }
-      #v8-h2 { font-size: 92px; }
+      /* ---------- 6: close ---------- */
+      #v6 .content { flex-direction: column; justify-content: center; gap: 40px; }
+      #v6-h1, #v6-h2 { font-size: 92px; }
       .cta { padding: 26px 34px; font-family: "JetBrains Mono", monospace; font-size: 32px; line-height: 1.5; border-color: #5CBF3A; align-self: flex-start; }
       .cta .lbl { font-size: 20px; color: #9CAA9D; letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 6px; }
       .cta b { color: #5CBF3A; }
@@ -189,214 +170,188 @@
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="main" data-start="0" data-duration="104.0" data-width="1920" data-height="1080">
+    <div id="root" data-composition-id="main" data-start="0" data-duration="116.0" data-width="1920" data-height="1080">
 
-      <!-- ===== 1. 2028: agents draw, listen, speak, train ===== -->
+      <!-- ===== 1. what the agent can't do alone ===== -->
       <div id="v1" class="scene"><div class="inner" id="v1i">
-        <div class="grid" id="v1-grid" style="opacity:0.6"></div>
-        <div class="beat" id="b1" style="left:300px;top:-500px;width:1400px;height:1400px;background:radial-gradient(circle, rgba(92,191,58,0.22) 0%, rgba(92,191,58,0) 62%);"></div>
-        <div data-layout-ignore class="ghost" id="v1-ghost" style="font-size:640px;left:520px;top:150px;">2028</div>
+        <div class="grid em" id="v1-grid" style="opacity:0.7"></div>
+        <div class="beat" id="b1" style="left:-300px;top:-500px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(255,122,77,0.16) 0%, rgba(255,122,77,0) 62%);"></div>
         <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
-        <div data-layout-ignore class="yearbox lf"><span>2028</span></div>
-        <div class="content">
-          <div class="eyebrow" id="v1-eb"><span class="rule"></span>Two years from now</div>
-          <div class="h" id="v1-h">Agents draw, listen, speak and train.</div>
-          <div class="caps">
-            <div class="card cap4" id="cap-draw"><svg viewBox="0 0 24 24" fill="none" stroke="#5CBF3A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 17-5-5-9 8"/></svg><div><div class="n">Draw</div><div class="m">text-to-image</div></div></div>
-            <div class="card cap4" id="cap-listen"><svg viewBox="0 0 24 24" fill="none" stroke="#5CBF3A" stroke-width="1.8" stroke-linecap="round"><path d="M3 12h1M7 8v8M11 5v14M15 9v6M19 7v10M22 12h-1"/></svg><div><div class="n">Listen</div><div class="m">speech-to-text</div></div></div>
-            <div class="card cap4" id="cap-speak"><svg viewBox="0 0 24 24" fill="none" stroke="#5CBF3A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9a4 4 0 0 1 0 6M19.5 6.5a8 8 0 0 1 0 11"/></svg><div><div class="n">Speak</div><div class="m">text-to-speech</div></div></div>
-            <div class="card cap4" id="cap-train"><svg viewBox="0 0 24 24" fill="none" stroke="#5CBF3A" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h18"/><path d="m4 16 5-6 4 3 7-8"/><path d="M15 5h5v5"/></svg><div><div class="n">Train</div><div class="m">fine-tune, LoRA</div></div></div>
-          </div>
-          <div class="h dim" id="v1-h2">Nobody remembers when they couldn't.</div>
-        </div>
-      </div></div>
-
-      <!-- ===== 2. 2026: locked in a room ===== -->
-      <div id="v2" class="scene"><div class="inner" id="v2i">
-        <div class="grid em" id="v2-grid"></div>
-        <div class="beat" id="b2" style="right:-300px;bottom:-500px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(255,122,77,0.20) 0%, rgba(255,122,77,0) 62%);opacity:0.6"></div>
-        <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
-        <div data-layout-ignore class="yearbox"><span id="v2-y28" class="lf">2028</span><span id="v2-y26" class="em">2026</span></div>
+        <div data-layout-ignore class="corner tr">your agent · no GPU</div>
         <div class="content">
           <div class="left">
-            <div class="eyebrow em" id="v2-eb"><span class="rule"></span>Today</div>
-            <div class="h" id="v2-h1">Your smartest worker</div>
-            <div class="h em" id="v2-h2">is locked in a room.</div>
+            <div class="eyebrow em" id="v1-eb"><span class="rule"></span>Your agent, today</div>
+            <div class="h" id="v1-h">Ask it for <span class="em">more.</span></div>
+            <div class="cant" id="v1-cant">
+              <div class="lbl">can't do it alone</div>
+              <div class="chips">
+                <span class="chip"><i>✕</i>images</span><span class="chip"><i>✕</i>voice, music</span><span class="chip"><i>✕</i>hear audio</span>
+                <span class="chip"><i>✕</i>open models</span><span class="chip"><i>✕</i>run GPU code</span><span class="chip"><i>✕</i>keep data in</span>
+              </div>
+            </div>
           </div>
           <div class="right">
-            <div class="card" id="v2-room">
-              <div class="bar-dots"><i></i><i></i><i></i><span>your agent · no GPU</span></div>
-              <div class="row2" id="v2-r1"><span class="yes">✓ wrote image_model.py</span><span class="no" id="v2-n1">✕ never saw the picture</span></div>
-              <div class="row2" id="v2-r2"><span class="yes">✓ read every transcript</span><span class="no" id="v2-n2">✕ never heard a voice</span></div>
-              <div class="row2" id="v2-r3"><span class="dim">needs a GPU</span><span class="pill waitpill" id="v2-wait"><span class="dot" style="background:#FF7A4D"></span>WAITING FOR YOU<b id="v2-d1">.</b><b id="v2-d2">.</b><b id="v2-d3">.</b></span></div>
-              <div id="v2-lock"><svg viewBox="0 0 24 24" fill="none" stroke="#FF7A4D" stroke-width="2.4" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></div>
-            </div>
-          </div>
-        </div>
-      </div></div>
-
-      <!-- ===== 3. the chores, and the weekend bill ===== -->
-      <div id="v3" class="scene"><div class="inner" id="v3i">
-        <div class="beat" id="b3" style="left:600px;top:-600px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(255,122,77,0.18) 0%, rgba(255,122,77,0) 62%);"></div>
-        <div data-layout-ignore class="ghost" style="font-size:380px;right:-40px;bottom:-60px;">MONDAY</div>
-        <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
-        <div data-layout-ignore class="yearbox em"><span>2026</span></div>
-        <div class="content">
-          <div class="h" id="v3-h">So you do it <span class="em">by hand.</span></div>
-          <div class="row">
-            <div class="card" id="v3-list">
-              <div class="chore" id="ch1"><span class="box" id="bx1">✓</span>Sign up</div>
-              <div class="chore" id="ch2"><span class="box" id="bx2">✓</span>Pick a GPU</div>
-              <div class="chore" id="ch3"><span class="box" id="bx3">✓</span>Copy a key</div>
-              <div class="chore" id="ch4"><span class="box" id="bx4">✓</span>Babysit a server</div>
-            </div>
-            <div class="card" id="v3-cal">
-              <div class="days"><span>FRI 18:00</span><span>SAT</span><span>SUN</span><span>MON</span></div>
-              <div class="calrail"><i id="v3-bar"></i></div>
-              <div class="calstats">
-                <div><div class="big" id="v3-hours">0 h</div><div class="lbl">billed while idle</div></div>
-                <div class="req0"><div class="dim">requests</div><div class="em" style="font-weight:700">0</div></div>
+            <div class="card" id="v1-chat">
+              <div class="bar-dots"><i></i><i></i><i></i><span>claude code · codex · gemini · cursor</span></div>
+              <div class="body">
+                <div class="ex"><div class="u" id="v1-u1"><span class="gt">›</span>Make a picture of a fox in the snow.</div>
+                  <div class="a" id="v1-a1"><b>I can't create images.</b> Here's a prompt you can paste into an image tool: "a red fox in fresh snow…"</div></div>
+                <div class="ex"><div class="u" id="v1-u2"><span class="gt">›</span>Listen to standup.m4a and sum it up.</div>
+                  <div class="a" id="v1-a2"><b>I can't listen to audio.</b> Could you paste the transcript?</div></div>
+                <div class="ex"><div class="u" id="v1-u3"><span class="gt">›</span>Does this CUDA kernel work?</div>
+                  <div class="a" id="v1-a3"><b>It should.</b> I can't run it here: this environment has no GPU.</div></div>
               </div>
             </div>
           </div>
         </div>
       </div></div>
 
-      <!-- ===== 4. the door opens: paste one line ===== -->
-      <div id="v4" class="scene"><div class="inner" id="v4i">
-        <div class="grid" id="v4-grid" style="opacity:0.7"></div>
-        <div class="beat" id="b4" style="left:360px;top:-560px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(92,191,58,0.28) 0%, rgba(92,191,58,0) 62%);"></div>
+      <!-- ===== 2. doing it by hand ===== -->
+      <div id="v2" class="scene"><div class="inner" id="v2i">
+        <div class="beat" id="b2" style="left:600px;top:-600px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(255,122,77,0.18) 0%, rgba(255,122,77,0) 62%);"></div>
+        <div data-layout-ignore class="ghost" style="font-size:380px;right:-40px;bottom:-60px;">$1,000</div>
+        <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
+        <div data-layout-ignore class="corner tr">the manual way</div>
+        <div class="content">
+          <div class="h" id="v2-h">You could do it <span class="em">yourself.</span></div>
+          <div class="row">
+            <div class="card" id="v2-list">
+              <div class="chore" id="ch1"><span class="box" id="bx1"><b class="tk" id="tk1">✓</b></span>Open an account</div>
+              <div class="chore" id="ch2"><span class="box" id="bx2"><b class="tk" id="tk2">!</b></span>Paste a cloud key into the chat</div>
+              <div class="chore" id="ch3"><span class="box" id="bx3"><b class="tk" id="tk3">✓</b></span>Install CUDA</div>
+              <div class="chore" id="ch4"><span class="box" id="bx4"><b class="tk" id="tk4">✓</b></span>Keep an eye on the box</div>
+            </div>
+            <div class="stack">
+              <div class="card" id="v2-bill">
+                <div class="billcol" id="v2-exp"><div class="lbl">expected</div><div class="num dim">$100</div></div>
+                <div class="billcol" id="v2-got" style="text-align:right"><div class="lbl">billed</div><div class="num em" id="v2-billed">$100</div></div>
+              </div>
+              <div class="card" id="v2-quote">
+                <div class="q">"Giving an LLM direct provisioning power is <span class="em">terrifying</span> from a billing perspective."</div>
+                <div class="src">a comment on Hacker News</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <!-- ===== 3. paste one line ===== -->
+      <div id="v3" class="scene"><div class="inner" id="v3i">
+        <div class="grid" id="v3-grid" style="opacity:0.7"></div>
+        <div class="beat" id="b3" style="left:360px;top:-560px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(92,191,58,0.28) 0%, rgba(92,191,58,0) 62%);"></div>
         <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
         <div data-layout-ignore class="corner tr">your agent · its own GPU</div>
         <div class="content">
           <div class="top">
             <div style="display:flex;flex-direction:column;gap:24px;">
-              <div class="eyebrow" id="v4-eb"><span class="rule"></span>GPU for Agents</div>
-              <div class="h" id="v4-h">Paste <span class="lf">one line.</span></div>
+              <div class="eyebrow" id="v3-eb"><span class="rule"></span>Power, with the controls built in</div>
+              <div class="h" id="v3-h">Paste <span class="lf">one line.</span></div>
             </div>
-            <div style="display:flex;flex-direction:column;gap:16px;align-items:flex-end;">
-              <div class="provs" id="v4-provs"><span class="prov on">Vast.ai</span><span class="prov">RunPod</span><span class="prov">Lambda</span><span class="prov">your cluster</span></div>
-              <div class="pill budget" id="v4-budget"><span class="dot" style="background:#5CBF3A"></span>BUDGET $0.60/h ✓</div>
-            </div>
+            <div class="pill budget" id="v3-budget"><span class="dot" style="background:#5CBF3A"></span>UNDER BUDGET ✓</div>
           </div>
           <div class="bottom">
-            <div class="card" id="v4-prompt">
+            <div class="card" id="v3-prompt">
               <div class="bar-dots"><i></i><i></i><i></i><span>claude code · codex · gemini · cursor</span></div>
-              <div class="body"><span class="gt">›</span> <span id="v4-typed"></span><span class="caret" id="v4-caret"></span></div>
+              <div class="body"><span class="gt">›</span> <span id="v3-typed"></span><span class="caret" id="v3-caret"></span></div>
             </div>
-            <div class="card" id="v4-term">
+            <div class="card" id="v3-term">
               <div class="bar-dots"><i></i><i></i><i></i><span>the agent runs gpu setup</span></div>
               <div class="term">
-                <div class="ln" id="v4-t1"><span class="c">&gt;</span> searching Vast.ai for 1x &gt;=12GB GPU, 80GB disk</div>
-                <div class="ln c" id="v4-t2">&nbsp;&nbsp;cheapest match: $0.052/h</div>
-                <div class="ln ok" id="v4-t3">+ instance created (1x RTX 3060, $0.065/h)</div>
-                <div class="ln ok" id="v4-t4">+ lifecycle watchdog live</div>
-                <div class="ln done" id="v4-t5">+ runtime ready: http://91.150.160.35:42273/v1</div>
+                <div class="ln" id="v3-t1"><span class="c">&gt;</span> searching for 1x &gt;=12GB GPU, 80GB disk</div>
+                <div class="ln c" id="v3-t2">&nbsp;&nbsp;cheapest match: $0.052/h</div>
+                <div class="ln ok" id="v3-t3">+ instance created (1x RTX 3060, $0.065/h)</div>
+                <div class="ln ok" id="v3-t4">+ lifecycle watchdog live</div>
+                <div class="ln done" id="v3-t5">+ runtime ready: http://91.150.160.35:42273/v1</div>
               </div>
             </div>
           </div>
         </div>
       </div></div>
 
-      <!-- ===== 5. any model, OpenAI-compatible ===== -->
-      <div id="v5" class="scene"><div class="inner" id="v5i">
-        <div class="beat" id="b5" style="right:-300px;top:-500px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(92,191,58,0.24) 0%, rgba(92,191,58,0) 62%);"></div>
+      <!-- ===== 4. new powers ===== -->
+      <div id="v4" class="scene"><div class="inner" id="v4i">
+        <div class="beat" id="b4" style="right:-300px;top:-500px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(92,191,58,0.24) 0%, rgba(92,191,58,0) 62%);"></div>
         <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
         <div data-layout-ignore class="corner tr">real outputs · one RTX 3060</div>
         <div class="content">
-          <div style="display:flex;justify-content:space-between;align-items:flex-end;">
-            <div class="h" id="v5-h">Any <span class="lf">model.</span></div>
-            <div class="eyebrow" id="v5-eb"><span class="rule"></span>served by gpu</div>
+          <div class="top">
+            <div class="h" id="v4-h">New <span class="lf">powers.</span></div>
+            <div class="opens" id="v4-opens"><span>open weights</span><span>your rules</span><span>no third-party API</span></div>
           </div>
           <div class="models">
-            <div class="card mcard" id="m-img"><div class="vis"><img id="v5-fox" src="assets/fox.jpg" alt="" /></div><div class="meta"><div class="t">Images</div><div class="id">stabilityai/sd-turbo · 2.5 s</div></div></div>
-            <div class="card mcard" id="m-voice"><div class="vis"><div class="wave" id="v5-wave"></div></div><div class="meta"><div class="t">Voices</div><div class="id">facebook/mms-tts-eng</div></div></div>
-            <div class="card mcard" id="m-asr"><div class="vis"><div class="quote"><div class="ts">00:00:00,000 --&gt; 00:00:03,600</div><div id="v5-said">GPU for Agents serves any model, on a rented GPU.</div></div></div><div class="meta"><div class="t">Transcription</div><div class="id">openai/whisper-tiny</div></div></div>
-            <div class="card mcard" id="m-emb"><div class="vis"><div class="sims">
-              <div><div class="lbl"><span>fox ~ fox in snow</span><b id="v5-s1">0.00</b></div><div class="track"><div class="fill" id="v5-f1" style="width:90%"></div></div></div>
-              <div><div class="lbl"><span>fox ~ tax deadline</span><b id="v5-s2">0.00</b></div><div class="track"><div class="fill lo" id="v5-f2" style="width:33%"></div></div></div>
-            </div></div><div class="meta"><div class="t">Embeddings</div><div class="id">BAAI/bge-small-en-v1.5</div></div></div>
+            <div class="card mcard" id="m-img"><div class="vis"><img id="v4-fox" src="assets/fox.jpg" alt="" /></div><div class="meta"><div class="t">Images</div><div class="id">stabilityai/sd-turbo · 2.5 s</div></div></div>
+            <div class="card mcard" id="m-voice"><div class="vis"><div class="wave" id="v4-wave"></div></div><div class="meta"><div class="t">Voices</div><div class="id">facebook/mms-tts-eng</div></div></div>
+            <div class="card mcard" id="m-asr"><div class="vis"><div class="quote"><div class="ts">00:00:00,000 --&gt; 00:00:03,600</div><div id="v4-said">GPU for Agents serves any model, on a rented GPU.</div></div></div><div class="meta"><div class="t">Transcription</div><div class="id">openai/whisper-tiny</div></div></div>
+            <div class="card mcard" id="m-code"><div class="vis"><div class="mini">
+              <div class="ln" id="v4-k1"><span class="c">$</span> gpu job run --</div>
+              <div class="ln" id="v4-k1b">&nbsp;&nbsp;python test_kernel.py</div>
+              <div class="ln ok" id="v4-k2">+ job running on the GPU</div>
+              <div class="ln done" id="v4-k3">+ finished, exit 0</div>
+            </div></div><div class="meta"><div class="t">Its GPU code</div><div class="id">gpu job run · real hardware</div></div></div>
           </div>
-          <div class="routes" id="v5-routes"><span class="base">base_url …/v1</span><span class="r">/images/generations</span><span class="r">/audio/speech</span><span class="r">/audio/transcriptions</span><span class="r">/embeddings</span><span class="r">/chat/completions</span></div>
+          <div class="routes" id="v4-routes"><span class="base">base_url …/v1</span><span class="r">/images/generations</span><span class="r">/audio/speech</span><span class="r">/audio/transcriptions</span><span class="r">/embeddings</span><span class="r">/chat/completions</span></div>
         </div>
       </div></div>
 
-      <!-- ===== 6. its own code, a model that is yours, your rules ===== -->
+      <!-- ===== 5. the controls: budget, event log, watchdog ===== -->
+      <div id="v5" class="scene"><div class="inner" id="v5i">
+        <div class="grid" id="v5-grid"></div>
+        <div class="beat" id="b5" style="left:400px;top:-560px;width:1200px;height:1200px;background:radial-gradient(circle, rgba(92,191,58,0.20) 0%, rgba(92,191,58,0) 62%);"></div>
+        <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
+        <div data-layout-ignore class="corner tr">controllable · auditable · watched from inside</div>
+        <div class="content">
+          <div class="h" id="v5-h">The controls are <span class="lf">built in.</span></div>
+          <div class="row">
+            <div class="card" id="v5-yaml">
+              <div class="bar-dots"><i></i><i></i><i></i><span>gpu.yaml · you set it</span></div>
+              <div class="yaml">
+                <div><span class="key">budget:</span></div>
+                <div>&nbsp;&nbsp;<span class="key">max_hourly_cost_usd:</span> <span class="val">1.00</span></div>
+                <div>&nbsp;&nbsp;<span class="key">max_session_cost_usd:</span> <span class="val">5.00</span></div>
+                <div><span class="key">lifecycle:</span></div>
+                <div>&nbsp;&nbsp;<span class="key">idle_timeout:</span> <span class="val">15m</span></div>
+              </div>
+              <div class="offer" id="v5-offer">offer RTX 3060 · $0.065/h · under cap ✓</div>
+            </div>
+            <div class="card" id="v5-ev">
+              <div class="bar-dots"><i></i><i></i><i></i><span>gpu events · every step, logged</span></div>
+              <div class="ev">
+                <div class="ln" id="ev1"><span class="ts">02:23:25</span><span class="e">provision_requested</span><span class="d">sd-turbo · min 12 GB</span></div>
+                <div class="ln" id="ev2"><span class="ts">02:23:26</span><span class="e g">instance_created</span><span class="d">RTX 3060 · $0.065/h</span></div>
+                <div class="ln" id="ev3"><span class="ts">02:25:18</span><span class="e">watchdog_started</span><span class="d">idle_timeout 900 s</span></div>
+                <div class="ln" id="ev4"><span class="ts">02:26:27</span><span class="e g">runtime_ready</span><span class="d">startup 65.8 s</span></div>
+                <div class="ln" id="ev5"><span class="ts">02:35:18</span><span class="e y">instance_idle</span><span class="d">pending_workloads 0</span></div>
+                <div class="ln" id="ev6"><span class="ts">02:50:43</span><span class="e y">state_reconciled</span><span class="d">idle → stopped</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="card" id="v5-tl">
+            <div class="statebox">
+              <div class="pillwrap">
+                <div class="pill" id="v5-run" style="background:rgba(255,122,77,0.16);color:#FF7A4D;"><span class="dot" style="background:#FF7A4D"></span>RUNNING</div>
+                <div class="pill" id="v5-stopped" style="background:rgba(92,191,58,0.16);color:#5CBF3A;opacity:0;"><span class="dot" style="background:#5CBF3A"></span>STOPPED</div>
+              </div>
+              <div class="closed" id="v5-closed">chat closed · <b>stopped anyway</b></div>
+            </div>
+            <div class="railbox">
+              <div class="tl-head"><span>watchdog, inside the machine</span><span>idle <b id="v5-idle">00:00</b> / 15:00</span></div>
+              <div class="rail">
+                <div class="base"></div>
+                <div class="req" style="left:20px"></div><div class="req" style="left:62px"></div><div class="req" style="left:90px"></div><div class="req" style="left:150px"></div><div class="req" style="left:205px"></div><div class="req" style="left:236px"></div><div class="req" style="left:290px"></div>
+                <div class="idlebar" id="v5-bar"></div>
+                <div class="stopmark" id="v5-stop"><i></i></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+
+      <!-- ===== 6. close ===== -->
       <div id="v6" class="scene"><div class="inner" id="v6i">
-        <div class="grid" id="v6-grid" style="opacity:0.6"></div>
-        <div class="beat" id="b6" style="left:-300px;bottom:-600px;width:1300px;height:1300px;background:radial-gradient(circle, rgba(180,224,108,0.20) 0%, rgba(180,224,108,0) 62%);"></div>
+        <div class="grid" id="v6-grid" style="opacity:0.7"></div>
+        <div class="beat" id="b6" style="left:900px;top:-100px;width:1400px;height:1400px;background:radial-gradient(circle, rgba(92,191,58,0.24) 0%, rgba(92,191,58,0) 62%);"></div>
         <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
-        <div data-layout-ignore class="corner tr">gpu job run</div>
-        <div class="content">
-          <div class="left">
-            <div class="card" id="v6-term">
-              <div class="bar-dots"><i></i><i></i><i></i><span>the agent fine-tunes on your data</span></div>
-              <div class="term">
-                <div class="ln" id="v6-t1"><span class="c">$</span> gpu job run -- python finetune.py --data tickets/</div>
-                <div class="ln c" id="v6-t2">&gt; uploading the code and the data</div>
-                <div class="ln ok" id="v6-t3">+ job running on the rented GPU</div>
-                <div class="ln" id="v6-t4">&nbsp;&nbsp;epoch 1/3 ▸ epoch 2/3 ▸ epoch 3/3</div>
-                <div class="ln done" id="v6-t5">+ pulled gpu-outputs/…/adapter.safetensors</div>
-              </div>
-            </div>
-          </div>
-          <div class="right">
-            <div class="h" id="v6-h">A model that is <span class="lf">yours.</span></div>
-            <div class="rules">
-              <div class="card rule3" id="v6-r1"><span class="ico">◆</span>Open weights</div>
-              <div class="card rule3" id="v6-r2"><span class="ico">§</span>Your rules</div>
-              <div class="card rule3" id="v6-r3"><span class="ico">⌂</span>Data stays on the machine</div>
-            </div>
-          </div>
-        </div>
-      </div></div>
-
-      <!-- ===== 7. when the work stops, the GPU stops ===== -->
-      <div id="v7" class="scene"><div class="inner" id="v7i">
-        <div class="grid" id="v7-grid"></div>
-        <div class="beat" id="b7" style="left:400px;top:-560px;width:1200px;height:1200px;background:radial-gradient(circle, rgba(92,191,58,0.20) 0%, rgba(92,191,58,0) 62%);"></div>
-        <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
-        <div data-layout-ignore class="corner tr">a watchdog on the machine</div>
-        <div class="content">
-          <div class="top">
-            <div class="h" id="v7-h">Idle? <span class="lf">It shuts down.</span></div>
-            <div class="card yaml" id="v7-yaml"><span class="key">idle_timeout:</span> <span class="val">15m</span></div>
-          </div>
-          <div class="card timeline" id="v7-tl">
-            <div class="tl-head"><span>requests</span><span>idle <b id="v7-idle">00:00</b> / 15:00</span></div>
-            <div class="rail">
-              <div class="base"></div>
-              <div class="req" style="left:20px"></div><div class="req" style="left:70px"></div><div class="req" style="left:96px"></div><div class="req" style="left:160px"></div><div class="req" style="left:230px"></div><div class="req" style="left:262px"></div><div class="req" style="left:330px"></div><div class="req" style="left:395px"></div><div class="req" style="left:470px"></div>
-              <div class="idlebar" id="v7-bar"></div>
-              <div class="stopmark" id="v7-stop"><i></i></div>
-            </div>
-            <div class="tl-foot"><span>agent working</span><span>last request</span><span>stopped</span></div>
-          </div>
-          <div class="bottom">
-            <div class="card state" id="v7-state">
-              <div><div class="lbl">billing</div>
-                <div class="pillwrap">
-                  <div class="pill" id="v7-run" style="background:rgba(255,122,77,0.16);color:#FF7A4D;"><span class="dot" style="background:#FF7A4D"></span>RUNNING</div>
-                  <div class="pill" id="v7-stopped" style="background:rgba(92,191,58,0.16);color:#5CBF3A;opacity:0;"><span class="dot" style="background:#5CBF3A"></span>STOPPED</div>
-                </div>
-              </div>
-              <div class="rate"><span id="v7-r1" style="color:#FF7A4D">$0.065/h</span><span id="v7-r2" style="color:#5CBF3A;opacity:0">$0.00/h</span></div>
-            </div>
-            <div class="card closed" id="v7-closed">
-              <div class="t1" id="v7-c1"><span class="x">✕</span>Chat closed at 23:04</div>
-              <div class="t1" id="v7-c2"><span class="x">☾</span>03:00, you're asleep</div>
-              <div class="t2" id="v7-c3">GPU stopped anyway</div>
-            </div>
-          </div>
-        </div>
-      </div></div>
-
-      <!-- ===== 8. someday obvious; today one line ===== -->
-      <div id="v8" class="scene"><div class="inner" id="v8i">
-        <div class="grid" id="v8-grid" style="opacity:0.7"></div>
-        <div class="beat" id="b8" style="left:900px;top:-100px;width:1400px;height:1400px;background:radial-gradient(circle, rgba(92,191,58,0.24) 0%, rgba(92,191,58,0) 62%);"></div>
-        <div data-layout-ignore class="corner tl"><i class="bdot"></i>GPU for Agents</div>
-        <svg data-layout-ignore id="v8-mark" viewBox="0 0 100 100" aria-hidden="true" style="position:absolute;right:40px;top:120px;width:560px;height:560px;opacity:0.3">
+        <svg data-layout-ignore id="v6-mark" viewBox="0 0 100 100" aria-hidden="true" style="position:absolute;right:40px;top:120px;width:560px;height:560px;opacity:0.3">
           <circle cx="50" cy="15" r="10" fill="none" stroke="#5CBF3A" stroke-width="1" />
           <path pathLength="100" d="M50 74 C 24 72 8 52 10 32 C 32 32 50 48 50 74 Z" fill="rgba(92,191,58,0.08)" stroke="#5CBF3A" stroke-width="1" />
           <path pathLength="100" d="M50 74 C 54 50 70 34 92 32 C 92 54 74 72 50 74 Z" fill="rgba(180,224,108,0.08)" stroke="#B4E06C" stroke-width="1" />
@@ -404,19 +359,19 @@
         </svg>
         <div class="content">
           <div>
-            <div class="h dim" id="v8-h1">Someday, this will look obvious.</div>
-            <div class="h" id="v8-h2" style="margin-top:18px">Today, it's <span class="lf">one line.</span></div>
+            <div class="h" id="v6-h1">New powers for your agent.</div>
+            <div class="h dim" id="v6-h2" style="margin-top:18px">And you keep the <span class="lf">controls.</span></div>
           </div>
-          <div class="card cta" id="v8-cta"><div class="lbl">paste into your agent</div>Set up GPU for Agents: <b>gpu4agents.jambu.ai</b></div>
-          <div class="brand" id="v8-brand">
+          <div class="card cta" id="v6-cta"><div class="lbl">paste into your agent</div>Set up GPU for Agents: <b>gpu4agents.jambu.ai</b></div>
+          <div class="brand" id="v6-brand">
             <svg viewBox="0 0 100 100" aria-hidden="true">
               <circle id="m-dot" cx="50" cy="15" r="10" fill="#5CBF3A" />
               <path id="m-l" d="M50 74 C 24 72 8 52 10 32 C 32 32 50 48 50 74 Z" fill="#5CBF3A" />
               <path id="m-r" d="M50 74 C 54 50 70 34 92 32 C 92 54 74 72 50 74 Z" fill="#B4E06C" />
               <path id="m-stem" pathLength="100" d="M50 74 V 92 M50 80 C 40 80 30 78 20 70 M50 80 C 60 80 70 78 80 70" stroke="#5CBF3A" stroke-width="4" fill="none" stroke-linecap="round" />
             </svg>
-            <div><div class="name" id="v8-name">GPU for Agents</div><div class="by" id="v8-by">Give your agent a GPU.</div></div>
-            <div class="facts" id="v8-facts"><div><b>Any model · any GPU provider</b></div><div>open source · github.com/jambuai/gpu4agents</div></div>
+            <div><div class="name" id="v6-name">GPU for Agents</div><div class="by" id="v6-by">Give your agent a GPU.</div></div>
+            <div class="facts" id="v6-facts"><div><b>Budget · event log · watchdog</b></div><div>open source · github.com/jambuai/gpu4agents</div></div>
           </div>
         </div>
       </div></div>
@@ -424,27 +379,27 @@
       <div id="door-l" class="door"></div>
       <div id="door-r" class="door"></div>
       <div id="door-seam"></div>
+      <div id="door-txt"><div class="dt1">GPU for Agents</div><div class="dt2">the power, with the controls built in</div></div>
       <div id="flash"></div>
       <div id="wipe"></div>
       <div id="captions" data-layout-allow-overlap></div>
       <div id="fade"></div>
 
-      <audio id="vo" data-start="0" data-duration="104.0" data-track-index="1" src="assets/vsl-audio.wav" data-volume="1"></audio>
+      <audio id="vo" data-start="0" data-duration="116.0" data-track-index="1" src="assets/vsl-audio.wav" data-volume="1"></audio>
     </div>
 
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
-      const T = /*TIMING*/{"total": 104.0, "bpm": 120.0, "stop_at": 81.5, "scenes": [{"scene": 1, "start": 0.0, "end": 10.0, "lines": [{"id": "a1", "text": "Twenty twenty-eight.", "start": 0.5, "end": 1.94}, {"id": "a2", "text": "Agents draw, listen, speak, and train their own models.", "start": 2.26, "end": 6.522}, {"id": "a3", "text": "Nobody remembers when they couldn't.", "start": 6.842, "end": 8.743}]}, {"scene": 2, "start": 10.0, "end": 32.0, "lines": [{"id": "b1", "text": "But in twenty twenty-six, your smartest worker is locked in a room.", "start": 10.5, "end": 15.455}, {"id": "b2", "text": "It writes the code for an image model, and never sees the picture.", "start": 15.775, "end": 20.223}, {"id": "b3", "text": "It reads every transcript, and never hears a voice.", "start": 20.543, "end": 23.876}, {"id": "b4", "text": "And when it needs a GPU, it stops. And waits. For you.", "start": 24.196, "end": 30.651}]}, {"scene": 3, "start": 32.0, "end": 42.0, "lines": [{"id": "c1", "text": "Sign up. Pick a GPU. Copy a key. Babysit a server.", "start": 32.5, "end": 37.066}, {"id": "c2", "text": "Forget it running on Friday, and pay for it on Monday.", "start": 37.386, "end": 41.25}]}, {"scene": 4, "start": 42.0, "end": 54.0, "lines": [{"id": "d1", "text": "So we opened the door.", "start": 42.5, "end": 43.83}, {"id": "d2", "text": "Paste one line, and your agent rents its own GPU, from any provider, in minutes, under your budget.", "start": 44.15, "end": 52.576}]}, {"scene": 5, "start": 54.0, "end": 78.0, "lines": [{"id": "e1", "text": "Any model. Images. Voices. Transcription. Embeddings.", "start": 54.5, "end": 59.011}, {"id": "e2", "text": "On an OpenAI-compatible endpoint that every tool you have can call.", "start": 59.331, "end": 63.848}, {"id": "e3", "text": "Its own code, too: it fine-tunes on your data and hands you a model that is yours.", "start": 64.168, "end": 69.817}, {"id": "e4", "text": "Open models, under your rules. The data stays on the machine; the agent sees the results.", "start": 70.137, "end": 76.97}]}, {"scene": 6, "start": 78.0, "end": 90.0, "lines": [{"id": "f1", "text": "And when the work stops, the GPU stops.", "start": 78.5, "end": 81.663}, {"id": "f2", "text": "A watchdog on the machine shuts it down, even if the chat is closed, even if you're asleep.", "start": 81.983, "end": 88.14}]}, {"scene": 7, "start": 90.0, "end": 104.0, "lines": [{"id": "g1", "text": "Someday, this will look obvious.", "start": 90.5, "end": 92.465}, {"id": "g2", "text": "Today, it's one line.", "start": 92.785, "end": 95.105}, {"id": "g3", "text": "GPU for Agents. Give your agent a GPU.", "start": 95.425, "end": 99.389}]}]}/*END*/;
+      const T = /*TIMING*/{"total": 116.0, "bpm": 120.0, "stop_at": 99.0, "scenes": [{"scene": 1, "start": 0.0, "end": 18.0, "lines": [{"id": "a1", "text": "Ask your agent for a picture. It writes you a prompt.", "start": 0.5, "end": 4.463}, {"id": "a2", "text": "Ask it to listen to a recording. It asks you for the transcript.", "start": 4.783, "end": 9.135}, {"id": "a3", "text": "Ask if its GPU code works. It says it should.", "start": 9.455, "end": 16.575}]}, {"scene": 2, "start": 18.0, "end": 46.0, "lines": [{"id": "b1", "text": "You could give it a GPU yourself.", "start": 18.5, "end": 20.209}, {"id": "b2", "text": "Open an account. Paste a cloud key into the chat. Install CUDA. Keep an eye on the box.", "start": 20.529, "end": 26.403}, {"id": "b3", "text": "Then nobody watches it, and the bill keeps running. One developer expected a hundred dollars. The bill was a thousand.", "start": 26.723, "end": 36.33}, {"id": "b4", "text": "And an agent holding a cloud key with no limits? Someone called that \u201cterrifying.\u201d", "start": 36.65, "end": 43.79}]}, {"scene": 3, "start": 46.0, "end": 58.0, "lines": [{"id": "c1", "text": "GPU for Agents gives it the power, with the controls built in.", "start": 46.5, "end": 50.719}, {"id": "c2", "text": "Paste one line. The agent rents its own GPU and sets it up in minutes.", "start": 51.039, "end": 56.687}]}, {"scene": 4, "start": 58.0, "end": 80.0, "lines": [{"id": "d1", "text": "Now it makes images and voices.", "start": 58.5, "end": 61.045}, {"id": "d2", "text": "It transcribes audio on its own GPU, without a third-party API.", "start": 61.365, "end": 66.082}, {"id": "d3", "text": "It runs open models, under your rules, and tests its own GPU code on real hardware.", "start": 66.402, "end": 72.551}, {"id": "d4", "text": "Everything sits behind an OpenAI-compatible endpoint that its tools already call.", "start": 72.871, "end": 78.598}]}, {"scene": 5, "start": 80.0, "end": 104.0, "lines": [{"id": "e1", "text": "You set the budget. The agent sees the price before it rents, and the machine shuts itself down at your cap.", "start": 80.5, "end": 87.507}, {"id": "e2", "text": "Every step goes into an event log, so you can audit what it did and what it cost.", "start": 87.827, "end": 92.758}, {"id": "e3", "text": "A watchdog runs inside the machine. When the work stops, the GPU stops.", "start": 93.078, "end": 99.165}, {"id": "e4", "text": "Even if you closed the chat.", "start": 99.485, "end": 101.239}]}, {"scene": 6, "start": 104.0, "end": 116.0, "lines": [{"id": "f1", "text": "New powers for your agent. And you keep the controls.", "start": 104.5, "end": 109.206}, {"id": "f2", "text": "GPU for Agents.", "start": 109.526, "end": 110.932}]}]}/*END*/;
       const SC = T.scenes.map(s => s.start);
       const L = {}; T.scenes.forEach(s => s.lines.forEach(l => { L[l.id] = l; }));
       const BEAT = 60 / T.bpm;
-      // visual scenes: the audio's seven, with "Any model" split at "Its own code"
-      const V = [SC[0], SC[1], SC[2], SC[3], SC[4], L.e3.start - 0.4, SC[5], SC[6]];
+      const V = SC.slice();   // one visual scene per audio scene
       // the moment a word starts inside a line (proportional to characters)
       const W = (id, word, k = 0) => { const l = L[id]; let i = -1; for (let n = 0; n <= k; n++) i = l.text.indexOf(word, i + 1); return l.start + (l.end - l.start) * (i / l.text.length) * 0.94; };
 
-      // ---------- captions: chunks of at most ~52 characters, words pop in as they are said ----------
+      // ---------- captions: short chunks, words pop in as they are said ----------
       const capBox = document.getElementById("captions");
       const chunks = [];
       T.scenes.forEach(s => s.lines.forEach(l => {
@@ -453,7 +408,7 @@
         words.forEach((w, i) => {
           cur.push(w);
           const len = cur.join(" ").length, rest = words.slice(i + 1).join(" ").length;
-          if (rest && ((len > 26 && /[,.:;]$/.test(w)) || len > 46)) { parts.push(cur); cur = []; }
+          if (rest && ((len > 26 && /[,.:;?]$/.test(w)) || len > 46)) { parts.push(cur); cur = []; }
         });
         if (cur.length) parts.push(cur);
         let acc = 0; const tot = l.text.length;
@@ -480,218 +435,173 @@
       const mmss = v => { const s = Math.floor(v); return String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0"); };
       const vAt = t => V.filter(s => s <= t + 1e-6).length;   // 1-based visual scene at time t
 
-      // ---------- beat: the glow pumps with the music (heartbeat in the problem, every beat after the turn) ----------
-      const painA = SC[1], painB = SC[3], drop = SC[3], stopA = T.stop_at, stopB = T.stop_at + 4 * BEAT;
+      // ---------- beat: the glow pumps with the music (heartbeat by hand, every beat after the turn) ----------
+      const painA = SC[1], painB = SC[2], drop = SC[2], stopA = T.stop_at, stopB = T.stop_at + 4 * BEAT;
       for (let b = 0; b * BEAT < T.total - 8 * BEAT; b++) {
         const t = b * BEAT;
         if (t >= stopA && t < stopB) continue;
         const sc = vAt(t);
         if (t >= painA && t < painB) {
           if (b % 4 !== 0) continue;   // heartbeat: once a bar
-          tl.fromTo("#b" + sc, { scale: 1.1, opacity: 1 }, { scale: 1, opacity: 0.55, duration: BAR_DUR(), ease: "power2.out" }, t);
+          tl.fromTo("#b" + sc, { scale: 1.1, opacity: 1 }, { scale: 1, opacity: 0.55, duration: BEAT * 3.2, ease: "power2.out" }, t);
           continue;
         }
         if (t < drop) continue;
         tl.fromTo("#b" + sc, { scale: 1.07, opacity: 1 }, { scale: 1, opacity: 0.75, duration: BEAT * 0.9, ease: "power2.out" }, t);
         tl.fromTo("#v" + sc + " .bdot", { scale: 1.8 }, { scale: 1, duration: BEAT * 0.8, ease: "power3.out" }, t);
       }
-      function BAR_DUR() { return BEAT * 3.2; }
 
-      // ================= 1. 2028 =================
+      // ================= 1. what it can't do alone =================
       tl.fromTo("#v1-eb", { opacity: 0.85, x: -24 }, { opacity: 1, x: 0, duration: 0.9, ease: "expo.out" }, 0);
-      tl.fromTo("#v1-ghost", { opacity: 0.7, scale: 0.94 }, { opacity: 1, scale: 1, duration: 2.4, ease: "sine.out" }, 0);
-      tl.fromTo("#v1-h", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.8, ease: "power4.out" }, L.a2.start - 0.2);
-      [["draw", "draw"], ["listen", "listen"], ["speak", "speak"], ["train", "train"]].forEach(([id, w], i) => {
-        const at = W("a2", w);
-        tl.fromTo("#cap-" + id, { opacity: 0, y: 70, scale: 0.85 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: i % 2 ? "back.out(1.8)" : "expo.out" }, at - 0.1);
-        tl.fromTo("#cap-" + id, { boxShadow: "0 0 0px rgba(92,191,58,0)" }, { boxShadow: "0 0 60px rgba(92,191,58,0.45)", duration: 0.4, ease: "power2.out", yoyo: true, repeat: 1 }, at + 0.2);
+      tl.fromTo("#v1-h", { opacity: 0.85, y: 30 }, { opacity: 1, y: 0, duration: 1.0, ease: "power4.out" }, 0);
+      tl.fromTo("#v1-chat", { opacity: 0, x: 140 }, { opacity: 1, x: 0, duration: 0.7, ease: "expo.out" }, 0.15);
+      [["1", "a1", "It"], ["2", "a2", "It"], ["3", "a3", "It"]].forEach(([n, id, w], i) => {
+        typeLine("#v1-u" + n, L[id].start - 0.1, 0.6);
+        tl.fromTo("#v1-a" + n, { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.45, ease: i % 2 ? "back.out(1.8)" : "circ.out" }, W(id, w, i === 0 ? 0 : 0) - 0.1);
       });
-      tl.fromTo("#v1-h2", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.7, ease: "circ.out" }, L.a3.start);
+      tl.fromTo("#v1-cant", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, L.a3.start + 0.4);
+      tl.fromTo("#v1-cant .chip", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.3, ease: "back.out(2.6)", stagger: 0.12 }, L.a3.start + 0.6);
       tl.fromTo("#v1-grid", { y: 0 }, { y: 96, duration: SC[1], ease: "none" }, 0);
       tl.fromTo("#b1", { opacity: 0.3 }, { opacity: 1, duration: 4, ease: "sine.inOut" }, 0);
 
-      // 1 → 2: the year turns back, colour drains
-      tl.to("#v1i", { filter: "grayscale(1) blur(16px)", scale: 1.08, opacity: 0, duration: 0.6, ease: "power2.in" }, V[1] - 0.5);
-      tl.set("#v2", { opacity: 1 }, V[1] - 0.15);
-      tl.fromTo("#v2i", { opacity: 0, scale: 0.94, filter: "blur(16px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.6, ease: "expo.out" }, V[1] - 0.15);
+      // 1 → 2: blur crossfade
+      tl.to("#v1i", { filter: "blur(16px)", scale: 1.06, opacity: 0, duration: 0.6, ease: "power2.in" }, V[1] - 0.5);
+      tl.set("#v2", { opacity: 1 }, V[1] - 0.2);
+      tl.fromTo("#v2i", { opacity: 0, scale: 0.94, filter: "blur(16px)" }, { opacity: 1, scale: 1, filter: "blur(0px)", duration: 0.6, ease: "expo.out" }, V[1] - 0.2);
       tl.set("#v1", { opacity: 0 }, V[1] + 0.2);
 
-      // ================= 2. locked in a room =================
+      // ================= 2. by hand =================
       const v2 = V[1];
-      tl.fromTo("#v2-y28", { y: 0 }, { y: -44, duration: 0.5, ease: "power3.in" }, v2 + 0.2);
-      tl.fromTo("#v2-y26", { y: 44 }, { y: 0, duration: 0.5, ease: "power3.out" }, v2 + 0.55);
-      tl.fromTo("#v2-eb", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.45, ease: "power3.out" }, v2 + 0.3);
-      tl.fromTo("#v2-h1", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.7, ease: "power4.out" }, W("b1", "your"));
-      tl.fromTo("#v2-h2", { opacity: 0, y: 60, skewY: 4 }, { opacity: 1, y: 0, skewY: 0, duration: 0.6, ease: "expo.out" }, W("b1", "locked") - 0.1);
-      tl.fromTo("#v2-room", { opacity: 0, x: 140, rotationY: -14, transformPerspective: 1400 }, { opacity: 1, x: 0, rotationY: 0, duration: 0.9, ease: "power3.out" }, W("b1", "locked"));
-      tl.fromTo("#v2-lock", { opacity: 0, scale: 0.3, rotation: -30 }, { opacity: 1, scale: 1, rotation: 0, duration: 0.5, ease: "back.out(2.4)" }, W("b1", "room") - 0.05);
-      tl.fromTo("#v2-r1", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.45, ease: "circ.out" }, L.b2.start);
-      tl.fromTo("#v2-n1", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.35, ease: "power3.out" }, W("b2", "never"));
-      tl.fromTo("#v2-r2", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.45, ease: "circ.out" }, L.b3.start);
-      tl.fromTo("#v2-n2", { opacity: 0, x: 30 }, { opacity: 1, x: 0, duration: 0.35, ease: "power3.out" }, W("b3", "never"));
-      tl.fromTo("#v2-r3", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.45, ease: "back.out(1.6)" }, L.b4.start);
-      tl.fromTo("#v2-wait", { opacity: 0, scale: 0.7 }, { opacity: 1, scale: 1, duration: 0.35, ease: "back.out(3)" }, W("b4", "waits"));
-      ["#v2-d1", "#v2-d2", "#v2-d3"].forEach((d, i) => tl.fromTo(d, { opacity: 0.15 }, { opacity: 1, duration: 0.3, ease: "none", repeat: 9, yoyo: true }, W("b4", "waits") + 0.4 + i * 0.2));
-      tl.to("#v2-lock", { x: 10, duration: 0.05, repeat: 9, yoyo: true, ease: "sine.inOut" }, W("b4", "stops"));
-      tl.fromTo("#v2-room", { borderColor: "rgba(255,122,77,0.45)" }, { borderColor: "#FF7A4D", duration: 0.5, ease: "power1.out" }, W("b4", "stops"));
-      tl.fromTo("#b2", { opacity: 0.6 }, { opacity: 1, duration: 1.2, ease: "power2.out" }, W("b4", "For"));
-      tl.fromTo("#v2-grid", { x: 0 }, { x: -96, duration: V[2] - v2, ease: "none" }, v2);
-
-      // 2 → 3: vertical push
-      tl.set("#v3", { opacity: 1, y: 1080 }, V[2] - 0.25);
-      tl.to("#v2", { y: -1080, duration: 0.45, ease: "power3.inOut" }, V[2] - 0.25);
-      tl.to("#v3", { y: 0, duration: 0.45, ease: "power3.inOut" }, V[2] - 0.25);
-      tl.set("#v2", { opacity: 0 }, V[2] + 0.25);
-
-      // ================= 3. chores =================
-      const v3 = V[2];
-      tl.fromTo("#v3-h", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.55, ease: "power4.out" }, v3 + 0.2);
-      tl.fromTo("#v3-list", { opacity: 0, x: -100 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out" }, v3 + 0.35);
-      [["1", "Sign"], ["2", "Pick"], ["3", "Copy"], ["4", "Babysit"]].forEach(([n, w], i) => {
-        const at = W("c1", w);
+      tl.fromTo("#v2-h", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.55, ease: "power4.out" }, v2 + 0.1);
+      tl.fromTo("#v2-list", { opacity: 0, x: -100 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out" }, v2 + 0.3);
+      [["1", "Open"], ["2", "Paste"], ["3", "Install"], ["4", "Keep"]].forEach(([n, w], i) => {
+        const at = W("b2", w);
+        const col = n === "2" ? "#FF7A4D" : "#9CAA9D";
         tl.fromTo("#ch" + n, { opacity: 0.25, x: -20 }, { opacity: 1, x: 0, duration: 0.25, ease: "power3.out" }, at - 0.05);
-        tl.fromTo("#bx" + n, { backgroundColor: "rgba(255,122,77,0)", borderColor: "#9CAA9D", color: "rgba(10,15,11,0)" }, { backgroundColor: "#FF7A4D", borderColor: "#FF7A4D", color: "#0A0F0B", duration: 0.18, ease: "none" }, at + 0.15);
+        tl.fromTo("#bx" + n, { backgroundColor: "rgba(255,122,77,0)", borderColor: "#9CAA9D" }, { backgroundColor: col, borderColor: col, duration: 0.18, ease: "none" }, at + 0.15);
+        tl.fromTo("#tk" + n, { opacity: 0 }, { opacity: 1, duration: 0.18, ease: "none" }, at + 0.15);
         tl.fromTo("#bx" + n, { scale: 1.3 }, { scale: 1, duration: 0.3, ease: i % 2 ? "back.out(3)" : "elastic.out(1, 0.5)" }, at + 0.15);
       });
-      tl.fromTo("#v3-cal", { opacity: 0, x: 120 }, { opacity: 1, x: 0, duration: 0.5, ease: "power4.out" }, L.c2.start - 0.3);
-      const fri = W("c2", "running"), mon = W("c2", "Monday");
-      tl.fromTo("#v3-bar", { scaleX: 0 }, { scaleX: 1, duration: mon - fri, ease: "power1.in" }, fri);
-      counter(document.getElementById("v3-hours"), 0, 62, fri, mon - fri, v => Math.round(v) + " h", "power1.in");
-      tl.fromTo("#v3-cal", { x: 0 }, { x: 12, duration: 0.05, repeat: 7, yoyo: true, ease: "sine.inOut" }, mon + 0.1);
-      tl.fromTo("#b3", { opacity: 0.4, scale: 0.9 }, { opacity: 1, scale: 1.05, duration: 0.6, ease: "power2.out" }, mon);
+      tl.fromTo("#v2-bill", { opacity: 0, x: 120 }, { opacity: 1, x: 0, duration: 0.5, ease: "power4.out" }, L.b3.start);
+      tl.fromTo("#v2-exp", { opacity: 0.3 }, { opacity: 1, duration: 0.3, ease: "none" }, W("b3", "expected"));
+      const billAt = W("b3", "bill", 1), thou = W("b3", "thousand");
+      tl.fromTo("#v2-got", { opacity: 0.3 }, { opacity: 1, duration: 0.3, ease: "none" }, billAt - 0.2);
+      counter(document.getElementById("v2-billed"), 100, 1000, billAt, thou - billAt + 0.3, v => "$" + Math.round(v).toLocaleString("en-US"), "power2.in");
+      tl.fromTo("#v2-bill", { x: 0 }, { x: 12, duration: 0.05, repeat: 7, yoyo: true, ease: "sine.inOut" }, thou + 0.35);
+      tl.fromTo("#v2-bill", { borderColor: "rgba(255,122,77,0.45)" }, { borderColor: "#FF7A4D", duration: 0.4, ease: "power1.out" }, thou + 0.35);
+      tl.fromTo("#v2-quote", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out" }, L.b4.start);
+      tl.fromTo("#v2-quote .em", { opacity: 0.2 }, { opacity: 1, duration: 0.3, ease: "none" }, W("b4", "terrifying"));
+      tl.fromTo("#b2", { opacity: 0.4, scale: 0.9 }, { opacity: 1, scale: 1.05, duration: 0.6, ease: "power2.out" }, W("b4", "terrifying"));
 
-      // 3 → 4: the door closes on the old way, then opens on "So we opened the door"
-      const doorShut = V[3] - 0.45, doorOpen = W("d1", "opened") - 0.05;
+      // 2 → 3: the door closes on the manual way, then opens on "the power"
+      const doorShut = V[2] - 0.45, doorOpen = W("c1", "power") - 0.05;
       tl.to("#door-l", { x: 0, duration: 0.4, ease: "power3.in" }, doorShut);
       tl.to("#door-r", { x: 0, duration: 0.4, ease: "power3.in" }, doorShut);
-      tl.set("#v4", { opacity: 1 }, V[3]); tl.set("#v3", { opacity: 0 }, V[3]);
-      tl.fromTo("#door-seam", { opacity: 0, scaleY: 0 }, { opacity: 1, scaleY: 1, duration: 0.5, ease: "expo.out" }, L.d1.start);
+      tl.set("#v3", { opacity: 1 }, V[2]); tl.set("#v2", { opacity: 0 }, V[2]);
+      tl.fromTo("#door-seam", { opacity: 0, scaleY: 0 }, { opacity: 1, scaleY: 1, duration: 0.3, ease: "expo.out" }, doorOpen - 0.3);
       tl.to("#door-l", { x: -980, duration: 0.8, ease: "expo.inOut" }, doorOpen);
       tl.to("#door-r", { x: 980, duration: 0.8, ease: "expo.inOut" }, doorOpen);
+      tl.fromTo("#door-txt", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out" }, V[2] - 0.05);
+      tl.to("#door-txt", { opacity: 0, scale: 1.15, duration: 0.35, ease: "power2.in" }, doorOpen - 0.1);
       tl.to("#door-seam", { opacity: 0, scaleX: 40, duration: 0.6, ease: "power2.out" }, doorOpen);
-      tl.fromTo("#v4i", { scale: 1.12, filter: "brightness(2)" }, { scale: 1, filter: "brightness(1)", duration: 1.0, ease: "expo.out" }, doorOpen);
+      tl.fromTo("#v3i", { scale: 1.12, filter: "brightness(2)" }, { scale: 1, filter: "brightness(1)", duration: 1.0, ease: "expo.out" }, doorOpen);
 
-      // ================= 4. paste one line =================
-      const v4 = doorOpen;
-      tl.fromTo("#v4-eb", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" }, v4 + 0.3);
-      tl.fromTo("#v4-h", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.6, ease: "power4.out" }, L.d2.start - 0.1);
-      tl.fromTo("#v4-prompt", { opacity: 0, x: -120 }, { opacity: 1, x: 0, duration: 0.55, ease: "expo.out" }, L.d2.start);
-      { const full = "Set up GPU for Agents for me. Fetch gpu4agents.jambu.ai/install.md and follow its steps.", el = document.getElementById("v4-typed"), o = { n: 0 };
-        tl.to(o, { n: full.length, duration: 1.8, ease: "none", onUpdate: () => { el.textContent = full.slice(0, Math.round(o.n)); } }, L.d2.start + 0.2); }
-      tl.fromTo("#v4-caret", { opacity: 1 }, { opacity: 0, duration: 0.25, ease: "steps(1)", repeat: 21, yoyo: true }, L.d2.start);
-      tl.fromTo("#v4-term", { opacity: 0, x: 120 }, { opacity: 1, x: 0, duration: 0.5, ease: "power4.out" }, W("d2", "rents") - 0.3);
-      typeLine("#v4-t1", W("d2", "rents"), 0.35);
-      tl.fromTo("#v4-provs .prov", { opacity: 0, y: -30 }, { opacity: 1, y: 0, duration: 0.35, ease: "back.out(2)", stagger: 0.09 }, W("d2", "any") - 0.1);
-      tl.to("#v4-provs .prov", { borderColor: "#5CBF3A", borderStyle: "solid", color: "#ECF2E8", duration: 0.2, stagger: 0.12, ease: "none" }, W("d2", "provider") + 0.3);
-      typeLine("#v4-t2", W("d2", "minutes") - 0.3, 0.3);
-      typeLine("#v4-t3", W("d2", "minutes"), 0.35);
-      typeLine("#v4-t4", W("d2", "minutes") + 0.45, 0.3);
-      tl.fromTo("#v4-budget", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(3)" }, W("d2", "GPU"));
-      tl.fromTo("#v4-t5", { opacity: 0, scale: 0.8, x: -20 }, { opacity: 1, scale: 1, x: 0, duration: 0.4, ease: "back.out(3)", transformOrigin: "left center" }, L.d2.end - 1.2);
-      tl.fromTo("#v4-term", { borderColor: "#5CBF3A" }, { borderColor: "#22302A", duration: 1, ease: "power1.out" }, L.d2.end);
-      tl.fromTo("#v4-grid", { y: 0 }, { y: -96, duration: V[4] - v4, ease: "none" }, v4);
+      // ================= 3. paste one line =================
+      const v3 = doorOpen;
+      tl.fromTo("#v3-eb", { opacity: 0, x: -40 }, { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" }, v3 + 0.3);
+      tl.fromTo("#v3-budget", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(3)" }, W("c1", "controls"));
+      tl.fromTo("#v3-h", { opacity: 0, y: 90 }, { opacity: 1, y: 0, duration: 0.6, ease: "power4.out" }, v3 + 0.35);
+      tl.fromTo("#v3-prompt", { opacity: 0, x: -120 }, { opacity: 1, x: 0, duration: 0.55, ease: "expo.out" }, v3 + 0.6);
+      { const full = "Set up GPU for Agents for me. Fetch gpu4agents.jambu.ai/install.md and follow its steps.", el = document.getElementById("v3-typed"), o = { n: 0 };
+        tl.to(o, { n: full.length, duration: 1.6, ease: "none", onUpdate: () => { el.textContent = full.slice(0, Math.round(o.n)); } }, L.c2.start + 0.2); }
+      tl.fromTo("#v3-caret", { opacity: 1 }, { opacity: 0, duration: 0.25, ease: "steps(1)", repeat: 21, yoyo: true }, L.c2.start);
+      tl.fromTo("#v3-term", { opacity: 0, x: 120 }, { opacity: 1, x: 0, duration: 0.5, ease: "power4.out" }, W("c2", "rents") - 0.3);
+      typeLine("#v3-t1", W("c2", "rents"), 0.35);
+      typeLine("#v3-t2", W("c2", "rents") + 0.45, 0.3);
+      typeLine("#v3-t3", W("c2", "sets"), 0.35);
+      typeLine("#v3-t4", W("c2", "sets") + 0.45, 0.3);
+      tl.fromTo("#v3-t5", { opacity: 0, scale: 0.8, x: -20 }, { opacity: 1, scale: 1, x: 0, duration: 0.4, ease: "back.out(3)", transformOrigin: "left center" }, W("c2", "minutes"));
+      tl.fromTo("#v3-term", { borderColor: "#5CBF3A" }, { borderColor: "#22302A", duration: 1, ease: "power1.out" }, L.c2.end);
+      tl.fromTo("#v3-grid", { y: 0 }, { y: -96, duration: V[3] - v3, ease: "none" }, v3);
 
-      // 4 → 5: green wipe on the drop
-      tl.fromTo("#wipe", { x: -1920 }, { x: 0, duration: 0.28, ease: "power3.in" }, V[4] - 0.28);
-      tl.set("#v5", { opacity: 1 }, V[4]); tl.set("#v4", { opacity: 0 }, V[4]);
-      tl.to("#wipe", { x: 1920, duration: 0.32, ease: "power3.out" }, V[4]);
-      tl.fromTo("#v5i", { x: -80 }, { x: 0, duration: 0.6, ease: "expo.out" }, V[4]);
+      // 3 → 4: green wipe on the drop
+      tl.fromTo("#wipe", { x: -1920 }, { x: 0, duration: 0.28, ease: "power3.in" }, V[3] - 0.28);
+      tl.set("#v4", { opacity: 1 }, V[3]); tl.set("#v3", { opacity: 0 }, V[3]);
+      tl.to("#wipe", { x: 1920, duration: 0.32, ease: "power3.out" }, V[3]);
+      tl.fromTo("#v4i", { x: -80 }, { x: 0, duration: 0.6, ease: "expo.out" }, V[3]);
 
-      // ================= 5. any model =================
-      const v5 = V[4];
-      { const wave = document.getElementById("v5-wave"), amp = [0.09,0.66,0.93,0.84,0.22,0.06,0.76,0.52,0.51,0.95,0.53,0.44,0.53,0.23,0.08,0.04,0.02,0.05,0.11,0.95,0.99,0.86,0.32,0.15,0.67,0.66,0.69,0.5,1.0,0.59,0.85,0.77,0.84,0.62,0.61,0.55,0.77,0.39,0.33,0.12];
+      // ================= 4. new powers =================
+      const v4 = V[3];
+      { const wave = document.getElementById("v4-wave"), amp = [0.09,0.66,0.93,0.84,0.22,0.06,0.76,0.52,0.51,0.95,0.53,0.44,0.53,0.23,0.08,0.04,0.02,0.05,0.11,0.95,0.99,0.86,0.32,0.15,0.67,0.66,0.69,0.5,1.0,0.59,0.85,0.77,0.84,0.62,0.61,0.55,0.77,0.39,0.33,0.12];
         amp.forEach(a => { const i = document.createElement("i"); i.style.height = Math.max(6, Math.round(a * 190)) + "px"; wave.appendChild(i); }); }
-      tl.fromTo("#v5-h", { opacity: 0, y: 90, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: "power4.out", transformOrigin: "left bottom" }, L.e1.start);
-      tl.fromTo("#v5-eb", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" }, L.e1.start + 0.3);
-      tl.fromTo("#m-img", { opacity: 0, y: 120, rotation: -3 }, { opacity: 1, y: 0, rotation: 0, duration: 0.5, ease: "back.out(1.6)" }, W("e1", "Images") - 0.1);
-      tl.fromTo("#v5-fox", { scale: 1.25, filter: "blur(18px)" }, { scale: 1, filter: "blur(0px)", duration: 1.0, ease: "expo.out" }, W("e1", "Images"));
-      tl.fromTo("#m-voice", { opacity: 0, y: 120, rotation: 3 }, { opacity: 1, y: 0, rotation: 0, duration: 0.5, ease: "expo.out" }, W("e1", "Voices") - 0.1);
-      tl.fromTo("#v5-wave i", { scaleY: 0.05 }, { scaleY: 1, duration: 0.3, ease: "back.out(2)", stagger: 0.02 }, W("e1", "Voices"));
-      tl.fromTo("#m-asr", { opacity: 0, y: 120, rotation: -3 }, { opacity: 1, y: 0, rotation: 0, duration: 0.5, ease: "circ.out" }, W("e1", "Transcription") - 0.1);
-      typeLine("#v5-said", W("e1", "Transcription") + 0.2, 0.8);
-      tl.fromTo("#m-emb", { opacity: 0, y: 120, rotation: 3 }, { opacity: 1, y: 0, rotation: 0, duration: 0.5, ease: "back.out(2)" }, W("e1", "Embeddings") - 0.1);
-      tl.fromTo("#v5-f1", { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: "power2.out" }, W("e1", "Embeddings") + 0.2);
-      tl.fromTo("#v5-f2", { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: "power2.out" }, W("e1", "Embeddings") + 0.35);
-      counter(document.getElementById("v5-s1"), 0, 0.899, W("e1", "Embeddings") + 0.2, 0.9, v => v.toFixed(2), "power2.out");
-      counter(document.getElementById("v5-s2"), 0, 0.329, W("e1", "Embeddings") + 0.35, 0.9, v => v.toFixed(2), "power2.out");
-      tl.fromTo("#v5-routes .base", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" }, L.e2.start);
-      tl.fromTo("#v5-routes .r", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.3, ease: "back.out(2.2)", stagger: 0.16 }, W("e2", "endpoint"));
-      tl.to("#v5-routes .r", { borderColor: "#5CBF3A", duration: 0.2, stagger: 0.1, ease: "none" }, W("e2", "call"));
+      tl.fromTo("#v4-h", { opacity: 0, y: 90, scale: 0.9 }, { opacity: 1, y: 0, scale: 1, duration: 0.55, ease: "power4.out", transformOrigin: "left bottom" }, v4 + 0.2);
+      tl.fromTo("#m-img", { opacity: 0, y: 120, rotation: -3 }, { opacity: 1, y: 0, rotation: 0, duration: 0.5, ease: "back.out(1.6)" }, W("d1", "images") - 0.15);
+      tl.fromTo("#v4-fox", { scale: 1.25, filter: "blur(18px)" }, { scale: 1, filter: "blur(0px)", duration: 1.0, ease: "expo.out" }, W("d1", "images"));
+      tl.fromTo("#m-voice", { opacity: 0, y: 120, rotation: 3 }, { opacity: 1, y: 0, rotation: 0, duration: 0.5, ease: "expo.out" }, W("d1", "voices") - 0.1);
+      tl.fromTo("#v4-wave i", { scaleY: 0.05 }, { scaleY: 1, duration: 0.3, ease: "back.out(2)", stagger: 0.02 }, W("d1", "voices"));
+      tl.fromTo("#m-asr", { opacity: 0, y: 120, rotation: -3 }, { opacity: 1, y: 0, rotation: 0, duration: 0.5, ease: "circ.out" }, L.d2.start - 0.1);
+      typeLine("#v4-said", W("d2", "audio"), 0.9);
+      tl.fromTo("#v4-opens span", { opacity: 0, y: -30 }, { opacity: 1, y: 0, duration: 0.35, ease: "back.out(2)", stagger: 0.25 }, W("d3", "open") - 0.1);
+      tl.fromTo("#m-code", { opacity: 0, y: 120, rotation: 3 }, { opacity: 1, y: 0, rotation: 0, duration: 0.5, ease: "back.out(2)" }, W("d3", "tests") - 0.15);
+      typeLine("#v4-k1", W("d3", "tests"), 0.3);
+      typeLine("#v4-k1b", W("d3", "tests") + 0.3, 0.3);
+      typeLine("#v4-k2", W("d3", "code") , 0.3);
+      tl.fromTo("#v4-k3", { opacity: 0, scale: 0.8, x: -20 }, { opacity: 1, scale: 1, x: 0, duration: 0.4, ease: "back.out(3)", transformOrigin: "left center" }, W("d3", "hardware"));
+      tl.fromTo("#v4-routes .base", { opacity: 0, x: -30 }, { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" }, L.d4.start);
+      tl.fromTo("#v4-routes .r", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.3, ease: "back.out(2.2)", stagger: 0.16 }, W("d4", "endpoint"));
+      tl.to("#v4-routes .r", { borderColor: "#5CBF3A", duration: 0.2, stagger: 0.1, ease: "none" }, W("d4", "call"));
 
-      // 5 → 6: flash
-      tl.to("#flash", { opacity: 0.85, duration: 0.16, ease: "power2.in" }, V[5] - 0.16);
-      tl.set("#v6", { opacity: 1 }, V[5]); tl.set("#v5", { opacity: 0 }, V[5]);
-      tl.to("#flash", { opacity: 0, duration: 0.4, ease: "power2.out" }, V[5]);
-      tl.fromTo("#v6i", { scale: 1.08 }, { scale: 1, duration: 0.7, ease: "expo.out" }, V[5]);
+      // 4 → 5: vertical push
+      tl.set("#v5", { opacity: 1, y: 1080 }, V[4] - 0.25);
+      tl.to("#v4", { y: -1080, duration: 0.45, ease: "power3.inOut" }, V[4] - 0.25);
+      tl.to("#v5", { y: 0, duration: 0.45, ease: "power3.inOut" }, V[4] - 0.25);
+      tl.set("#v4", { opacity: 0 }, V[4] + 0.25);
 
-      // ================= 6. its own code =================
+      // ================= 5. the controls =================
+      const v5 = V[4], stop = T.stop_at;
+      tl.fromTo("#v5-h", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.55, ease: "expo.out" }, v5 + 0.25);
+      tl.fromTo("#v5-yaml", { opacity: 0, x: -100 }, { opacity: 1, x: 0, duration: 0.5, ease: "power4.out" }, W("e1", "budget") - 0.2);
+      tl.fromTo("#v5-yaml .val", { backgroundColor: "rgba(92,191,58,0)" }, { backgroundColor: "rgba(92,191,58,0.25)", duration: 0.25, yoyo: true, repeat: 1, stagger: 0.15, ease: "none" }, W("e1", "budget"));
+      tl.fromTo("#v5-offer", { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.4)", transformOrigin: "left center" }, W("e1", "price"));
+      tl.fromTo("#v5-tl", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.5, ease: "circ.out" }, W("e1", "machine") - 0.1);
+      tl.fromTo("#v5 .req", { scaleY: 0 }, { scaleY: 1, duration: 0.25, ease: "back.out(3)", stagger: 0.12 }, W("e1", "machine"));
+      tl.fromTo("#v5-ev", { opacity: 0, x: 100 }, { opacity: 1, x: 0, duration: 0.5, ease: "power4.out" }, L.e2.start - 0.1);
+      ["#ev1", "#ev2", "#ev3", "#ev4", "#ev5", "#ev6"].forEach((e, i) => typeLine(e, L.e2.start + 0.25 + i * ((L.e2.end - L.e2.start - 0.4) / 6), 0.3));
+      tl.fromTo("#v5-ev", { borderColor: "#22302A" }, { borderColor: "#5CBF3A", duration: 0.3, yoyo: true, repeat: 1, ease: "none" }, W("e2", "audit"));
+      const idleStart = W("e3", "work");
+      tl.fromTo("#v5-bar", { scaleX: 0 }, { scaleX: 1, duration: stop - idleStart, ease: "power1.in" }, idleStart);
+      counter(document.getElementById("v5-idle"), 0, 900, idleStart, stop - idleStart, mmss, "power1.in");
+      tl.fromTo("#v5-stop", { scale: 0.5, opacity: 0.3 }, { scale: 1, opacity: 1, duration: 0.4, ease: "back.out(3)" }, stop);
+      tl.to("#v5-bar", { backgroundColor: "#5CBF3A", duration: 0.2 }, stop);
+      tl.to("#v5-run", { opacity: 0, y: -16, duration: 0.15, ease: "power2.in" }, stop);
+      tl.fromTo("#v5-stopped", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, stop + 0.1);
+      tl.fromTo("#v5i", { x: -10 }, { x: 0, duration: 0.3, ease: "elastic.out(1, 0.3)" }, stop);
+      tl.fromTo("#b5", { opacity: 0.2 }, { opacity: 1, duration: 0.8, ease: "power2.out" }, stop);
+      tl.fromTo("#v5-closed", { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out" }, W("e4", "closed"));
+      tl.fromTo("#v5-grid", { x: 0 }, { x: -96, duration: V[5] - v5, ease: "none" }, v5);
+
+      // 5 → 6: blur crossfade
+      tl.to("#v5i", { filter: "blur(18px)", scale: 0.94, duration: 0.5, ease: "sine.inOut" }, V[5] - 0.4);
+      tl.fromTo("#v6", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "sine.inOut" }, V[5] - 0.3);
+      tl.fromTo("#v6i", { filter: "blur(18px)", scale: 1.06 }, { filter: "blur(0px)", scale: 1, duration: 0.6, ease: "sine.out" }, V[5] - 0.3);
+      tl.set("#v5", { opacity: 0 }, V[5] + 0.3);
+
+      // ================= 6. close =================
       const v6 = V[5];
-      tl.fromTo("#v6-term", { opacity: 0, x: -140 }, { opacity: 1, x: 0, duration: 0.55, ease: "power4.out" }, v6 + 0.15);
-      typeLine("#v6-t1", L.e3.start + 0.1, 0.5);
-      typeLine("#v6-t2", W("e3", "fine-tunes") - 0.2, 0.3);
-      typeLine("#v6-t3", W("e3", "fine-tunes") + 0.3, 0.3);
-      tl.fromTo("#v6-t4", { clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)", duration: 1.2, ease: "steps(3)" }, W("e3", "data"));
-      tl.fromTo("#v6-t5", { opacity: 0, scale: 0.8, x: -20 }, { opacity: 1, scale: 1, x: 0, duration: 0.4, ease: "back.out(3)", transformOrigin: "left center" }, W("e3", "hands"));
-      tl.fromTo("#v6-h", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.6, ease: "expo.out" }, W("e3", "model", 0) - 0.1);
-      tl.fromTo("#v6-r1", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" }, W("e4", "Open"));
-      tl.fromTo("#v6-r2", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.4, ease: "back.out(1.8)" }, W("e4", "rules") - 0.2);
-      tl.fromTo("#v6-r3", { opacity: 0, x: 80 }, { opacity: 1, x: 0, duration: 0.4, ease: "circ.out" }, W("e4", "data") - 0.1);
-      tl.to(["#v6-r1", "#v6-r2", "#v6-r3"], { borderColor: "#5CBF3A", duration: 0.3, stagger: 0.12, ease: "none" }, W("e4", "results"));
-      tl.fromTo("#v6-grid", { x: 0 }, { x: -96, duration: V[6] - v6, ease: "none" }, v6);
-
-      // 6 → 7: vertical push
-      tl.set("#v7", { opacity: 1, y: 1080 }, V[6] - 0.25);
-      tl.to("#v6", { y: -1080, duration: 0.45, ease: "power3.inOut" }, V[6] - 0.25);
-      tl.to("#v7", { y: 0, duration: 0.45, ease: "power3.inOut" }, V[6] - 0.25);
-      tl.set("#v6", { opacity: 0 }, V[6] + 0.25);
-
-      // ================= 7. the watchdog =================
-      const v7 = V[6], stop = T.stop_at;
-      tl.fromTo("#v7-h", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.6, ease: "expo.out" }, v7 + 0.3);
-      tl.fromTo("#v7-yaml", { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(1.8)", transformOrigin: "right center" }, v7 + 0.7);
-      tl.fromTo("#v7-tl", { opacity: 0, y: 80 }, { opacity: 1, y: 0, duration: 0.55, ease: "power4.out" }, v7 + 0.4);
-      tl.fromTo("#v7 .req", { scaleY: 0 }, { scaleY: 1, duration: 0.25, ease: "back.out(3)", stagger: 0.12 }, v7 + 0.6);
-      tl.fromTo("#v7-state", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.5, ease: "circ.out" }, v7 + 0.9);
-      const idleStart = W("f1", "work");
-      tl.fromTo("#v7-bar", { scaleX: 0 }, { scaleX: 1, duration: stop - idleStart, ease: "power1.in" }, idleStart);
-      counter(document.getElementById("v7-idle"), 0, 900, idleStart, stop - idleStart, mmss, "power1.in");
-      tl.to("#v7-r1", { scale: 1.08, duration: 0.25, ease: "sine.inOut", yoyo: true, repeat: Math.max(1, Math.floor((stop - idleStart) / 0.5) - 1), transformOrigin: "right center" }, idleStart);
-      tl.fromTo("#v7-stop", { scale: 0.5, opacity: 0.3 }, { scale: 1, opacity: 1, duration: 0.4, ease: "back.out(3)" }, stop);
-      tl.to("#v7-bar", { backgroundColor: "#5CBF3A", duration: 0.2 }, stop);
-      tl.to("#v7-run", { opacity: 0, y: -16, duration: 0.15, ease: "power2.in" }, stop);
-      tl.fromTo("#v7-stopped", { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, stop + 0.1);
-      tl.to("#v7-r1", { opacity: 0, y: -24, duration: 0.15, ease: "power2.in" }, stop);
-      tl.fromTo("#v7-r2", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, stop + 0.1);
-      tl.fromTo("#v7i", { x: -10 }, { x: 0, duration: 0.3, ease: "elastic.out(1, 0.3)" }, stop);
-      tl.fromTo("#b7", { opacity: 0.2 }, { opacity: 1, duration: 0.8, ease: "power2.out" }, stop);
-      tl.fromTo("#v7-closed", { opacity: 0, x: 120 }, { opacity: 1, x: 0, duration: 0.45, ease: "expo.out" }, W("f2", "chat") - 0.3);
-      tl.fromTo("#v7-c1", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.35, ease: "power3.out" }, W("f2", "chat"));
-      tl.fromTo("#v7-c2", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.35, ease: "back.out(2)" }, W("f2", "asleep") - 0.2);
-      tl.fromTo("#v7-c3", { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "none" }, L.f2.end);
-      tl.fromTo("#v7-grid", { x: 0 }, { x: -96, duration: V[7] - v7, ease: "none" }, v7);
-
-      // 7 → 8: blur crossfade
-      tl.to("#v7i", { filter: "blur(18px)", scale: 0.94, duration: 0.5, ease: "sine.inOut" }, V[7] - 0.4);
-      tl.fromTo("#v8", { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "sine.inOut" }, V[7] - 0.3);
-      tl.fromTo("#v8i", { filter: "blur(18px)", scale: 1.06 }, { filter: "blur(0px)", scale: 1, duration: 0.6, ease: "sine.out" }, V[7] - 0.3);
-      tl.set("#v7", { opacity: 0 }, V[7] + 0.3);
-
-      // ================= 8. close =================
-      const v8 = V[7];
-      tl.fromTo("#v8-h1", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.7, ease: "power4.out" }, L.g1.start);
-      tl.fromTo("#v8-h2", { opacity: 0, x: -70 }, { opacity: 1, x: 0, duration: 0.5, ease: "back.out(1.6)" }, L.g2.start);
-      tl.fromTo("#v8-cta", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out" }, W("g2", "one") - 0.1);
-      tl.fromTo("#m-dot", { scale: 0, transformOrigin: "50% 50%" }, { scale: 1, duration: 0.4, ease: "back.out(3)" }, L.g3.start - 0.2);
-      tl.fromTo("#m-l", { scale: 0, rotation: -40, transformOrigin: "50% 100%" }, { scale: 1, rotation: 0, duration: 0.5, ease: "back.out(1.8)" }, L.g3.start - 0.1);
-      tl.fromTo("#m-r", { scale: 0, rotation: 40, transformOrigin: "50% 100%" }, { scale: 1, rotation: 0, duration: 0.5, ease: "back.out(1.8)" }, L.g3.start);
-      tl.fromTo("#m-stem", { strokeDasharray: 100, strokeDashoffset: 100 }, { strokeDashoffset: 0, duration: 0.6, ease: "power2.inOut" }, L.g3.start - 0.1);
-      tl.fromTo("#v8-name", { opacity: 0, x: -50 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out" }, L.g3.start);
-      tl.fromTo("#v8-by", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: "circ.out" }, W("g3", "Give"));
-      tl.fromTo("#v8-facts", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.5, ease: "power2.out" }, L.g3.end + 0.3);
-      tl.fromTo("#v8-cta", { boxShadow: "0 0 0px rgba(92,191,58,0)" }, { boxShadow: "0 0 70px rgba(92,191,58,0.45)", duration: 0.8, ease: "sine.inOut", yoyo: true, repeat: 5 }, L.g3.end);
-      tl.fromTo("#v8-mark path", { strokeDasharray: 100, strokeDashoffset: 100 }, { strokeDashoffset: 0, duration: 1.6, ease: "power2.inOut", stagger: 0.2 }, v8 + 0.2);
-      tl.fromTo("#v8-mark", { scale: 0.8, rotation: -8 }, { scale: 1.05, rotation: 4, duration: T.total - v8, ease: "sine.out" }, v8);
-      tl.fromTo("#v8-grid", { y: 0 }, { y: 96, duration: T.total - v8, ease: "none" }, v8);
+      tl.fromTo("#v6-h1", { opacity: 0, y: 60 }, { opacity: 1, y: 0, duration: 0.7, ease: "power4.out" }, L.f1.start);
+      tl.fromTo("#v6-h2", { opacity: 0, x: -70 }, { opacity: 1, x: 0, duration: 0.5, ease: "back.out(1.6)" }, W("f1", "And"));
+      tl.fromTo("#v6-cta", { opacity: 0, y: 50 }, { opacity: 1, y: 0, duration: 0.5, ease: "expo.out" }, W("f1", "controls"));
+      tl.fromTo("#m-dot", { scale: 0, transformOrigin: "50% 50%" }, { scale: 1, duration: 0.4, ease: "back.out(3)" }, L.f2.start - 0.2);
+      tl.fromTo("#m-l", { scale: 0, rotation: -40, transformOrigin: "50% 100%" }, { scale: 1, rotation: 0, duration: 0.5, ease: "back.out(1.8)" }, L.f2.start - 0.1);
+      tl.fromTo("#m-r", { scale: 0, rotation: 40, transformOrigin: "50% 100%" }, { scale: 1, rotation: 0, duration: 0.5, ease: "back.out(1.8)" }, L.f2.start);
+      tl.fromTo("#m-stem", { strokeDasharray: 100, strokeDashoffset: 100 }, { strokeDashoffset: 0, duration: 0.6, ease: "power2.inOut" }, L.f2.start - 0.1);
+      tl.fromTo("#v6-name", { opacity: 0, x: -50 }, { opacity: 1, x: 0, duration: 0.5, ease: "expo.out" }, L.f2.start);
+      tl.fromTo("#v6-by", { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.5, ease: "circ.out" }, L.f2.end + 0.2);
+      tl.fromTo("#v6-facts", { opacity: 0, x: 40 }, { opacity: 1, x: 0, duration: 0.5, ease: "power2.out" }, L.f2.end + 0.6);
+      tl.fromTo("#v6-cta", { boxShadow: "0 0 0px rgba(92,191,58,0)" }, { boxShadow: "0 0 70px rgba(92,191,58,0.45)", duration: 0.8, ease: "sine.inOut", yoyo: true, repeat: 5 }, L.f2.end);
+      tl.fromTo("#v6-mark path", { strokeDasharray: 100, strokeDashoffset: 100 }, { strokeDashoffset: 0, duration: 1.6, ease: "power2.inOut", stagger: 0.2 }, v6 + 0.2);
+      tl.fromTo("#v6-mark", { scale: 0.8, rotation: -8 }, { scale: 1.05, rotation: 4, duration: T.total - v6, ease: "sine.out" }, v6);
+      tl.fromTo("#v6-grid", { y: 0 }, { y: 96, duration: T.total - v6, ease: "none" }, v6);
       tl.to("#fade", { opacity: 1, duration: 1.2, ease: "power1.in" }, T.total - 1.3);
 
       window.__timelines["main"] = tl;
