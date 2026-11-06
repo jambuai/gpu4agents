@@ -115,7 +115,7 @@ class VastProvider(GPUProvider):
     display_name = "Vast.ai"
     required_credentials = [API_KEY_ENV]
     credentials_url = KEYS_URL
-    tagline = "built in; GPUs by the hour from a few cents, pay as you go"
+    tagline = "a GPU marketplace, from a few cents an hour, prepaid credit"
     signup_url = SIGNUP_URL
     setup_steps = [
         "Create a Vast.ai account: {signup_url}"
@@ -136,6 +136,8 @@ class VastProvider(GPUProvider):
         remote_exec=True,
         logs=True,
         list_instances=True,
+        # The status message carries the image pull's latest line.
+        boot_progress=True,
         # A stopped Vast instance no longer bills GPU time but still bills
         # storage, so the core may choose to escalate to destroy.
         stop_eliminates_billing=False,

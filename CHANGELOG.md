@@ -2,6 +2,19 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-11-06
+
+### Added
+- **RunPod and Lambda are built in**, next to Vast.ai. `gpu login` lists all three, with the steps for each in plain words, and saves the one you pick; `gpu init` then writes it into `gpu.yaml` (`--provider` still overrides). The watchdog, budgets, `gpu ls`, `gpu sweep` and the MCP tools work the same on each.
+  - RunPod (`RUNPOD_API_KEY`) uses the REST API v2. A pod runs the model image with gpu's boot script; the model and watchdog are reached through RunPod's HTTPS proxy. Without a volume (`provider.options.volume_gb`, default 0) a stopped pod costs nothing. RunPod's API has no spot pods, and gpu does not SSH into pods: run code on the GPU with `gpu job`.
+  - Lambda (`LAMBDA_API_KEY`) rents whole VMs. gpu runs the model image on the VM with Docker, registers its own SSH key (kept in `$GPU_HOME/ssh/`) and creates a firewall ruleset per region for the model and watchdog ports. Lambda cannot stop a machine, so where another provider would stop, gpu and the watchdog terminate it. Instance types have a fixed GPU count (1, 2, 4 or 8).
+- RunPod and Lambda report a GPU's model but not its architecture, so gpu looks it up (`providers/gpus.py`) and skips cards too old for the model image, as it already did on Vast.ai.
+
+### Changed
+- `gpu init` without `--provider` uses the provider `gpu login` connected, instead of always Vast.ai.
+- `health.pull_stall_timeout` applies only to providers that report the image pull moving while a machine boots (the new `boot_progress` capability; Vast.ai does). On the others, a long pull is waited out until `health.boot_timeout`, instead of being taken for a stall after ten quiet minutes.
+- The website and docs: a table of how the three providers differ, at `/docs#providers`, and the adapter examples now use a provider that is not built in.
+
 ## [0.9.2] - 2026-11-06
 
 ### Changed

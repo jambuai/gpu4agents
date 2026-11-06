@@ -223,6 +223,7 @@
       <a href="#exit-codes">Exit codes</a>
       <a href="#mcp-tools">MCP tools</a>
       <a href="#watchdog-api">Watchdog API</a>
+      <a href="#providers">Built-in providers</a>
       <a href="#provider-contract">Provider adapters</a>
       <a href="#config">Configuration</a>
       <a href="#security">Security</a>
@@ -231,11 +232,11 @@
 
     <main id="top">
       <header class="hero">
-        <span class="eyebrow">Documentation · v0.9.2</span>
+        <span class="eyebrow">Documentation · v0.10.0</span>
         <h1>How GPU for Agents works</h1>
         <p class="lead">A coding agent can only read and write text. With its own GPU it can make images and voices, transcribe audio, run open models and test GPU code on real hardware. <b>GPU for Agents</b> gives it that machine with the controls built in: a budget it can't exceed, a log of every step, and a watchdog on the machine that stops it when the work stops.</p>
         <details class="mtoc"><summary>On this page</summary><div>
-          <a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#architecture">Architecture</a><a href="#setup-flow">Process flow</a><a href="#lifecycle">Lifecycle</a><a href="#watchdog">Watchdog</a><a href="#decision">Shutdown rule</a><a href="#data-flow">Data flow</a><a href="#audit">Audit and cost</a><a href="#agents">Coding agents</a><a href="#apps">Applications</a><a href="#serving">Serving</a><a href="#jobs">Jobs</a><a href="#cli-contract">CLI output</a><a href="#exit-codes">Exit codes</a><a href="#mcp-tools">MCP tools</a><a href="#watchdog-api">Watchdog API</a><a href="#provider-contract">Providers</a><a href="#config">Config</a><a href="#security">Security</a><a href="#reference">Reference</a>
+          <a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#architecture">Architecture</a><a href="#setup-flow">Process flow</a><a href="#lifecycle">Lifecycle</a><a href="#watchdog">Watchdog</a><a href="#decision">Shutdown rule</a><a href="#data-flow">Data flow</a><a href="#audit">Audit and cost</a><a href="#agents">Coding agents</a><a href="#apps">Applications</a><a href="#serving">Serving</a><a href="#jobs">Jobs</a><a href="#cli-contract">CLI output</a><a href="#exit-codes">Exit codes</a><a href="#mcp-tools">MCP tools</a><a href="#watchdog-api">Watchdog API</a><a href="#providers">Providers</a><a href="#provider-contract">Adapters</a><a href="#config">Config</a><a href="#security">Security</a><a href="#reference">Reference</a>
         </div></details>
       </header>
 
@@ -269,8 +270,10 @@
         <div class="code"><div class="hd"><span>your terminal: gpu login</span></div><pre>Connect a GPU provider, so your agent can rent GPUs on its own.
 Your key stays on this computer; the agent never sees it.
 
-  1) Vast.ai  <span class="c">built in; GPUs by the hour from a few cents, pay as you go</span>
-  2) Another provider I already use  <span class="c">RunPod, Lambda, my company's servers, ...: your agent adds it</span>
+  1) Vast.ai  <span class="c">a GPU marketplace, from a few cents an hour, prepaid credit</span>
+  2) Lambda  <span class="c">data-center GPUs (A100, H100, B200), billed by the minute to a card</span>
+  3) RunPod  <span class="c">many GPU models, billed by the second, prepaid credit</span>
+  4) Another provider I already use  <span class="c">CoreWeave, Paperspace, my company's servers, ...: your agent adds it</span>
 
 Choose [1]: <span class="s">1</span>
 
@@ -292,7 +295,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
 <span class="p">$ </span>gpu offers                                  <span class="c"># matching machines and their hourly price</span>
 <span class="p">$ </span>gpu setup                                   <span class="c"># rent, install the watchdog, serve, wait until ready</span>
 <span class="p">$ </span>eval "$(gpu env)"                           <span class="c"># OPENAI_BASE_URL, OPENAI_API_KEY, JAMBU_MODEL_ID</span></pre></div>
-        <div class="note">Vast.ai is built in. Any other provider (RunPod, Lambda, a company cluster, your own servers) is one adapter file, and the agent can write it from the provider's API docs: see <a href="#provider-contract">Provider adapters</a>.</div>
+        <div class="note">Vast.ai, RunPod and Lambda are built in (<a href="#providers">how they differ</a>). Any other provider (CoreWeave, Paperspace, a company cluster, your own servers) is one adapter file, and the agent can write it from the provider's API docs: see <a href="#provider-contract">Provider adapters</a>.</div>
       </section>
 
       <!-- ================= ARCHITECTURE ================= -->
@@ -346,7 +349,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
 
             <rect class="nd y" x="400" y="330" width="170" height="80" rx="12"/>
             <text class="t" x="418" y="358">Provider API</text>
-            <text class="s" x="418" y="380">Vast.ai built in</text>
+            <text class="s" x="418" y="380">Vast, RunPod, Lambda</text>
             <text class="s" x="418" y="398">any other: adapter</text>
 
             <path class="ar" d="M183,136 V152" marker-end="url(#a)"/>
@@ -380,7 +383,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
           <tr><td><code>core/policy.py</code></td><td>The only shutdown rule. Pure Python, no dependencies. Its source is copied into the watchdog, so the machine and <code>gpu status</code> apply exactly the same rule.</td></tr>
           <tr><td><code>core/engine.py</code></td><td>setup, restart, reconcile, stop, destroy, jobs; serialized by a file lock per project</td></tr>
           <tr><td><code>core/state.py</code>, <code>core/events.py</code></td><td><code>.gpu/state.json</code> and the append-only event log</td></tr>
-          <tr><td><code>providers/</code></td><td>the provider contract (<code>base.py</code>), the registry, the Vast.ai adapter and the skeleton for new ones</td></tr>
+          <tr><td><code>providers/</code></td><td>the provider contract (<code>base.py</code>), the registry, the Vast.ai, RunPod and Lambda adapters and the skeleton for new ones</td></tr>
           <tr><td><code>runtime/</code>, <code>serve/</code></td><td>how the model runs: vLLM, gpu's own server for any Hugging Face model, or your server</td></tr>
           <tr><td><code>watchdog/</code></td><td>the agent that runs on the machine (<code>agent_body.py</code>), its builder, and the jobs extension</td></tr>
           <tr><td><code>agent/</code></td><td>the skill, the MCP server and <code>gpu agent install</code></td></tr>
@@ -881,12 +884,28 @@ conn = ensure_gpu()
         </table></div>
       </section>
 
+      <section class="doc" id="providers">
+        <h2><span class="n">18</span>Built-in providers</h2>
+        <p class="sub">Three providers work without writing anything: pick one in <code>gpu login</code>, and <code>gpu init</code> uses it. The watchdog, budgets and commands behave the same on all three. What differs is the machine you get and what "stop" means.</p>
+        <div class="tbl"><table>
+          <tr><th></th><th>Vast.ai</th><th>RunPod</th><th>Lambda</th></tr>
+          <tr><td>What you rent</td><td>a container on a marketplace host</td><td>a container (a pod), on RunPod's or vetted hosts</td><td>a whole VM; gpu runs the model image on it with Docker</td></tr>
+          <tr><td>How you pay</td><td>prepaid credit, by the second</td><td>prepaid credit, by the second</td><td>a card, billed weekly by the minute</td></tr>
+          <tr><td>When idle, the watchdog</td><td>stops it; the disk bills a little until <code>stopped_ttl</code> destroys it</td><td>stops it; with no volume a stopped pod costs nothing</td><td>terminates it: Lambda cannot stop a machine</td></tr>
+          <tr><td>How the model is reached</td><td>the host's public port</td><td>RunPod's HTTPS proxy (one request may last 100 s; streaming is not cut)</td><td>the VM's address, through a firewall ruleset gpu creates</td></tr>
+          <tr><td>GPU count</td><td>any</td><td>any</td><td>1, 2, 4 or 8, as the instance type fixes it</td></tr>
+          <tr><td>Key</td><td><code>VAST_API_KEY</code></td><td><code>RUNPOD_API_KEY</code> (All permissions)</td><td><code>LAMBDA_API_KEY</code></td></tr>
+          <tr><td><code>gpu run</code> over SSH</td><td>yes</td><td>no: use <code>gpu job</code></td><td>yes, as <code>ubuntu</code> on the VM</td></tr>
+        </table></div>
+        <p>Each one's tuning knobs are under <code>provider.options</code>, in <a href="https://github.com/jambuai/gpu4agents/blob/main/docs/CONFIG.md">CONFIG.md</a>.</p>
+      </section>
+
       <section class="doc" id="provider-contract">
-        <h2><span class="n">18</span>Contract: provider adapters</h2>
-        <p class="sub">Vast.ai ships built in. Any other provider is one Python class that implements <code>providers/base.py</code>. The core, the watchdog, the CLI and the MCP tools stay the same.</p>
-        <div class="code"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu providers new runpod --display-name "RunPod"   <span class="c"># writes gpu_providers/runpod.py</span>
-<span class="p">$ </span>gpu init --provider runpod --model Qwen/Qwen2.5-0.5B-Instruct
-<span class="p">$ </span>gpu login --provider runpod
+        <h2><span class="n">19</span>Contract: provider adapters</h2>
+        <p class="sub">Vast.ai, RunPod and Lambda ship built in. Any other provider is one Python class that implements <code>providers/base.py</code>. The core, the watchdog, the CLI and the MCP tools stay the same.</p>
+        <div class="code"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu providers new acme --display-name "Acme GPU"   <span class="c"># writes gpu_providers/acme.py</span>
+<span class="p">$ </span>gpu init --provider acme --model Qwen/Qwen2.5-0.5B-Instruct
+<span class="p">$ </span>gpu login --provider acme
 <span class="p">$ </span>gpu --json validate &amp;&amp; gpu --json offers           <span class="c"># real GPUs, real prices, nothing rented</span></pre></div>
         <div class="tbl"><table>
           <tr><th>Part</th><th>Must do</th></tr>
@@ -905,7 +924,7 @@ conn = ensure_gpu()
 
       <!-- ================= CONFIG ================= -->
       <section class="doc" id="config">
-        <h2><span class="n">19</span>Configuration</h2>
+        <h2><span class="n">20</span>Configuration</h2>
         <p class="sub"><code>gpu.yaml</code> is the desired state. <code>gpu</code> reads only its <code>gpu_runtime:</code> key. Unknown keys are a hard error, so a typo in <code>idle_timeout</code> can't silently switch off the protection.</p>
         <div class="grid2">
           <div class="code" style="margin:0"><div class="hd"><span>gpu.yaml</span><button class="cp">copy</button></div><pre><span class="k">gpu_runtime</span>:
@@ -939,20 +958,21 @@ conn = ensure_gpu()
 
       <!-- ================= SECURITY ================= -->
       <section class="doc" id="security">
-        <h2><span class="n">20</span>Security</h2>
+        <h2><span class="n">21</span>Security</h2>
         <ul class="list">
           <li><b>The model endpoint needs a key.</b> Unless <code>runtime.api_key</code> is set, setup generates one per machine (43 random URL-safe characters). <code>/health</code> and <code>/metrics</code> stay open; they reveal no data.</li>
-          <li><b>The endpoint is plain HTTP</b> on a public IP and port, so the key and prompts travel unencrypted. For sensitive data, use a private network or a tunnel, or put a TLS proxy in front.</li>
-          <li><b>The watchdog holds a provider key</b> on the machine (<code>/etc/jambu/watchdog.json</code>, mode 600) so it can stop itself. Use a dedicated, restricted key. Opting out (<code>lifecycle.watchdog.enabled: false</code>) leaves shutdown to <code>gpu guard</code>, and <code>validate</code> warns.</li>
+          <li><b>The endpoint is plain HTTP</b> on a public IP and port on Vast.ai and Lambda, so the key and prompts travel unencrypted. For sensitive data, use a private network or a tunnel, or put a TLS proxy in front. On RunPod it goes through RunPod's HTTPS proxy.</li>
+          <li><b>The watchdog holds a provider key</b> on the machine (<code>/etc/jambu/watchdog.json</code>, mode 600, on Vast.ai; the container's environment on RunPod and Lambda) so it can stop itself. Use a dedicated, restricted key. Opting out (<code>lifecycle.watchdog.enabled: false</code>) leaves shutdown to <code>gpu guard</code>, and <code>validate</code> warns.</li>
           <li><b>The key never goes through the chat.</b> <code>gpu login</code> takes it in a hidden prompt in your terminal, and the skill tells the agent never to ask for it, read it or print it.</li>
           <li><b>A shell alias can shadow <code>gpu</code>.</b> With Oh My Zsh's <code>gpu = git push upstream</code>, an agent typing <code>gpu setup</code> in a repository would push. The installer removes the alias for new shells, and the skill has the agent check <code>type gpu</code> first and use <code>command gpu</code>. MCP tools don't go through a shell.</li>
+          <li><b>Lambda ports.</b> On Lambda, gpu creates one firewall ruleset per region, <code>gpu4agents-8000-8777</code>, opening SSH and those two ports, and attaches it only to the machines it launches. <code>provider.options.source_network</code> narrows who may connect.</li>
           <li><b>Account hygiene.</b> <code>gpu ls</code> and <code>gpu sweep</code> only see machines labeled <code>jambu-</code>.</li>
         </ul>
       </section>
 
       <!-- ================= REFERENCE ================= -->
       <section class="doc" id="reference">
-        <h2><span class="n">21</span>Full reference</h2>
+        <h2><span class="n">22</span>Full reference</h2>
         <p class="sub">The pages agents read are served from this site as Markdown. The long-form references live in the repository.</p>
         <div class="grid3">
           <a class="card" href="/install.md" style="text-decoration:none"><div class="k">for agents</div><h4>install.md</h4><p>install, connect the account, learn the rules</p></a>

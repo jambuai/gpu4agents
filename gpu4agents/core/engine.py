@@ -823,7 +823,9 @@ class Engine:
         instance = state.instance
         assert instance is not None
         boot_timeout = self.config.boot_timeout_s
-        stall_timeout = self.config.pull_stall_timeout_s
+        stall_timeout = (
+            self.config.pull_stall_timeout_s if self.provider.capabilities.boot_progress else None
+        )
         deadline = time.time() + boot_timeout
         announced = False
         # Live, healthy pulls printed a new line every 1-8 minutes; stalled ones

@@ -792,6 +792,23 @@ def test_pull_stall_detection_can_be_turned_off(write_config, monkeypatch):
     assert "! host m1 failed (image pull timed out after 20m); trying another machine (2/3)" in lines
 
 
+def test_a_provider_that_reports_no_pull_progress_gets_the_whole_boot_timeout(write_config, monkeypatch):
+    """RunPod says only STARTING while it pulls: ten quiet minutes are not a stall there."""
+    from dataclasses import replace
+
+    engine, lines, _ = _booting(write_config, monkeypatch)
+    clock = _with_clock(monkeypatch)
+    engine.provider.capabilities = replace(engine.provider.capabilities, boot_progress=False)
+    engine.provider.fail_first_hosts(1, how="loading")
+    engine.provider.boot_message = lambda poll: "STARTING"
+    started = clock[0]
+
+    engine.setup()
+
+    assert "! host m1 failed (image pull timed out after 30m); trying another machine (2/3)" in lines
+    assert clock[0] - started >= 30 * 60
+
+
 def test_a_model_server_that_dies_is_not_blamed_on_the_host(engine, monkeypatch):
     from gpu4agents.core.errors import HostFailure, RuntimeStartupError
 

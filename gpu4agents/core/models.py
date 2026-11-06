@@ -80,6 +80,10 @@ class ProviderCapabilities:
     stop_eliminates_billing: bool = True
     # Can enumerate this tool's instances account-wide (`gpu ls`, `gpu sweep`).
     list_instances: bool = False
+    # While booting, the status message shows the image pull moving (a new
+    # line per layer). Only then can a stalled pull be told from a slow one
+    # (health.pull_stall_timeout); otherwise boot_timeout alone applies.
+    boot_progress: bool = False
 
     def as_row(self) -> dict[str, str]:
         return {k: ("yes" if v else "no") for k, v in self.__dict__.items()}

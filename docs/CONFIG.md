@@ -52,8 +52,8 @@ for why this exists and `gpu profiles` / `gpu inspect-model
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `name` | `vast` | Adapter to use. `gpu providers` lists what is available. |
-| `profile` | `default` | Credential profile. Looks up `VAST_API_KEY__<profile>` before `VAST_API_KEY`. |
+| `name` | `vast` | Adapter to use: `vast`, `runpod`, `lambda`, or one you added. `gpu providers` lists what is available. `gpu init` writes the one `gpu login` connected. |
+| `profile` | `default` | Credential profile. Looks up `VAST_API_KEY__<profile>` (or `RUNPOD_API_KEY__<profile>`, ...) before the plain name. |
 | `options` | `{}` | Provider-specific tuning, validated by the adapter (see below). |
 
 ### `provider.options` for vast
@@ -70,6 +70,40 @@ for why this exists and `gpu profiles` / `gpu inspect-model
 | `order_by` / `order_dir` | `dph_total` / `asc` | Offer ranking, cheapest first. |
 | `image_login` | – | `-u user -p pass docker.io` for a private image. |
 | `search_filters` | – | Raw extra filters merged into the offer query. |
+
+### `provider.options` for runpod
+
+A pod is a container. Its model and watchdog ports are reached through RunPod's
+HTTPS proxy (`https://POD-PORT.proxy.runpod.net`), which ends a single request after
+100 seconds; streamed answers are not cut. RunPod's API has no spot pods, and `gpu`
+does not SSH into pods, so `workload.mode: remote` is refused (use `gpu job`).
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `api_base` | `https://api.runpod.io` | REST API v2 endpoint. |
+| `cloud` | `any` | `secure` (RunPod's own data centers), `community` (vetted hosts) or `any` (the cheaper of the two). |
+| `volume_gb` | `0` | Persistent volume at `/workspace`. With none, a stopped pod costs nothing but downloads the model again when it starts. With one, a stopped pod bills the volume, so `lifecycle.stopped_ttl` applies. |
+| `skip_low_availability` | `false` | Leave out GPU types RunPod reports as scarce. |
+
+`compute.region` picks data centers by prefix: `US`, `EU-RO-1`, `US-TX,CA`.
+
+### `provider.options` for lambda
+
+A Lambda machine is a whole VM. `gpu` runs the model image on it with Docker, and
+opens the model and watchdog ports with a firewall ruleset it creates per region
+(`gpu4agents-PORT-PORT`). Lambda cannot stop a machine, only terminate it, so where
+another provider would stop, `gpu` and the watchdog terminate. Instance types have a
+fixed GPU count (1, 2, 4 or 8) and a fixed disk; `compute.gpu.count` must match one.
+`gpu` keeps the SSH key it registers with Lambda in `$GPU_HOME/ssh/lambda_ed25519`.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `api_base` | `https://cloud.lambda.com/api/v1` | API endpoint. |
+| `image_family` | – | VM image, e.g. `lambda-stack-22-04`. Unset: Lambda's default, which has Docker and the NVIDIA container toolkit. |
+| `allow_arm64` | `false` | Also rent Arm machines (GH200). The usual model images are x86 only. |
+| `source_network` | `0.0.0.0/0` | Who may reach the model and watchdog ports. The model still demands its API key and the watchdog its token. |
+
+`compute.region` picks regions by prefix: `us-east`, `europe-central-1`.
 
 ## `compute`
 

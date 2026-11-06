@@ -422,24 +422,24 @@
       <div class="section-head">
         <span class="eyebrow reveal">Any GPU provider</span>
         <h2 class="reveal">Use the provider you already pay for.</h2>
-        <p class="lead reveal">Vast.ai is built in. For RunPod, Lambda, your company's cluster or anything else with an API, your agent writes an adapter: one Python file that implements our provider contract. The watchdog, budgets, CLI and MCP tools work the same with every provider.</p>
+        <p class="lead reveal">Vast.ai, RunPod and Lambda are built in: pick one in <code>gpu login</code>. For Paperspace, CoreWeave, your company's cluster or anything else with an API, your agent writes an adapter: one Python file that implements our provider contract. The watchdog, budgets, CLI and MCP tools work the same with every provider.</p>
       </div>
       <div class="prov">
         <div class="steps3 reveal">
           <ol>
             <li><b>Name the provider and paste this into your agent.</b>
-              <label class="prov-name"><span>Provider</span><input id="prov-input" type="text" value="RunPod" maxlength="40" autocomplete="off" spellcheck="false" aria-label="Provider name" /></label>
+              <label class="prov-name"><span>Provider</span><input id="prov-input" type="text" value="Paperspace" maxlength="40" autocomplete="off" spellcheck="false" aria-label="Provider name" /></label>
               <div class="prompt"><span id="prov-prompt"></span><br /><button class="copy-btn" id="copy-prov" type="button">Copy prompt</button></div>
             </li>
             <li><b>The agent writes and checks the adapter.</b> It runs <code>gpu providers new</code>, fills in each method from the provider's API docs, then checks prices with <code>gpu offers</code> without renting anything.</li>
-            <li><b>You connect the account.</b> <code>gpu login --provider <span class="prov-slug">runpod</span></code> in your terminal. The agent asks before one small test rental.</li>
+            <li><b>You connect the account.</b> <code>gpu login --provider <span class="prov-slug">paperspace</span></code> in your terminal. The agent asks before one small test rental.</li>
           </ol>
         </div>
         <div class="yaml contract reveal">
-          <div class="bar-top"><i></i><i></i><i></i><span>gpu_providers/<span class="prov-slug">runpod</span>.py</span></div>
-<pre><span class="k2">class</span> <span class="v"><span class="prov-class">Runpod</span>Provider</span>(GPUProvider):
-    name = <span class="v">"<span class="prov-slug">runpod</span>"</span>
-    required_credentials = [<span class="v">"<span class="prov-env">RUNPOD</span>_API_KEY"</span>]
+          <div class="bar-top"><i></i><i></i><i></i><span>gpu_providers/<span class="prov-slug">paperspace</span>.py</span></div>
+<pre><span class="k2">class</span> <span class="v"><span class="prov-class">Paperspace</span>Provider</span>(GPUProvider):
+    name = <span class="v">"<span class="prov-slug">paperspace</span>"</span>
+    required_credentials = [<span class="v">"<span class="prov-env">PAPERSPACE</span>_API_KEY"</span>]
 
     <span class="k2">def</span> find_offers(spec)   <span class="c"># GPUs that fit, cheapest first</span>
     <span class="k2">def</span> setup(spec)         <span class="c"># rent one, run the boot script</span>
@@ -451,7 +451,7 @@
 <span class="c"># runs on the machine: stops it when idle</span>
 <span class="k2">def</span> provider_stop(ctx)
 <span class="k2">def</span> provider_destroy(ctx)</pre>
-          <div class="contract-foot"><span class="c">gpu.yaml</span> provider: {name: <span class="v prov-slug">runpod</span>, plugin: <span class="v">./gpu_providers/<span class="prov-slug">runpod</span>.py:<span class="prov-class">Runpod</span>Provider</span>}</div>
+          <div class="contract-foot"><span class="c">gpu.yaml</span> provider: {name: <span class="v prov-slug">paperspace</span>, plugin: <span class="v">./gpu_providers/<span class="prov-slug">paperspace</span>.py:<span class="prov-class">Paperspace</span>Provider</span>}</div>
         </div>
       </div>
     </div>
@@ -615,7 +615,7 @@
       ["", `+ MCP server (${AGENTS[a].name}): ${AGENTS[a].mcp}`],
       ["", "$ gpu login --check"],
       ["", "no GPU provider connected yet"],
-      ["me", "● Installed. One step left: type `gpu login` in your terminal app. It shows the providers you can use and walks you through it. Vast.ai works right away, and if you use another one, I'll add it."],
+      ["me", "● Installed. One step left: type `gpu login` in your terminal app. It shows the providers you can use and walks you through it. Vast.ai, RunPod and Lambda work right away, and if you use another one, I'll add it."],
     ];
     const term = document.getElementById("agent-term"), who = document.getElementById("term-who");
     const promptText = document.getElementById("prompt-text"), copyBtn = document.getElementById("copy-prompt");
@@ -671,11 +671,11 @@
 
     /* ---------- providers: the prompt for the provider the user names ---------- */
     const provInput = document.getElementById("prov-input"), provPrompt = document.getElementById("prov-prompt"), provCopy = document.getElementById("copy-prov");
-    const provName = () => provInput.value.trim() || "RunPod";
+    const provName = () => provInput.value.trim() || "Paperspace";
     const provPromptText = () => `Add ${provName()} as a GPU provider to GPU for Agents. Fetch ${ORIGIN}/providers.md with curl and follow its steps.`;
     function syncProv() {
       const name = provName();
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "runpod";
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "paperspace";
       const cls = slug.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join("");
       provPrompt.textContent = provPromptText();
       document.querySelectorAll(".prov-slug").forEach(el => el.textContent = slug);

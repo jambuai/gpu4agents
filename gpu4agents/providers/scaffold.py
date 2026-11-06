@@ -226,6 +226,10 @@ class {cls}(GPUProvider):
 '''
 
 
+# Adapters that ship with gpu4agents (providers/registry.py).
+BUILT_IN = ("vast", "runpod", "lambda")
+
+
 def plugin_spec(name: str) -> str:
     return f"./{PLUGIN_DIR}/{name}.py:{class_name(name)}"
 
@@ -237,8 +241,8 @@ def class_name(name: str) -> str:
 def write_template(name: str, directory: Path, display_name: str = "", force: bool = False) -> Path:
     if not re.fullmatch(r"[a-z][a-z0-9_-]*", name):
         raise ConfigError("provider name: lowercase letters, digits, - or _, starting with a letter")
-    if name == "vast":
-        raise ConfigError("vast is built in; pick another name")
+    if name in BUILT_IN:
+        raise ConfigError(f"{name} is built in; pick another name")
     path = directory / PLUGIN_DIR / f"{name}.py"
     if path.exists() and not force:
         raise ConfigError(f"{path} already exists (use --force to overwrite)")

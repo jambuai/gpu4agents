@@ -48,6 +48,7 @@ class FakeProvider(GPUProvider):
         spot_instances=True,
         stop_eliminates_billing=True,
         list_instances=True,
+        boot_progress=True,
     )
 
     def __init__(self, config, credentials) -> None:

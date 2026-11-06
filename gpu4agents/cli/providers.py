@@ -155,8 +155,8 @@ def providers_command(ctx: typer.Context) -> None:
         if row["missing_credentials"]:
             console.print(
                 Text(
-                    f"  {row['provider']}: set "
-                    + ", ".join(row["missing_credentials"]),
+                    f"  {row['provider']}: not connected; run `gpu login --provider {row['provider']}` "
+                    "in your terminal",
                     style="yellow",
                 )
             )

@@ -59,7 +59,7 @@ EXIT_MEANINGS = {
 }
 
 INSTRUCTIONS = """\
-gpu rents a cloud GPU (Vast.ai built in; other providers through an adapter),
+gpu rents a cloud GPU (Vast.ai, RunPod and Lambda built in; other providers through an adapter),
 serves a model on it behind an OpenAI-compatible API, and stops it by itself
 when nobody uses it. Any Hugging Face model: chat models on vLLM; image,
 speech, transcription, embeddings and other pipeline models on gpu's own

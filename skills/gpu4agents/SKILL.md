@@ -7,7 +7,7 @@ description: GPU for Agents. Rent a cloud GPU on your own, serve an open-weights
 
 `gpu` (the `gpu4agents` package) rents a machine from a GPU provider, serves a model on it with vLLM behind an OpenAI-compatible API or runs your own code on it as a job, and installs a watchdog on the machine. The watchdog shuts the machine down once nothing has used it for `idle_timeout` (15 min by default), so billing ends even if this conversation does.
 
-Vast.ai is built in. Any other provider (RunPod, Lambda, a company cluster) plugs in through an adapter: one Python file that implements the provider contract. See "Another provider" below.
+Vast.ai, RunPod and Lambda are built in. Any other provider (CoreWeave, Paperspace, a company cluster) plugs in through an adapter: one Python file that implements the provider contract. See "Another provider" below.
 
 Each project directory has a `gpu.yaml` (what to rent and serve, and from which provider) and a `.gpu/` directory (what was rented). One project, one machine.
 
@@ -17,7 +17,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.9.2 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.10.0 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>
@@ -33,7 +33,7 @@ Check: `gpu login --check` exits 0. It prints the provider, where the key was fo
 
 If it exits 5, no account is connected yet. The user may not be technical, so skip jargon like "API key" and tell them, in these words or close:
 
-> One step left, about two minutes: connect the account that pays for the GPUs. Open your terminal app (not this chat) and type `gpu login`. It shows the providers you can use and walks you through it: Vast.ai works right away, and if you already use another one (RunPod, Lambda, your company's servers), pick "Another provider" and I'll add it. Your key stays on your computer; I never see it.
+> One step left, about two minutes: connect the account that pays for the GPUs. Open your terminal app (not this chat) and type `gpu login`. It shows the providers you can use and walks you through it: Vast.ai, RunPod and Lambda work right away, and if you already use another one (your company's servers, for example), pick "Another provider" and I'll add it. Your key stays on your computer; I never see it.
 
 If they pick another provider, write its adapter ("Another provider" below), then ask them to run `gpu login --provider <name>` in their terminal.
 

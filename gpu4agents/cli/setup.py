@@ -28,10 +28,13 @@ from ._common import console, fmt_money, get_context, handle, print_json, regist
 def init_command(
     ctx: typer.Context,
     model: str = typer.Option("empero-ai/Qwythos-9B-v2", "--model", help="HuggingFace model id."),
-    provider: str = typer.Option(
-        "vast",
+    provider: Optional[str] = typer.Option(
+        None,
         "--provider",
-        help="GPU provider. One gpu does not ship is loaded from gpu_providers/NAME.py (gpu providers new NAME).",
+        help=(
+            "GPU provider: vast, runpod or lambda (default: the one `gpu login` connected, else vast). "
+            "One gpu does not ship is loaded from gpu_providers/NAME.py (gpu providers new NAME)."
+        ),
     ),
     jobs: bool = typer.Option(
         False,
@@ -78,6 +81,9 @@ def init_command(
     from ..providers import scaffold
     from ..providers.registry import load_builtin_providers
 
+    from .account import default_provider_name
+
+    provider = provider or default_provider_name()
     try:
         credential_names = list(load_builtin_providers().get_class(provider).required_credentials)
         plugin = None
@@ -182,7 +188,7 @@ def init_command(
         console.print(
             Text(f"! {provider} is not built in: run `gpu providers new {provider}` and fill in the adapter", style="yellow")
         )
-    login = "gpu login" if provider == "vast" else f"gpu login --provider {provider}"
+    login = f"gpu login --provider {provider}"
     console.print(f"next: {login} && gpu validate")
     if engine == "none":
         console.print("then: gpu job run -- python your_script.py   (see `gpu job --help`)")

@@ -4,7 +4,7 @@ Adding a provider means writing one class against the contract in ``base.py``.
 No lifecycle, execution or CLI code changes. A provider reaches the registry
 in one of three ways:
 
-- built in: registered by ``load_builtin_providers`` (Vast.ai);
+- built in: registered by ``load_builtin_providers`` (Vast.ai, RunPod, Lambda);
 - installed: a package that declares a ``gpu4agents.providers`` entry point;
 - per project: ``provider.plugin`` in gpu.yaml, a file or module path.
 """
@@ -139,8 +139,11 @@ def _load_entry_points() -> None:
 
 def load_builtin_providers() -> ProviderRegistry:
     """Register the adapters that ship with the CLI, then installed ones."""
-    from .vast.provider import VastProvider  # noqa: WPS433 (deferred import by design)
+    from .lambdacloud.provider import LambdaProvider  # noqa: WPS433 (deferred import by design)
+    from .runpod.provider import RunpodProvider
+    from .vast.provider import VastProvider
 
-    registry.register(VastProvider)
+    for provider_cls in (VastProvider, RunpodProvider, LambdaProvider):
+        registry.register(provider_cls)
     _load_entry_points()
     return registry

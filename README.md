@@ -28,7 +28,7 @@ Ask Claude Code, Codex, Gemini CLI or Cursor to "compare Qwen 7B and Llama 8B on
 
 The agent installs it from one pasted line. A skill and local MCP tools (`gpu_offers`, `gpu_setup`, `gpu_run`, `gpu_status`, `gpu_destroy`, ...) cover the whole lifecycle, and the skill tells the agent to show you the price and ask before renting. Budgets, a maximum lifetime and an account-wide sweep catch anything left behind. Apps in any language get the endpoint from `gpu --json setup`.
 
-Vast.ai is built in. Any other GPU provider takes one adapter file, and your agent can write it: see [Use any GPU provider](#use-any-gpu-provider).
+Vast.ai, RunPod and Lambda are built in. Any other GPU provider takes one adapter file, and your agent can write it: see [Use any GPU provider](#use-any-gpu-provider).
 
 ## Installation
 
@@ -81,8 +81,8 @@ uv tool install gpu4agents && gpu agent install -t auto --global    # the same, 
 Run this in your own terminal, so the agent never sees the key:
 
 ```bash
-gpu login                     # pick a provider; for Vast.ai it walks you through the account and the key
-gpu login --provider runpod   # a provider you added an adapter for
+gpu login                     # pick Vast.ai, RunPod or Lambda; it walks you through the account and the key
+gpu login --provider lambda   # go straight to one provider (also one you added an adapter for)
 gpu login --check             # which account gpu finds, and its balance
 ```
 
@@ -123,7 +123,7 @@ Requests count as activity, so the machine stays up while clients call it and st
 
 ## Use any GPU provider
 
-`gpu` talks to providers through a small contract: find offers, rent, report status, stop, destroy, and two calls the watchdog makes from the machine to shut itself down. Vast.ai ships with it. For anything else, such as RunPod, Lambda or your company's cluster, paste this into your agent:
+`gpu` talks to providers through a small contract: find offers, rent, report status, stop, destroy, and two calls the watchdog makes from the machine to shut itself down. Vast.ai, RunPod and Lambda ship with it. For anything else, such as CoreWeave, Paperspace or your company's cluster, paste this into your agent:
 
 ```text
 Add <provider> to GPU for Agents. Fetch https://gpu4agents.jambu.ai/providers.md with curl and follow its steps.
@@ -134,8 +134,8 @@ The agent runs `gpu providers new <name>`, fills in the adapter from the provide
 ```yaml
 gpu_runtime:
   provider:
-    name: runpod
-    plugin: ./gpu_providers/runpod.py:RunpodProvider
+    name: acme
+    plugin: ./gpu_providers/acme.py:AcmeProvider
 ```
 
 To reuse an adapter across projects, publish it as a package with a `gpu4agents.providers` entry point. The watchdog, budgets, CLI and MCP tools work the same with every provider. See [PROVIDERS.md](PROVIDERS.md) and [Adding a provider](docs/ADDING_A_PROVIDER.md).

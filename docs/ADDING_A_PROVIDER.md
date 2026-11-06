@@ -1,6 +1,6 @@
 # Adding a provider
 
-Vast.ai is the built-in provider. Any other provider is a class that implements
+Vast.ai, RunPod and Lambda are built in. Any other provider is a class that implements
 the contract in `gpu4agents/providers/base.py`. Lifecycle, execution and CLI code
 stay the same; if you find yourself editing `core/`, the contract is leaking.
 
@@ -30,16 +30,16 @@ The rest of this guide applies to all three routes.
 ## 1. Implement the contract
 
 ```python
-# gpu4agents/providers/runpod/provider.py
+# gpu4agents/providers/acme/provider.py
 from ...core.models import ProviderCapabilities
 from ..base import GPUProvider, WatchdogSpec
 
 
-class RunpodProvider(GPUProvider):
-    name = "runpod"
-    display_name = "RunPod"
-    required_credentials = ["RUNPOD_API_KEY"]
-    credentials_url = "https://www.runpod.io/console/user/settings"
+class AcmeProvider(GPUProvider):
+    name = "acme"
+    display_name = "Acme GPU"
+    required_credentials = ["ACME_API_KEY"]
+    credentials_url = "https://console.acme.example/api-keys"
     capabilities = ProviderCapabilities(
         stop=True,
         destroy=True,
@@ -64,16 +64,16 @@ class RunpodProvider(GPUProvider):
     def logs(self, instance): ...
 ```
 
-`gpu login --provider runpod` prompts for each name in `required_credentials`,
+`gpu login --provider acme` prompts for each name in `required_credentials`,
 passes the values to `verify_credentials`, and saves them in
 `~/.gpu/credentials` only if it returns. Raise `AuthenticationError` for a
 rejected key, and return only fields that are safe to print, such as
 `{"balance_usd": 12.5}`.
 
-For an adapter that ships in this repository, mirror the Vast layout:
+For an adapter that ships in this repository, mirror the layout of `vast/`, `runpod/` or `lambdacloud/`:
 
 ```
-providers/runpod/
+providers/acme/
 ├── provider.py   the contract implementation
 ├── client.py     raw HTTP; the ONLY place that knows the wire format
 ├── mapper.py     payloads <-> normalized models, state mapping
@@ -85,6 +85,10 @@ providers/runpod/
 The core branches on `provider.capabilities`, never on `provider.name`. Set
 `stop_eliminates_billing=False` if a stopped instance still costs money; the policy
 then knows it may need to escalate to destroy, and `lifecycle.stopped_ttl` applies.
+
+Set `boot_progress=True` only if, while the machine boots, `status().message` shows the image
+pull moving (a new line per layer, as Vast.ai does). The core then gives up on a pull that
+stops moving for `health.pull_stall_timeout`; without it, only `health.boot_timeout` applies.
 
 Set `list_instances=True` and implement `list_instances()` if the API can enumerate
 the account. Return only instances whose label starts with `JAMBU_LABEL_PREFIX`
@@ -123,7 +127,7 @@ def provider_destroy(ctx):
 def watchdog_spec(self, spec_or_instance=None):
     return WatchdogSpec(
         actions_source=WATCHDOG_ACTIONS,
-        env={"RUNPOD_API_KEY": self.credentials.get("RUNPOD_API_KEY") or ""},
+        env={"ACME_API_KEY": self.credentials.get("ACME_API_KEY") or ""},
         context={"provider": self.name},
     )
 ```
@@ -151,10 +155,10 @@ ships in this repository is added here:
 # providers/registry.py
 def load_builtin_providers():
     from .vast.provider import VastProvider
-    from .runpod.provider import RunpodProvider
+    from .acme.provider import AcmeProvider
 
     registry.register(VastProvider)
-    registry.register(RunpodProvider)
+    registry.register(AcmeProvider)
     return registry
 ```
 

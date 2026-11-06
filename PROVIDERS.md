@@ -1,6 +1,6 @@
 # Add a GPU provider to GPU for Agents (instructions for the agent)
 
-You are a coding agent, and the user wants GPU for Agents (`gpu`) to rent from a provider it does not ship with, such as RunPod, Lambda, Paperspace, a company cluster or their own servers. Vast.ai is built in. Any other provider is one Python file that implements the provider contract. The core, the watchdog that stops idle machines, the CLI and the MCP tools stay the same.
+You are a coding agent, and the user wants GPU for Agents (`gpu`) to rent from a provider it does not ship with, such as CoreWeave, Paperspace, a company cluster or their own servers. Vast.ai, RunPod and Lambda are built in (`gpu login` offers them; nothing to write). Any other provider is one Python file that implements the provider contract. The core, the watchdog that stops idle machines, the CLI and the MCP tools stay the same.
 
 Follow these steps in the user's project directory. Do not rent anything until step 6, and ask first.
 
@@ -28,7 +28,7 @@ In an existing `gpu.yaml`, add those two lines under `gpu_runtime.provider` your
 
 ## 3. Read the provider's API docs, then fill in the file
 
-Every `todo(...)` call marks a part that needs the provider's API; until you write it, that part fails with a clear error (exit 9). Read the contract in `gpu4agents/providers/base.py` (run `python -c "import gpu4agents.providers.base as b; print(b.__file__)"` to find it) and the guide at https://github.com/jambuai/gpu4agents/blob/main/docs/ADDING_A_PROVIDER.md. The Vast.ai adapter in `gpu4agents/providers/vast/` is a full working example.
+Every `todo(...)` call marks a part that needs the provider's API; until you write it, that part fails with a clear error (exit 9). Read the contract in `gpu4agents/providers/base.py` (run `python -c "import gpu4agents.providers.base as b; print(b.__file__)"` to find it) and the guide at https://github.com/jambuai/gpu4agents/blob/main/docs/ADDING_A_PROVIDER.md. The built-in adapters are full working examples: `gpu4agents/providers/vast/` (a marketplace of containers), `runpod/` (containers behind an HTTPS proxy) and `lambdacloud/` (whole VMs, where the image runs under Docker and the machine can only be terminated).
 
 What each part must do:
 

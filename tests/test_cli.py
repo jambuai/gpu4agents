@@ -85,8 +85,9 @@ def test_providers_json_exposes_capabilities(tmp_path, monkeypatch):
     result = runner.invoke(app, ["--json", "providers"])
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    vast = payload["providers"][0]
-    assert vast["provider"] == "vast"
+    by_name = {row["provider"]: row for row in payload["providers"]}
+    assert {"vast", "runpod", "lambda"} <= set(by_name)
+    vast = by_name["vast"]
     assert vast["status"] == "unavailable"
     assert vast["capabilities"]["stop"] is True
     assert vast["required_credentials"] == ["VAST_API_KEY"]
@@ -597,3 +598,45 @@ def test_gpu4agents_is_installed_as_a_second_command_name():
     scripts = text.split("[project.scripts]", 1)[1].split("\n[", 1)[0]
     assert 'gpu = "gpu4agents.cli.main:main"' in scripts
     assert 'gpu4agents = "gpu4agents.cli.main:main"' in scripts
+
+
+def test_login_lists_every_built_in_provider(monkeypatch, capsys):
+    from gpu4agents.cli import account
+    from gpu4agents.providers.vast.provider import VastProvider
+
+    monkeypatch.setattr(account.typer, "prompt", lambda *a, **k: "3")
+    chosen = account._choose_provider(account.registry_classes(), VastProvider)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "1) Vast.ai" in out and "2) Lambda" in out and "3) RunPod" in out
+    assert "4) Another provider I already use" in out
+    assert chosen.name == "runpod"
+    account._walk_through(chosen)
+    steps = " ".join(capsys.readouterr().out.split())
+    assert "https://console.runpod.io/signup" in steps and "https://console.runpod.io/user/credentials" in steps
+
+
+def test_init_uses_the_provider_login_connected(tmp_path, monkeypatch):
+    from gpu4agents.core.credentials import save_user_credential
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("GPU_PROVIDER", raising=False)
+    save_user_credential("GPU_PROVIDER", "lambda")
+    result = runner.invoke(app, ["init"])
+    assert result.exit_code == 0, result.output
+    text = (tmp_path / "gpu.yaml").read_text()
+    assert "name: lambda\n" in text and "plugin:" not in text
+    assert "LAMBDA_API_KEY=" in (tmp_path / ".env.example").read_text()
+    assert "gpu login --provider lambda" in result.output
+
+
+def test_runpod_and_lambda_are_built_in_names():
+    from gpu4agents.core.errors import ConfigError
+    from gpu4agents.providers import scaffold
+
+    for name in ("runpod", "lambda"):
+        try:
+            scaffold.write_template(name, __import__("pathlib").Path("/nonexistent"))
+        except ConfigError as exc:
+            assert "built in" in str(exc)
+        else:
+            raise AssertionError(f"{name} must be refused")

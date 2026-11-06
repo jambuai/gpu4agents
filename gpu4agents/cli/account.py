@@ -480,7 +480,7 @@ def _choose_provider(classes: list, default):
     other = len(classes) + 1
     console.print(
         f"  {other}) Another provider I already use  "
-        "[dim]RunPod, Lambda, my company's servers, ...: your agent adds it[/dim]\n",
+        "[dim]CoreWeave, Paperspace, my company's servers, ...: your agent adds it[/dim]\n",
         highlight=False,
     )
     choice = typer.prompt("Choose", default="1", err=True).strip()
