@@ -24,7 +24,7 @@ Operator reference. The project front page is the [README](../README.md). Field-
 | `gpu guard` | Evaluate and enforce the lifecycle rule from cron or CI |
 | `gpu ls` | Every jambu instance in the provider account, and which registered project owns it |
 | `gpu sweep` | Guard every registered project by its own rules, then report (or `--apply`) stops and destroys of orphans |
-| `gpu sweep --install-timer` | Write a systemd user timer running `sweep --apply`, and register this project |
+| `gpu sweep --install-timer` | Schedule `sweep --apply` (systemd user timer on Linux, LaunchAgent on macOS), and register this project |
 | `gpu endpoint` | Print the model endpoint URL |
 | `gpu env` | Print the base URL, API key and model as shell exports (`--format dotenv\|json`), without starting anything |
 | `gpu agent install` | Give Claude Code (`-t claude`), Cursor (`-t cursor`) or Claude Desktop (`-t desktop`) the gpu skill and MCP server ([AGENTS.md](AGENTS.md)) |
@@ -148,7 +148,9 @@ systemctl --user daemon-reload && systemctl --user enable --now jambu-gpu-sweep.
 
 `--install-timer` writes `~/.config/systemd/user/jambu-gpu-sweep.service` and `.timer`, and registers the current project if there is one. The service is a single `ExecStart=<python> -m gpu4agents sweep --apply` with the interpreter that installed it, run from `~`. The registry decides which projects get guarded, and the working directory plays no part, so installing from a second project changes nothing in the unit. The oneshot has a 10 minute start timeout, a failing sweep shows as a failed unit, and `GPU_HOME` is passed through when it is set. A unit written by an older version, with one `guard` line per project, is rewritten and those projects are registered.
 
-A user unit does not inherit your shell's environment. `--install-timer` therefore refuses unless the provider key is in a file: the project `.env` or `~/.gpu/credentials`. A key that is only exported in your shell is not enough. A user timer needs no root, but it stops at logout unless lingering is on (`loginctl enable-linger $USER`).
+On macOS it writes `~/Library/LaunchAgents/ai.jambu.gpu-sweep.plist` instead, with the same command, run every `--every` and at each login, its output in `~/.gpu/logs/sweep.log`. Load it with the `launchctl bootstrap` command it prints.
+
+Neither a user unit nor a LaunchAgent inherits your shell's environment. `--install-timer` therefore refuses unless the provider key is in a file: the project `.env` or `~/.gpu/credentials`. A key that is only exported in your shell is not enough. A user timer needs no root, but it stops at logout unless lingering is on (`loginctl enable-linger $USER`).
 
 ```bash
 gpu sweep --uninstall-timer

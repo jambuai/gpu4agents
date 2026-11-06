@@ -118,7 +118,7 @@ gpu env --format dotenv > .env.gpu
 | Event | What the app sees | What it does |
 | --- | --- | --- |
 | first `setup` | blocks while a machine is rented, the image pulled and the model downloaded: usually 5 to 15 minutes. A bad host (stalled image pull, broken network) is destroyed and replaced automatically, each costing up to `health.pull_stall_timeout` (10 min) when its pull stalls, or `health.boot_timeout` (30 min) when it crawls, at most `compute.host_attempts` (3) times | wait; do not put a short timeout on `setup`, it bounds itself |
-| idle for `idle_timeout` | the watchdog stops the machine; requests fail with connection refused or a timeout | call `setup` again and retry the request |
+| idle for `idle_timeout` | the watchdog stops the machine, or destroys it where a stopped machine still bills storage (Vast.ai, unless `lifecycle.keep_disk: true`); requests fail with connection refused or a timeout | call `setup` again and retry the request |
 | `setup` on a stopped machine | it is restarted: no new rent, no model download, under a minute for a small model (41 s measured) | wait, then use the new `base_url`: the provider may assign a new IP and port on restart |
 | stopped for `stopped_ttl` | the machine is destroyed to stop the storage bill | the next `setup` rents a new one (and a new key) |
 | `max_lifetime` reached | stopped even under traffic | same as idle |

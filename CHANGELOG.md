@@ -2,6 +2,17 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-11-06
+
+### Changed
+- **Where a stopped machine still bills storage, the guard destroys it instead of stopping it.** That is Vast.ai, and a RunPod pod with a volume. A stopped Vast.ai machine kept billing its disk (an 80 GB disk is about $2.30 a day), and nothing on a stopped machine can remove it: `lifecycle.stopped_ttl` was enforced only by `gpu guard` or `gpu sweep` on your computer, which on a Mac never ran on its own. This applies to idle, `max_lifetime` and the budget. The next `gpu setup` rents a new machine and downloads the model again (a few minutes instead of about one). `lifecycle.keep_disk: true` restores the old behavior for those who want the fast restart and accept the storage bill.
+
+### Added
+- `gpu sweep --install-timer` on macOS writes a LaunchAgent (`~/Library/LaunchAgents/ai.jambu.gpu-sweep.plist`) that runs the sweep every 5 minutes and at login, so `stopped_ttl` and orphan cleanup work on a Mac too. Linux keeps the systemd user timer.
+
+### Fixed
+- When the CLI's "model is up" signal did not reach the watchdog (after a restart, for instance), the idle clock did not start until the startup grace (about 45 minutes) ran out. A machine left idle could bill for over an hour instead of `idle_timeout`. The watchdog now ends the startup by itself as soon as the model server answers on the machine.
+
 ## [0.10.1] - 2026-11-06
 
 ### Fixed

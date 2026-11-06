@@ -606,6 +606,16 @@ def probe_once(spec, previous):
         _PROBE.update({"ok": True, "at": now, "error": None, "values": summary})
         if traffic:
             _PROBE["last_traffic_at"] = now
+        # The server answers only once the model is loaded. Without this the
+        # startup grace (most of an hour) held the idle clock whenever the
+        # CLI's /ready never arrived, e.g. after a restart it did not follow.
+        ready = bool(_STATE.get("starting"))
+        if ready:
+            _STATE["starting"] = False
+            _STATE["last_activity"] = now
+            save_state()
+    if ready:
+        log_event("runtime_ready", source="activity_probe")
     if traffic:
         touch("inference_traffic")
     return totals

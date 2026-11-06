@@ -153,11 +153,11 @@ def sweep_command(
         None, "--config", "-c", help="Also guard this project for this run, registered or not."
     ),
     install_timer: bool = typer.Option(
-        False, "--install-timer", help="Write a systemd user timer that runs the sweep."
+        False, "--install-timer", help="Schedule the sweep: a systemd user timer on Linux, a LaunchAgent on macOS."
     ),
     every: str = typer.Option("5m", "--every", help="Timer period for --install-timer."),
     uninstall_timer: bool = typer.Option(
-        False, "--uninstall-timer", help="Remove the systemd user timer."
+        False, "--uninstall-timer", help="Remove the timer written by --install-timer."
     ),
 ) -> None:
     """Guard every registered project, then clean up orphans (dry run by default).
@@ -203,8 +203,8 @@ def _require_file_credentials(context: Context) -> None:
                 continue
             where = "only in your shell environment" if resolver.get(name) else "not set anywhere"
             raise ConfigError(
-                f"{name} is {where}, so the timer could not use it for {who}: a systemd "
-                f"user unit does not inherit your shell. Put `{name}=...` in "
+                f"{name} is {where}, so the timer could not use it for {who}: the "
+                f"timer does not inherit your shell. Put `{name}=...` in "
                 "~/.gpu/credentials (chmod 600), then re-run --install-timer."
             )
 
@@ -240,8 +240,8 @@ def _timer(context: Context, install: bool, every: str) -> None:
     if context.json:
         print_json(result)
         return
-    console.print(Text(f"+ wrote {result['service']}", style="green"))
-    console.print(Text(f"+ wrote {result['timer']}", style="green"))
+    for path in result["files"]:
+        console.print(Text(f"+ wrote {path}", style="green"))
     if project:
         console.print(Text(f"+ registered {project}", style="green"))
     console.print(
@@ -249,12 +249,15 @@ def _timer(context: Context, install: bool, every: str) -> None:
         f"{len(result['projects'])} registered project(s) and cleaning up orphans"
     )
     console.print(Text(f"> enable it: {result['enable']}", style="cyan"))
-    console.print(
-        Text(
-            "  user timers stop at logout unless lingering is on: loginctl enable-linger $USER",
-            style="dim",
+    if result["scheduler"] == "systemd":
+        console.print(
+            Text(
+                "  user timers stop at logout unless lingering is on: loginctl enable-linger $USER",
+                style="dim",
+            )
         )
-    )
+    else:
+        console.print(Text("  it runs while you are logged in, and again at each login", style="dim"))
 
 
 def _sweep(

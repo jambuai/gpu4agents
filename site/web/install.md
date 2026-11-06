@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/jambuai/gpu4agents/main/install.sh 
 
 The script needs only `curl` (Linux or macOS; on Windows, run it inside WSL). It installs [uv](https://docs.astral.sh/uv/) if missing, uses it to install the `gpu4agents` package with a Python it downloads by itself, and then installs the skill and registers the `gpu` MCP server for your runtime. It does not ask for or read any key.
 
-Check: `~/.local/bin/gpu --version` prints 0.10.1 or later.
+Check: `~/.local/bin/gpu --version` prints 0.11.0 or later.
 
 For the rest of this session, call the command by its full path, `~/.local/bin/gpu`. Your shell may define `gpu` as an alias: Oh My Zsh's git plugin, on by default, makes `gpu` mean `git push upstream`, and an alias wins over the command, so plain `gpu setup` could run git instead. The installer removes that alias for new shells and says so; tell the user if it did. The same command is also installed as `gpu4agents`.
 

@@ -194,6 +194,7 @@ The cost protection. See [the safety invariant](#safety-invariant).
 | `stopped_ttl` | `24h` | Destroy an instance that has been `STOPPED` this long. A stopped Vast instance no longer bills GPU time but still bills storage. `null` keeps stopped instances forever. |
 | `auto_stop` | `true` | The guard may stop the instance. |
 | `auto_destroy` | `false` | The guard destroys instead of stopping. |
+| `keep_disk` | `false` | Where a stopped instance still bills storage (Vast.ai, a RunPod pod with a volume), the guard destroys the instance instead of stopping it, because nothing on a stopped machine can remove it later. `true` stops it, keeping the disk for a restart in about a minute, and leaves the removal to `stopped_ttl`, which only `gpu guard` or `gpu sweep` on your computer enforce (`gpu sweep --install-timer`). |
 | `cleanup_on_setup_failure` | `true` | Destroy partially created resources when setup fails. |
 | `allow_indefinite_lock` | `false` | Permit `gpu lock` with no TTL. |
 | `heartbeat_interval` | `30s` | How often a running workload reports in. |
@@ -214,9 +215,11 @@ At least one of `idle_timeout` / `max_lifetime` must be set, or `validate` fails
 creation, and again from every restart of a stopped instance. A restart gets a fresh
 bound instead of being killed for the hours it spent stopped.
 
-`stopped_ttl` counts from when the instance was first observed stopped. On a
-provider where a stopped instance still bills, `validate` warns when `stopped_ttl`
-is `null` and `auto_destroy` is `false`: nothing would ever remove the instance.
+`stopped_ttl` counts from when the instance was first observed stopped. It is
+enforced from your computer, by `gpu guard`, `gpu sweep` or any command that
+checks the instance. With `keep_disk: true` on a provider where a stopped instance
+still bills, `validate` warns when `stopped_ttl` is `null`: nothing would ever
+remove the instance.
 
 `gpu sweep` guards every project registered by `gpu setup` with that project's own
 `max_lifetime`, lock and `stopped_ttl`. Instances no project tracks are orphans,

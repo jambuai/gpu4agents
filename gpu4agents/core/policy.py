@@ -77,6 +77,10 @@ class PolicyConfig:
     max_session_cost_usd: Optional[float] = None
     # A stopped instance still bills storage; destroy it after this long.
     stopped_ttl_s: Optional[float] = None
+    # Stop (keep the disk, fast restart) even where a stopped instance still
+    # bills. Off by default: nothing on a stopped machine can remove it later,
+    # so stopped_ttl would depend on the user's computer running `gpu sweep`.
+    keep_disk: bool = False
 
     @classmethod
     def from_dict(cls, data: dict) -> "PolicyConfig":
@@ -188,12 +192,12 @@ def _terminal_action(cfg: PolicyConfig) -> str:
         return ACTION_DESTROY if cfg.destroy_supported else ACTION_NONE
     if not cfg.auto_stop:
         return ACTION_NONE
-    if cfg.stop_supported and cfg.stop_eliminates_billing:
+    if cfg.stop_supported and (cfg.stop_eliminates_billing or cfg.keep_disk):
         return ACTION_STOP
-    # Stopping does not (or cannot) end billing: escalate only when allowed to.
-    if not cfg.stop_supported:
-        return ACTION_DESTROY if cfg.destroy_supported else ACTION_NONE
-    return ACTION_STOP
+    # A stop would leave a bill behind (or is impossible): destroy.
+    if cfg.destroy_supported:
+        return ACTION_DESTROY
+    return ACTION_STOP if cfg.stop_supported else ACTION_NONE
 
 
 def evaluate(snapshot: Snapshot, cfg: PolicyConfig) -> Decision:

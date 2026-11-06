@@ -65,7 +65,9 @@ The watchdog runs inside a bash respawn loop started with `nohup`. If the watchd
 
 ## Stopped instances
 
-A stopped Vast.ai instance still bills for storage, and its watchdog is not running. Set `lifecycle.stopped_ttl` and the policy destroys an instance that has been stopped longer than that (reason `stopped_ttl`). This needs destroy support and no active lock. `gpu guard` enforces it from outside, since nothing runs on a stopped machine.
+A stopped Vast.ai instance still bills for storage, and its watchdog is not running. So where a stop leaves a bill behind, the policy destroys instead of stopping, for idle, `max_lifetime` and the budget alike. `lifecycle.keep_disk: true` keeps the old behavior (stop, restart in about a minute) for users who accept the storage bill.
+
+A stopped instance is then destroyed once it has been stopped longer than `lifecycle.stopped_ttl` (reason `stopped_ttl`). This needs destroy support and no active lock. Nothing runs on a stopped machine, so only your computer can enforce it: `gpu guard`, `gpu sweep`, or the timer `gpu sweep --install-timer` writes (systemd on Linux, a LaunchAgent on macOS). A manual `gpu stop` on Vast.ai is covered by the same rule.
 
 `stopped_since` keeps the first time the CLI saw the instance stopped, but only while nothing says it ran since. A session start, local activity, watchdog contact or a provider start time newer than `stopped_since` means the instance was restarted and stopped again while the CLI was not looking (from the web console, say), so the clock restarts at the current observation instead of destroying a fresh stop.
 

@@ -140,6 +140,7 @@ class Engine:
             hourly_cost_usd=hourly_cost_usd,
             max_session_cost_usd=cfg.budget.max_session_cost_usd,
             stopped_ttl_s=cfg.stopped_ttl_s,
+            keep_disk=cfg.lifecycle.keep_disk,
         )
 
     def snapshot(self, state: RuntimeState) -> policy.Snapshot:
@@ -214,6 +215,7 @@ class Engine:
             result.warn("no budget.max_hourly_cost_usd set", "budget")
         if (
             not self.provider.capabilities.stop_eliminates_billing
+            and cfg.lifecycle.keep_disk
             and cfg.stopped_ttl_s is None
             and not cfg.lifecycle.auto_destroy
         ):

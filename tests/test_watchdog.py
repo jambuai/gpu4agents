@@ -870,6 +870,27 @@ def test_a_flat_metrics_endpoint_is_not_activity(agent_factory, fake_metrics):
     assert agent.client.state()["last_probe"]["last_traffic_at"] is None
 
 
+def test_a_server_answering_ends_startup_without_the_cli(agent_factory, fake_metrics):
+    """After a restart the CLI's /ready may never arrive; the idle clock must still run."""
+    agent = agent_factory(policy(), activity_probe=fake_metrics.probe(), startup_grace_s=3600.0)
+    # No mark_ready: only the model server answering on loopback says it is up.
+    assert agent.wait_for_marker(timeout=20)["action"] == "stop"
+    assert agent.records("lifecycle_guard_triggered")[-1]["reason"] == "idle_timeout"
+    assert "runtime_ready" in agent.event_names()
+    assert "runtime_startup_grace_expired" not in agent.event_names()
+
+
+def test_a_server_not_answering_keeps_the_startup_grace(agent_factory):
+    dead = f"http://127.0.0.1:{free_port()}/metrics"
+    agent = agent_factory(
+        policy(),
+        activity_probe={"kind": "prometheus", "url": dead, "gauges": [], "counters": []},
+        startup_grace_s=3600.0,
+    )
+    time.sleep(5)
+    assert not agent.marker.exists(), "a model still loading must not be idled out"
+
+
 def test_probe_errors_are_not_activity_and_are_logged_once(agent_factory):
     dead = f"http://127.0.0.1:{free_port()}/metrics"
     agent = agent_factory(

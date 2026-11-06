@@ -668,6 +668,40 @@ def test_uninstall_timer_removes_the_units(config, home, credentials_file, monke
     assert runner.invoke(app, ["sweep", "--uninstall-timer"]).exit_code == 0
 
 
+def test_on_macos_the_timer_is_a_launch_agent(config, home, credentials_file, monkeypatch, jambu_home):
+    import plistlib
+
+    monkeypatch.setattr(timer_mod, "_platform", lambda: "darwin")
+    monkeypatch.chdir(config.project_dir)
+    result = runner.invoke(app, ["sweep", "--install-timer", "--every", "10m"])
+    assert result.exit_code == 0, result.output
+
+    path = home / "Library/LaunchAgents/ai.jambu.gpu-sweep.plist"
+    plist = plistlib.loads(path.read_bytes())
+    assert plist["ProgramArguments"] == [sys.executable, "-m", "gpu4agents", "sweep", "--apply"]
+    assert plist["StartInterval"] == 600 and plist["RunAtLoad"] is True
+    assert plist["EnvironmentVariables"] == {"GPU_HOME": str(jambu_home)}
+    assert plist["WorkingDirectory"] == str(home)
+    assert not (home / ".config/systemd").exists()
+    printed = " ".join(result.stdout.split())
+    assert "launchctl bootstrap gui/$(id -u)" in printed
+    assert "loginctl" not in printed
+
+    removed = runner.invoke(app, ["--json", "sweep", "--uninstall-timer"])
+    payload = json.loads(removed.stdout)
+    assert payload["removed"] == [str(path)] and not path.exists()
+    assert payload["disable"] == "launchctl bootout gui/$(id -u)/ai.jambu.gpu-sweep"
+
+
+def test_launch_agent_values_are_xml_escaped():
+    import plistlib
+
+    text = timer_mod.render_plist(every_s=30, python="/opt/a&b/<py>", jambu_home=None)
+    plist = plistlib.loads(text.encode())
+    assert plist["ProgramArguments"][0] == "/opt/a&b/<py>"
+    assert plist["StartInterval"] == 60 and "EnvironmentVariables" not in plist
+
+
 def test_the_module_entrypoint_the_timer_runs_works():
     repo = Path(__file__).resolve().parents[1]
     out = subprocess.run(

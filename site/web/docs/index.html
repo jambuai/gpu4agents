@@ -232,7 +232,7 @@
 
     <main id="top">
       <header class="hero">
-        <span class="eyebrow">Documentation · v0.10.1</span>
+        <span class="eyebrow">Documentation · v0.11.0</span>
         <h1>How GPU for Agents works</h1>
         <p class="lead">A coding agent can only read and write text. With its own GPU it can make images and voices, transcribe audio, run open models and test GPU code on real hardware. <b>GPU for Agents</b> gives it that machine with the controls built in: a budget it can't exceed, a log of every step, and a watchdog on the machine that stops it when the work stops.</p>
         <details class="mtoc"><summary>On this page</summary><div>
@@ -500,7 +500,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
             <text class="l" x="120" y="354">cleanup_on_setup_failure: destroyed, setup rents another host</text>
           </svg>
           </div>
-          <figcaption><b>idle</b> and <b>stopped</b> are where cost hides: an idle machine bills GPU time, a stopped one still bills its disk on Vast.ai. The watchdog ends the first; <code>stopped_ttl</code> (24 h) ends the second.</figcaption>
+          <figcaption><b>idle</b> and <b>stopped</b> are where cost hides: an idle machine bills GPU time, a stopped one still bills its disk on Vast.ai. So on Vast.ai the watchdog destroys an idle machine instead of stopping it; with <code>keep_disk: true</code> it stops, and <code>stopped_ttl</code> (24 h) removes the disk later.</figcaption>
         </figure>
         <div class="tbl"><table>
           <tr><th>Event</th><th>What a client sees</th><th>What it does</th></tr>
@@ -552,7 +552,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
           <div class="fq"><span class="dot">7</span><div class="q">Idle longer than <code>idle_timeout</code> (15 min)?</div><div class="r stop"><b>STOP · idle_timeout</b></div></div>
           <div class="fq"><span class="dot">8</span><div class="q">Anything else</div><div class="r keep"><b>KEEP · within_policy</b></div></div>
         </div>
-        <p>"STOP" is the cheapest action that ends billing: a stop where a stopped machine is free, a destroy with <code>auto_destroy: true</code> or when the provider can't stop. <code>gpu status</code> prints the decision it would take right now, so you can see the watchdog's next move before it happens.</p>
+        <p>"STOP" is the cheapest action that ends billing: a stop where a stopped machine is free, a destroy where a stopped machine still bills (unless <code>keep_disk: true</code>), with <code>auto_destroy: true</code>, or when the provider can't stop. <code>gpu status</code> prints the decision it would take right now, so you can see the watchdog's next move before it happens.</p>
         <div class="note"><b>The invariant.</b> A machine may stay billable only while useful work runs, useful work is queued or due within the idle window, or you locked it. Everything else ends stopped, or destroyed where stopping doesn't end billing.</div>
       </section>
 
@@ -666,7 +666,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
           </details>
           <div class="tip" id="tip-cost"></div>
         </div>
-        <div class="note warn">The cheap card makes the gap look small. The same 24 hours on a $2/h GPU is $48, and the watchdog's rule doesn't depend on the price. A stopped Vast.ai machine still bills a little for its disk until <code>stopped_ttl</code> destroys it; the chart shows GPU time only.</div>
+        <div class="note warn">The cheap card makes the gap look small. The same 24 hours on a $2/h GPU is $48, and the watchdog's rule doesn't depend on the price. On Vast.ai the idle machine is destroyed, so no disk bill follows; the chart shows GPU time only.</div>
 
         <h3>Event vocabulary</h3>
         <div class="tbl"><table>
@@ -891,7 +891,7 @@ conn = ensure_gpu()
           <tr><th></th><th>Vast.ai</th><th>RunPod</th><th>Lambda</th></tr>
           <tr><td>What you rent</td><td>a container on a marketplace host</td><td>a container (a pod), on RunPod's or vetted hosts</td><td>a whole VM; gpu runs the model image on it with Docker</td></tr>
           <tr><td>How you pay</td><td>prepaid credit, by the second</td><td>prepaid credit, by the second</td><td>a card, billed weekly by the minute</td></tr>
-          <tr><td>When idle, the watchdog</td><td>stops it; the disk bills a little until <code>stopped_ttl</code> destroys it</td><td>stops it; with no volume a stopped pod costs nothing</td><td>terminates it: Lambda cannot stop a machine</td></tr>
+          <tr><td>When idle, the watchdog</td><td>destroys it, since a stopped machine still bills its disk (<code>keep_disk: true</code> stops it instead)</td><td>stops it; with no volume a stopped pod costs nothing</td><td>terminates it: Lambda cannot stop a machine</td></tr>
           <tr><td>How the model is reached</td><td>the host's public port</td><td>RunPod's HTTPS proxy (one request may last 100 s; streaming is not cut)</td><td>the VM's address, through a firewall ruleset gpu creates</td></tr>
           <tr><td>GPU count</td><td>any</td><td>any</td><td>1, 2, 4 or 8, as the instance type fixes it</td></tr>
           <tr><td>Key</td><td><code>VAST_API_KEY</code></td><td><code>RUNPOD_API_KEY</code> (All permissions)</td><td><code>LAMBDA_API_KEY</code></td></tr>

@@ -238,6 +238,11 @@ class LifecycleConfig(_Base):
     # How long an instance may sit STOPPED before it is destroyed. Matters
     # where a stopped instance still bills (storage); null keeps it forever.
     stopped_ttl: Optional[str] = "24h"
+    # Where a stopped instance still bills storage (Vast.ai, a RunPod volume),
+    # the guard destroys instead of stopping, so no bill outlives the session.
+    # true keeps the disk (faster restart) and leaves removal to stopped_ttl,
+    # which only `gpu guard` / `gpu sweep` on your computer can enforce.
+    keep_disk: bool = False
     lock: LockConfig = Field(default_factory=LockConfig)
     watchdog: WatchdogConfig = Field(default_factory=WatchdogConfig)
 

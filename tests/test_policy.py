@@ -230,3 +230,23 @@ def test_policy_config_from_dict_ignores_unknown_keys():
     assert config.stopped_ttl_s == 60.0
     assert p.PolicyConfig().stopped_ttl_s is None
     assert "stopped_ttl_s" in config.to_dict()
+
+
+def test_idle_destroys_where_a_stopped_instance_still_bills():
+    # Nothing runs on a stopped machine, so a stop that keeps billing storage
+    # would leave the bill to the user's computer: destroy instead.
+    bills = dict(stop_eliminates_billing=False)
+    snap = p.Snapshot(now=10_000.0, created_at=0.0, last_activity=0.0)
+    decision = p.evaluate(snap, p.PolicyConfig(idle_timeout_s=60, **bills))
+    assert (decision.action, decision.reason) == (p.ACTION_DESTROY, p.REASON_IDLE)
+
+    kept = p.evaluate(snap, p.PolicyConfig(idle_timeout_s=60, keep_disk=True, **bills))
+    assert kept.action == p.ACTION_STOP
+
+    free = p.evaluate(snap, p.PolicyConfig(idle_timeout_s=60))
+    assert free.action == p.ACTION_STOP
+
+    no_destroy = p.evaluate(
+        snap, p.PolicyConfig(idle_timeout_s=60, destroy_supported=False, **bills)
+    )
+    assert no_destroy.action == p.ACTION_STOP

@@ -17,7 +17,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.10.1 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.11.0 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>
@@ -112,7 +112,7 @@ Any Hugging Face model can be served behind OpenAI routes, not only chat. The fu
 2. `gpu setup` deploys it; `gpu env` (MCP: `gpu_connection`) gives `base_url`, `api_key`, `model` and `routes`. Call it with any OpenAI client: `images.generate`, `audio.speech.create`, `audio.transcriptions.create`, `embeddings.create`; other pipelines take `POST /v1/pipeline` with `{"inputs": ..., "parameters": {...}}`.
 3. To switch models, edit `model.id` (and `model.task`) in gpu.yaml and run `gpu setup` again: same machine, new server. A larger `min_vram_gb` needs `--recreate`.
 4. When the built-in server cannot load a model (its own library, several models chained, video), `gpu init --engine custom` writes `server/server.py` and `server/gpujob.yaml`. Fill in `load()` and the handlers; keep `/health` (503 until loaded), the `JAMBU_API_KEY` check and `/metrics` (`jambu_requests_running`, `jambu_requests_total`), and listen on `$PORT`.
-5. `gpu logs` shows the server's log. Requests keep the machine up; it stops after `idle_timeout` once they stop.
+5. `gpu logs` shows the server's log. Requests keep the machine up; it shuts down after `idle_timeout` once they stop (on Vast.ai it is destroyed, so the next setup downloads the model again).
 
 ## Another provider
 
@@ -131,7 +131,7 @@ Everything else in this skill (rules, commands, monitoring) works the same with 
 - `gpu --json logs --source runtime|onstart|watchdog|provider`: the model server, the boot script, the watchdog, or the container log from the provider.
 - `gpu events`: the timeline of this project (rented, ready, idle, stopped, and why).
 - `gpu --json ls` (or `gpu_ls`): every machine billing in the account, with the project that owns it or `orphan`.
-- `gpu sweep` shows what would be stopped or destroyed account-wide, and `gpu sweep --apply` does it. `gpu sweep --install-timer` (Linux, systemd) runs it every few minutes as a safety net. Suggest the timer once to a user who rents often.
+- `gpu sweep` shows what would be stopped or destroyed account-wide, and `gpu sweep --apply` does it. `gpu sweep --install-timer` (systemd on Linux, launchd on macOS) runs it every few minutes as a safety net. Suggest the timer once to a user who rents often.
 
 ## When something fails
 
@@ -152,7 +152,7 @@ Exit codes are the same for the CLI and the MCP tools (`exit_code` in the error)
 
 - `gpu: command not found` right after installing: use `~/.local/bin/gpu`, or open a new shell.
 - `gpu` prints a git error (`fatal: not a git repository`, or it pushed): `gpu` is a shell alias (Oh My Zsh). Use `command gpu` or `gpu4agents`, and tell the user the installer can remove the alias for new terminals.
-- Requests fail with connection refused or a timeout: the machine was stopped for being idle. Call `gpu_setup` again (about a minute), take the new `base_url` from its output, and retry once.
+- Requests fail with connection refused or a timeout: the machine was shut down for being idle. Call `gpu_setup` again (about a minute after a stop, a few minutes after a destroy), take the new `base_url` from its output, and retry once.
 - `401`: a new machine was rented and the key changed; take it from `gpu_connection`.
 - A long job with quiet stretches longer than `idle_timeout`: `gpu_lock(duration="2h")`, then `gpu_unlock`.
 

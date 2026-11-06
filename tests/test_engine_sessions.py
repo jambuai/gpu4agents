@@ -337,7 +337,9 @@ def test_without_a_watchdog_the_cli_guard_owns_idle(write_config):
 def test_validate_warns_when_nothing_removes_a_billing_stopped_instance(write_config):
     billing_stop = ProviderCapabilities(stop=True, destroy=True, stop_eliminates_billing=False)
 
-    engine = make_engine(write_config(lifecycle={"stopped_ttl": None, "auto_destroy": False}))
+    engine = make_engine(
+        write_config(lifecycle={"stopped_ttl": None, "auto_destroy": False, "keep_disk": True})
+    )
     engine.provider.capabilities = billing_stop
     result = engine.validate(check_provider=False)
     assert any(issue.field == "lifecycle.stopped_ttl" for issue in result.warnings)
@@ -345,6 +347,12 @@ def test_validate_warns_when_nothing_removes_a_billing_stopped_instance(write_co
     covered = make_engine(write_config(lifecycle={"stopped_ttl": "24h"}))
     covered.provider.capabilities = billing_stop
     result = covered.validate(check_provider=False)
+    assert not any(issue.field == "lifecycle.stopped_ttl" for issue in result.warnings)
+
+    # Without keep_disk the guard destroys, so no stopped instance is left.
+    destroys = make_engine(write_config(lifecycle={"stopped_ttl": None}))
+    destroys.provider.capabilities = billing_stop
+    result = destroys.validate(check_provider=False)
     assert not any(issue.field == "lifecycle.stopped_ttl" for issue in result.warnings)
 
     # Where stopping ends billing, a kept stopped instance costs nothing.
