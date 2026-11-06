@@ -390,7 +390,6 @@ def login_command(
     try:
         cls, credentials = _login_target(context, provider)
         names = list(cls.required_credentials)
-        where_to_get = f" (create one at {cls.credentials_url})" if cls.credentials_url else ""
         if check:
             missing = [name for name in names if not credentials.get(name)]
             if missing:
@@ -398,7 +397,7 @@ def login_command(
                     f"no GPU provider account is connected yet ({cls.display_name}: "
                     f"{', '.join(missing)} not found). In your own terminal, run "
                     f"`gpu login{'' if provider is None else ' --provider ' + cls.name}`: "
-                    f"it walks you through it in about two minutes{where_to_get}"
+                    "it walks you through it in about two minutes"
                 )
             values = {name: credentials.get(name) or "" for name in names}
             source = (credentials.file_source(names[0]) or "environment") if names else "none needed"
