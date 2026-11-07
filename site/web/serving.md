@@ -73,11 +73,11 @@ Image extras go in the body (`extra_body` in the SDK): `num_inference_steps`, `g
 
 ## 3. Lifecycle
 
-- Requests are activity. The server counts them on `/metrics` and the watchdog reads that, so the machine stays up while clients call it and stops by itself after `lifecycle.idle_timeout` (15 min) once they stop. `max_lifetime` and the session budget still apply.
+- Requests are activity. The server counts them on `/metrics` and the watchdog reads that, so the machine stays up while clients call it and shuts down by itself after `lifecycle.idle_timeout` (15 min) once they stop. `max_lifetime` and the session budget still apply.
 - Changing the model keeps the machine. Edit `model.id` or `model.task` (or your server's code) and run `gpu setup`: it stops the running server and starts the new one on the same GPU. `gpu redeploy` restarts it with nothing changed. A bigger `min_vram_gb` does need a new machine (`gpu setup --recreate`).
 - A machine serves one model, and the GPU takes one request at a time; the rest queue. For concurrent chat traffic, use vLLM.
 - `gpu logs` shows the server's log (installs, download, load, tracebacks). A server that dies while loading ends `gpu setup` with its last lines.
-- A stopped machine keeps its disk, weights included: `gpu setup` restarts it and redeploys in about a minute.
+- When the machine is stopped, it keeps its disk, weights included: `gpu setup` restarts it and redeploys in about a minute. On Vast.ai an idle machine is destroyed instead, because a stopped one still bills its disk, so the next `gpu setup` rents a new one and downloads again (`lifecycle.keep_disk: true` stops it instead).
 
 ## 4. Your own server (`runtime.engine: custom`)
 

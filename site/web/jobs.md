@@ -56,7 +56,7 @@ These never upload: `.git`, virtualenvs, `__pycache__`, `node_modules`, `.gpu`, 
 3. Exit non-zero on failure. Do not catch every exception and exit 0.
 4. Never print secrets, and never write them into outputs.
 5. Install dependencies in `setup:`, pinned (`torch` comes with the default image; do not reinstall it).
-6. Keep the job under `lifecycle.max_lifetime` (6 h by default) and the session budget: those stop the machine even while a job runs. Set `timeout:` below them.
+6. Keep the job under `lifecycle.max_lifetime` (6 h by default) and the session budget: those shut the machine down even while a job runs (on Vast.ai they destroy it, outputs included). Set `timeout:` below them.
 
 ## 5. Running it
 
@@ -79,4 +79,4 @@ States: `running`, `succeeded`, `failed`, `timeout`, `cancelled`, `lost` (the ma
 
 ## 6. Afterwards
 
-The machine stops by itself after `idle_timeout` (15 min) once no job runs. A stopped machine keeps its disk, so `gpu setup` restarts it and `gpu job pull` still works. `gpu destroy` deletes the disk and every job file on it, so pull the outputs first. Tell the user what ran, how long it took, what it cost (`gpu job status` reports `cost_usd`) and where the outputs are.
+The machine shuts down by itself after `idle_timeout` (15 min) once no job runs. On a provider where a stopped machine is free (RunPod without a volume), it is stopped. On Vast.ai, where a stopped machine still bills its disk, it is destroyed, and the disk goes with it. So pull the outputs within `idle_timeout` of the job's end: `gpu job run` does it by itself; after `--detach`, run `gpu job pull`. To keep the disk instead (and pay for it while stopped), set `lifecycle.keep_disk: true`; a stopped machine is then restarted by `gpu setup`, and `gpu job pull` still works. `gpu destroy` deletes the disk and every job file on it, so pull the outputs first. Tell the user what ran, how long it took, what it cost (`gpu job status` reports `cost_usd`) and where the outputs are.

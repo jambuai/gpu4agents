@@ -161,7 +161,7 @@ gpu_runtime:
   provider: {name: vast}
   model_profile: qwythos-9b
   lifecycle:
-    idle_timeout: 15m          # the watchdog on the machine stops it
+    idle_timeout: 15m          # the watchdog on the machine shuts it down
     max_lifetime: 6h           # a hard ceiling, busy or not
   budget:
     max_hourly_cost_usd: 0.60  # offers above this are never rented

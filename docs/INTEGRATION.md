@@ -7,7 +7,7 @@ How any application, in any language, uses a GPU that `gpu` rents, serves and sh
 | Control | the `gpu` command | runs it as a subprocess with `--json` and reads stdout and the exit code |
 | Data | vLLM's OpenAI-compatible HTTP API | any OpenAI SDK, or plain HTTP, with the base URL, key and model `gpu` printed |
 
-The app never has to stop the GPU. The watchdog on the machine stops it once nothing has used it for `lifecycle.idle_timeout`, and every inference request counts as use. The app's only duty is to call `gpu setup` again when the machine it was using is gone.
+The app never has to stop the GPU. The watchdog on the machine shuts it down once nothing has used it for `lifecycle.idle_timeout`, and every inference request counts as use. The app's only duty is to call `gpu setup` again when the machine it was using is gone.
 
 ## 1. Prepare the host the app runs on
 

@@ -349,7 +349,7 @@
           <p class="lead reveal">They live in <code>gpu.yaml</code> and on the machine, and they work the same with every provider. The agent would have to edit the file to raise them, and the skill tells it to ask you first.</p>
         </div>
         <div class="rows">
-          <div class="row reveal-row"><span class="big">15 min</span><div><h4>Idle timeout</h4><p>The watchdog on the machine stops it once requests stop. <code>lifecycle.idle_timeout</code></p></div></div>
+          <div class="row reveal-row"><span class="big">15 min</span><div><h4>Idle timeout</h4><p>The watchdog on the machine shuts it down once requests stop. <code>lifecycle.idle_timeout</code></p></div></div>
           <div class="row reveal-row"><span class="big">$/h</span><div><h4>Hourly and session budget</h4><p>Offers above the cap are never rented, and a session that reaches its total stops. <code>budget.max_hourly_cost_usd</code></p></div></div>
           <div class="row reveal-row"><span class="big">6 h</span><div><h4>Maximum lifetime</h4><p>The machine stops at this age, busy or not. <code>lifecycle.max_lifetime</code></p></div></div>
           <div class="row reveal-row"><span class="big">10 min</span><div><h4>Stalled hosts replaced</h4><p>If the image download stops moving, gpu rents another host instead of waiting 30 minutes. <code>health.pull_stall_timeout</code></p></div></div>
@@ -362,7 +362,7 @@
   provider: {name: <span class="v">vast</span>}  <span class="c"># or your adapter</span>
   model_profile: <span class="v">qwythos-9b</span>
   lifecycle:
-    idle_timeout: <span class="v">15m</span>   <span class="c"># watchdog stops it</span>
+    idle_timeout: <span class="v">15m</span>   <span class="c"># watchdog shuts it down</span>
     max_lifetime: <span class="v">6h</span>
   budget:
     max_hourly_cost_usd: <span class="v">0.60</span>
@@ -448,7 +448,7 @@
     <span class="k2">def</span> destroy(instance)
     <span class="k2">def</span> list_instances()    <span class="c"># only jambu-* machines</span>
 
-<span class="c"># runs on the machine: stops it when idle</span>
+<span class="c"># runs on the machine: shuts it down when idle</span>
 <span class="k2">def</span> provider_stop(ctx)
 <span class="k2">def</span> provider_destroy(ctx)</pre>
           <div class="contract-foot"><span class="c">gpu.yaml</span> provider: {name: <span class="v prov-slug">paperspace</span>, plugin: <span class="v">./gpu_providers/<span class="prov-slug">paperspace</span>.py:<span class="prov-class">Paperspace</span>Provider</span>}</div>

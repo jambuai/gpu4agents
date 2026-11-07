@@ -2,7 +2,7 @@
 
 `gpu` ships a skill and a local MCP server, so Claude Code, Codex, Gemini CLI, Cursor or Claude Desktop can rent a GPU, serve a model, run an experiment against it and shut it down, from a request like "compare Qwen 7B and Llama 8B on these 50 prompts".
 
-A watchdog on the machine makes this safe to hand to an agent. A machine the agent forgets, or a conversation that ends mid-experiment, stops by itself after `lifecycle.idle_timeout`.
+A watchdog on the machine makes this safe to hand to an agent. A machine the agent forgets, or a conversation that ends mid-experiment, shuts down by itself after `lifecycle.idle_timeout`.
 
 ## Install: let the agent do it
 

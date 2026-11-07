@@ -102,7 +102,7 @@ When the work is code that needs a GPU, not requests to a model (training or fin
 2. Put the code in a directory with a `gpujob.yaml`: `run:` (the command), `setup:` (pinned installs), `env:`, `timeout:`, `exclude:`. `.git`, virtualenvs, `.env` files and `gpu-outputs/` never upload; the limit is 2 GB, so the job downloads large data itself.
 3. The code writes every result to `$JAMBU_OUTPUT_DIR` (checkpoints too, as it goes), prints progress, exits non-zero on failure and never prints secrets. `HF_HOME` is a cache on the machine.
 4. With the user's yes: `gpu job run` (uploads, runs, streams the log, downloads to `gpu-outputs/<job id>/`, exits with the job's code). Through MCP: `gpu_setup` until ready, `gpu_job_run`, `gpu_job_status` until the state is not `running`, `gpu_job_pull`.
-5. A running job keeps the machine up; `max_lifetime` and the budget still stop it. Pull outputs before `gpu destroy`, which deletes them.
+5. A running job keeps the machine up; `max_lifetime` and the budget still shut it down. Pull outputs before `gpu destroy`, which deletes them. On Vast.ai an idle machine is destroyed too (a stopped one would still bill its disk), so after `--detach` pull within `idle_timeout` of the job's end.
 
 ## Serve any model (images, voice, transcription, embeddings)
 

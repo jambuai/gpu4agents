@@ -367,7 +367,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
             <text class="l" x="420" y="320">rent · stop · destroy</text>
 
             <path class="ar e" d="M634,288 L574,332" marker-end="url(#ae)"/>
-            <text class="l" x="644" y="311" style="fill:#FF7A4D">stops itself</text>
+            <text class="l" x="644" y="311" style="fill:#FF7A4D">shuts down</text>
 
             <path class="ar d" d="M776,196 V164" marker-end="url(#a)"/>
             <text class="l" x="784" y="185">reads /metrics</text>
@@ -699,7 +699,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
           <li>The skill tells it to show the price and ask before renting, to wait out a slow setup instead of starting over, never to touch the provider key, and to offer stop or destroy when done.</li>
           <li>The tools are annotated: <code>gpu_destroy</code> is marked destructive and the read-only tools read-only, so your client can let <code>gpu_status</code> run freely and ask for every <code>gpu_setup</code>. In Claude Code: <code>"allow": ["mcp__gpu__gpu_status", "mcp__gpu__gpu_offers", "mcp__gpu__gpu_ls"]</code>.</li>
           <li><code>gpu.yaml</code> holds the hard limits. The agent can't raise them without editing a file you can see in the diff.</li>
-          <li>The watchdog stops the machine whatever the agent does, and the sweep catches anything left behind.</li>
+          <li>The watchdog shuts the machine down whatever the agent does, and the sweep catches anything left behind.</li>
         </ul>
       </section>
 
@@ -944,6 +944,7 @@ conn = ensure_gpu()
             <tr><td><code>lifecycle.idle_timeout</code></td><td>15m</td></tr>
             <tr><td><code>lifecycle.max_lifetime</code></td><td>6h</td></tr>
             <tr><td><code>lifecycle.stopped_ttl</code></td><td>24h</td></tr>
+            <tr><td><code>lifecycle.keep_disk</code></td><td>false</td></tr>
             <tr><td><code>lifecycle.heartbeat_grace</code></td><td>5m</td></tr>
             <tr><td><code>lifecycle.watchdog.interval</code></td><td>60s</td></tr>
             <tr><td><code>lifecycle.traffic_counts_as_activity</code></td><td>true</td></tr>
