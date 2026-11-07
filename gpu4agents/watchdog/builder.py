@@ -113,6 +113,7 @@ def build_agent_config(
     activity_probe: Optional[dict] = None,
     runtime_pid_path: Optional[str] = None,
     runtime_log_path: Optional[str] = None,
+    stop_keeps_disk: bool = False,
 ) -> dict:
     """Config the remote agent reads at boot.
 
@@ -139,6 +140,10 @@ def build_agent_config(
         "provider_context": dict(watchdog_spec.context) if watchdog_spec else {},
         "logs": logs,
     }
+    if stop_keeps_disk:
+        # The job runner then stops rather than destroys a machine holding
+        # results nobody downloaded (watchdog/jobs_ext.py).
+        config["stop_keeps_disk"] = True
     if runtime_pid_path:
         config["runtime_pid_path"] = runtime_pid_path
     if activity_probe:

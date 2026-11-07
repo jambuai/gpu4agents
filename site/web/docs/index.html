@@ -232,7 +232,7 @@
 
     <main id="top">
       <header class="hero">
-        <span class="eyebrow">Documentation · v0.11.0</span>
+        <span class="eyebrow">Documentation · v0.12.0</span>
         <h1>How GPU for Agents works</h1>
         <p class="lead">A coding agent can only read and write text. With its own GPU it can make images and voices, transcribe audio, run open models and test GPU code on real hardware. <b>GPU for Agents</b> gives it that machine with the controls built in: a budget it can't exceed, a log of every step, and a watchdog on the machine that stops it when the work stops.</p>
         <details class="mtoc"><summary>On this page</summary><div>
@@ -672,7 +672,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
         <div class="tbl"><table>
           <tr><th>Group</th><th>Events</th></tr>
           <tr><td>Rent and boot</td><td><code>provision_requested</code> <code>budget_rejected</code> <code>instance_created</code> <code>host_failed</code> <code>runtime_starting</code> <code>runtime_ready</code> <code>setup_failed</code> <code>cleanup_performed</code></td></tr>
-          <tr><td>Work</td><td><code>workload_started</code> <code>workload_finished</code> <code>job_submitted</code> <code>job_finished</code> <code>job_outputs_pulled</code></td></tr>
+          <tr><td>Work</td><td><code>workload_started</code> <code>workload_finished</code> <code>job_submitted</code> <code>job_finished</code> <code>job_outputs_pulled</code> <code>job_outputs_kept</code></td></tr>
           <tr><td>Lifecycle</td><td><code>instance_idle</code> <code>instance_locked</code> <code>instance_unlocked</code> <code>lifecycle_guard_triggered</code> <code>instance_stopped</code> <code>instance_started</code> <code>instance_destroyed</code> <code>state_reconciled</code></td></tr>
           <tr><td>Watchdog</td><td><code>watchdog_started</code> <code>watchdog_identified</code> <code>session_started</code> <code>runtime_exited</code> <code>guard_retry</code> <code>guard_reissue</code> <code>activity_probe_error</code></td></tr>
           <tr><td>Errors and sweep</td><td><code>provider_error</code> <code>watchdog_error</code> <code>sweep_action</code> (in <code>~/.gpu/logs/events.jsonl</code>)</td></tr>
@@ -793,10 +793,11 @@ conn = ensure_gpu()
 <span class="p">$ </span>gpu job run -- python test_kernel.py
 <span class="p">$ </span>gpu job status     <span class="c"># state, exit, cost_usd</span>
 <span class="p">$ </span>gpu job logs -f
-<span class="p">$ </span>gpu job pull       <span class="c"># works mid-run</span>
+<span class="p">$ </span>gpu job pull       <span class="c"># mid-run, or from a stopped machine</span>
 <span class="p">$ </span>gpu job cancel</pre></div>
         </div>
         <p>Job states: <code>running</code>, <code>succeeded</code>, <code>failed</code>, <code>timeout</code> (exit 124), <code>cancelled</code> (exit 130), <code>lost</code> (the machine restarted under it). The provider credential the watchdog uses is removed from the job's environment.</p>
+        <p><b>Results are kept until they reach your computer.</b> A job's outputs count as saved once they were downloaded after it ended. Until then, a shutdown that would delete them becomes a stop that keeps the disk; where no stop keeps the disk (Lambda, a RunPod pod without a volume), the idle machine waits up to 2 hours for the download. <code>gpu sweep</code> and <code>gpu guard</code> download finished jobs' results by themselves, starting a stopped machine if needed, and <code>gpu destroy</code> downloads first or refuses (<code>--discard-outputs</code> overrides). A job whose <code>timeout</code> exceeds <code>max_lifetime</code> is refused before anything runs.</p>
       </section>
 
       <!-- ================= CLI CONTRACT ================= -->

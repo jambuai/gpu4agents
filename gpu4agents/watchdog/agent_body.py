@@ -77,6 +77,8 @@ _ACTION_LOCK = threading.Lock()
 _PROBE = {}
 # name -> handler(request, method, path, body) returning True when it answered.
 EXT_ROUTES = {}
+# name -> f(choice, cfg): may change or veto (None) a shutdown (see jobs_ext).
+TERMINATE_HOOKS = {}
 # name -> digest of the loaded source, so the CLI uploads only what changed.
 _EXT = {}
 
@@ -463,6 +465,12 @@ def guard_tick(interval, idle_announced):
 
     with _LOCK:
         choice = _choose(decision, cfg)
+    for hook in list(TERMINATE_HOOKS.values()):
+        if choice is not None:
+            try:
+                choice = hook(choice, cfg)
+            except Exception as exc:  # noqa: BLE001 - a hook never blocks a shutdown
+                log_event("watchdog_error", where="terminate_hook", error=str(exc))
     if choice is None:
         return idle_announced
     action, reason, original = choice

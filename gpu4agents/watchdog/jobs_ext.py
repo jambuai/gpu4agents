@@ -10,6 +10,12 @@ While a job runs it is a workload, and the watchdog heartbeats it itself: the
 machine stays up with no laptop connected, and the idle clock starts when the
 job ends. max_lifetime and the session budget still apply.
 
+Results are never thrown away unseen. A job's outputs count as saved once
+``GET /jobs/<id>/outputs`` has streamed them after the job ended (and nothing
+changed since). While any are unsaved, a shutdown the policy picks becomes a
+stop where the disk survives one; where it would not, an idle machine is held
+up to OUTPUTS_HOLD_S for the CLI to fetch them (see ``outputs_guard``).
+
 A *service* job (``"service": true``) is a model server instead: it is not a
 workload, so it never holds the machine up by itself running; the requests it
 serves do, through the activity probe on its /metrics. Its pid becomes the
@@ -41,11 +47,13 @@ if "log_event" not in globals():  # pragma: no cover - only in standalone import
         _CONFIG,
         _STOPPED,
         EXT_ROUTES,
+        TERMINATE_HOOKS,
         _atomic_write,
         log_event,
         save_state,
         touch,
     )
+    from gpu4agents.core.policy import ACTION_DESTROY, ACTION_STOP, REASON_IDLE  # noqa: F401
 
 import json
 import os
@@ -64,6 +72,10 @@ JOB_CANCEL_GRACE_S = float(os.environ.get("JAMBU_JOB_CANCEL_GRACE_S", "10"))
 JOB_BUNDLE_MAX_BYTES = 2 * 1024**3
 JOB_LOG_CHUNK_MAX = 4 * 1024**2
 JOB_OUTPUT_LIST_MAX = 200
+# Where a stop would wipe the disk too (no persistent disk, or no stop at all),
+# results nobody downloaded hold an idle machine up this long after the last
+# job ended, for `gpu sweep` or `gpu job pull` to fetch them.
+OUTPUTS_HOLD_S = float(os.environ.get("JAMBU_OUTPUTS_HOLD_S", "7200"))
 
 # Kept across a re-upload of this extension: the processes are still ours.
 _JOB_PROCS = globals().get("_JOB_PROCS") or {}
@@ -139,6 +151,67 @@ def _outputs(job_id):
             if len(files) < JOB_OUTPUT_LIST_MAX:
                 files.append({"path": os.path.relpath(path, out), "bytes": size})
     return files, total
+
+
+def _outputs_signature(job_id):
+    """(files, bytes, newest mtime) of the output directory; None when empty."""
+    count, total, newest = 0, 0, 0.0
+    for root, _dirs, names in os.walk(_job_path(job_id, "out")):
+        for name in names:
+            try:
+                info = os.stat(os.path.join(root, name))
+            except OSError:
+                continue
+            count += 1
+            total += info.st_size
+            newest = max(newest, info.st_mtime)
+    return [count, total, round(newest, 3)] if count else None
+
+
+def outputs_unsaved(record):
+    """True when this job wrote results nobody has downloaded since it ended."""
+    if record.get("service"):
+        return False
+    signature = _outputs_signature(record["id"])
+    if signature is None:
+        return False
+    if record.get("state") == "running":
+        return True
+    return record.get("outputs_saved") != signature
+
+
+def outputs_guard(choice, cfg):
+    """Turn a shutdown that would lose unsaved job results into one that keeps them."""
+    action, reason, original = choice
+    if _STATE.get("pending_shutdown") or reason == "stop_failed_escalation":
+        return choice  # asked for explicitly, or a stop that cannot happen
+    unsaved = [r for r in job_list() if outputs_unsaved(r)]
+    if not unsaved:
+        return choice
+    ids = [r["id"] for r in unsaved]
+    if cfg.stop_supported and _CONFIG.get("stop_keeps_disk"):
+        if action == ACTION_DESTROY:
+            _log_once("outputs_kept", ids, reason=reason, action="stop")
+            return ACTION_STOP, reason, original
+        return choice
+    # A stop or destroy would take the results with it.
+    if reason == REASON_IDLE:
+        ended = max(float(r.get("finished_at") or time.time()) for r in unsaved)
+        if time.time() - ended < OUTPUTS_HOLD_S:
+            _log_once("outputs_hold", ids, hold_seconds=OUTPUTS_HOLD_S)
+            return None
+    _log_once("outputs_lost", ids, reason=reason, action=action)
+    return choice
+
+
+def _log_once(name, ids, **detail):
+    key = name + ":" + ",".join(ids)
+    with _LOCK:
+        if _STATE.get("outputs_logged") == key:
+            return
+        _STATE["outputs_logged"] = key
+        save_state()
+    log_event(name, job_ids=ids, **detail)
 
 
 def job_upload(request, job_id):
@@ -395,6 +468,7 @@ def job_info(job_id):
     except OSError:
         log_bytes = 0
     record.update(
+        outputs_unsaved=outputs_unsaved(record),
         outputs=files,
         outputs_count_capped=len(files) >= JOB_OUTPUT_LIST_MAX,
         outputs_bytes=total,
@@ -439,12 +513,23 @@ def job_outputs(request, job_id):
         request._reply(404, {"error": "no outputs for job %s" % job_id})
         return
     touch("job_outputs")
+    record = job_read(job_id) or {}
+    finished = record.get("state") not in (None, "running")
+    signature = _outputs_signature(job_id) if finished else None
     request.send_response(200)
     request.send_header("Content-Type", "application/gzip")
     request.end_headers()
     # HTTP/1.0: the body ends when the connection closes, so it can stream.
     with tarfile.open(fileobj=request.wfile, mode="w|gz") as tar:
         tar.add(out, arcname=".")
+    request.wfile.flush()
+    if finished:
+        # Fully sent: these results now exist off the machine.
+        with _JOB_LOCK:
+            current = job_read(job_id) or record
+            current["outputs_saved"] = signature
+            job_write(current)
+        log_event("job_outputs_saved", job_id=job_id, files=signature[0] if signature else 0)
 
 
 def job_list():
@@ -463,7 +548,10 @@ def jobs_route(request, method, path, body):
     if len(parts) == 1:
         if method != "GET":
             return False
-        request._reply(200, {"jobs": job_list()})
+        records = job_list()
+        for record in records:
+            record["outputs_unsaved"] = outputs_unsaved(record)
+        request._reply(200, {"jobs": records})
         return True
     job_id = parts[1]
     if not JOB_ID_PATTERN.match(job_id) or len(parts) > 3:
@@ -503,3 +591,4 @@ def jobs_resume():
 
 jobs_resume()
 EXT_ROUTES["jobs"] = jobs_route
+TERMINATE_HOOKS["jobs"] = outputs_guard

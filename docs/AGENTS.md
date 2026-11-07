@@ -85,7 +85,7 @@ Another agent that reads `SKILL.md` files: `gpu agent skill > path/to/skills/gpu
 | `gpu_logs` | runtime, onstart, watchdog or provider log | no |
 | `gpu_lock` / `gpu_unlock` | keep the machine up through a quiet period | while locked |
 | `gpu_stop` | stop now; disk kept, restart takes about a minute | ends billing for compute |
-| `gpu_destroy` | delete; needs `confirm=true` | ends all billing |
+| `gpu_destroy` | delete; needs `confirm=true`; downloads job results first, `discard_outputs=true` deletes them | ends all billing |
 | `gpu_ls` | every machine in the account, from any project | no |
 
 Each tool runs the `gpu` CLI with `--json` in the project directory, so errors carry the same `exit_code` as the [application contract](INTEGRATION.md#exit-codes), plus `meaning` and `next` for the agent. A tool takes an optional `project_dir`; by default it is the server's `--project`, `$GPU_PROJECT_DIR`, or the directory the client started it in.

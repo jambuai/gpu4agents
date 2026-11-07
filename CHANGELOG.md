@@ -2,6 +2,17 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-11-07
+
+### Fixed
+- **A job's results are no longer deleted before anyone downloaded them.** 0.11.0 made an idle Vast.ai machine be destroyed, and with it the outputs of a job run with `--detach` that nobody had pulled yet, or the checkpoints of a job cut off by `max_lifetime`. Now:
+  - On the machine, the job runner knows which outputs were downloaded after their job ended. While any are not, a shutdown that would delete them becomes a stop that keeps the disk. Where no stop keeps the disk (Lambda, a RunPod pod without a volume), an idle machine waits up to 2 hours for the download.
+  - `gpu sweep` and `gpu guard` download finished jobs' results into `gpu-outputs/<job id>/` on their own, and before any automatic destroy. A stopped machine that still holds results (and bills its disk) is started, emptied and destroyed. With `gpu sweep --install-timer`, results reach your computer within minutes, with nobody at the keyboard.
+  - `gpu job pull` works on a stopped machine: it starts it, downloads, and puts it back.
+  - `gpu destroy` (and the MCP `gpu_destroy`) downloads the results first, and refuses when it cannot; `--discard-outputs` (`discard_outputs=true`) deletes them.
+  - `gpu status` lists the jobs whose results are only on the machine (`job_outputs_unsaved`).
+- `gpu job run` refuses a job whose `timeout` is longer than `lifecycle.max_lifetime` before anything runs, instead of letting the machine shut down mid-job, and warns when the machine will shut down before a job without a timeout could finish.
+
 ## [0.11.0] - 2026-11-06
 
 ### Changed

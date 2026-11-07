@@ -56,7 +56,7 @@ These never upload: `.git`, virtualenvs, `__pycache__`, `node_modules`, `.gpu`, 
 3. Exit non-zero on failure. Do not catch every exception and exit 0.
 4. Never print secrets, and never write them into outputs.
 5. Install dependencies in `setup:`, pinned (`torch` comes with the default image; do not reinstall it).
-6. Keep the job under `lifecycle.max_lifetime` (6 h by default) and the session budget: those shut the machine down even while a job runs (on Vast.ai they destroy it, outputs included). Set `timeout:` below them.
+6. Keep the job under `lifecycle.max_lifetime` (6 h by default) and the session budget: those shut the machine down even while a job runs. For a longer job, raise `max_lifetime` in `gpu.yaml` first; `gpu job run` refuses a `timeout:` longer than it. What the job wrote to `$JAMBU_OUTPUT_DIR` by then is kept (see section 6), so write checkpoints as you go.
 
 ## 5. Running it
 
@@ -79,4 +79,12 @@ States: `running`, `succeeded`, `failed`, `timeout`, `cancelled`, `lost` (the ma
 
 ## 6. Afterwards
 
-The machine shuts down by itself after `idle_timeout` (15 min) once no job runs. On a provider where a stopped machine is free (RunPod without a volume), it is stopped. On Vast.ai, where a stopped machine still bills its disk, it is destroyed, and the disk goes with it. So pull the outputs within `idle_timeout` of the job's end: `gpu job run` does it by itself; after `--detach`, run `gpu job pull`. To keep the disk instead (and pay for it while stopped), set `lifecycle.keep_disk: true`; a stopped machine is then restarted by `gpu setup`, and `gpu job pull` still works. `gpu destroy` deletes the disk and every job file on it, so pull the outputs first. Tell the user what ran, how long it took, what it cost (`gpu job status` reports `cost_usd`) and where the outputs are.
+The machine shuts down by itself after `idle_timeout` (15 min) once no job runs. Its results are kept until they reach this computer:
+
+- `gpu job run` downloads them when the job ends. After `--detach`, `gpu job pull` does, whenever you like.
+- A job's results count as saved once they were downloaded after it ended. Until then, a shutdown that would delete them becomes a stop, which keeps the disk (Vast.ai, a RunPod pod with a volume). Where a stop would wipe the disk too (Lambda, a RunPod pod without a volume), the idle machine stays up for up to 2 hours after the job ended, waiting for the download. Only there can results still be lost: when nothing downloads them within those 2 hours, or when `max_lifetime` or the budget ends the machine first.
+- `gpu job pull` works on a stopped machine: it starts it, downloads, and puts it back (destroyed on Vast.ai once nothing is left on it, since a stopped machine bills its disk).
+- `gpu sweep` and `gpu guard` do the same on their own: they download the results of finished jobs into `gpu-outputs/<job id>/` while the machine is up, start a stopped machine that still holds some (then destroy it), and download before any automatic destroy. With `gpu sweep --install-timer` this happens within minutes, with no one at the keyboard.
+- `gpu destroy` downloads the results first. If it cannot, it refuses; `gpu destroy --discard-outputs` deletes them.
+
+Tell the user what ran, how long it took, what it cost (`gpu job status` reports `cost_usd`) and where the outputs are.

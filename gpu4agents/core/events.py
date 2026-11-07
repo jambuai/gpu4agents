@@ -40,6 +40,8 @@ HOST_FAILED = "host_failed"
 JOB_SUBMITTED = "job_submitted"
 JOB_FINISHED = "job_finished"
 JOB_OUTPUTS_PULLED = "job_outputs_pulled"
+# Results nobody downloaded kept a machine from being destroyed (or a fetch failed).
+JOB_OUTPUTS_KEPT = "job_outputs_kept"
 
 
 class EventLog:

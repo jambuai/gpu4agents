@@ -17,7 +17,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.11.0 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.12.0 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>
@@ -102,7 +102,7 @@ When the work is code that needs a GPU, not requests to a model (training or fin
 2. Put the code in a directory with a `gpujob.yaml`: `run:` (the command), `setup:` (pinned installs), `env:`, `timeout:`, `exclude:`. `.git`, virtualenvs, `.env` files and `gpu-outputs/` never upload; the limit is 2 GB, so the job downloads large data itself.
 3. The code writes every result to `$JAMBU_OUTPUT_DIR` (checkpoints too, as it goes), prints progress, exits non-zero on failure and never prints secrets. `HF_HOME` is a cache on the machine.
 4. With the user's yes: `gpu job run` (uploads, runs, streams the log, downloads to `gpu-outputs/<job id>/`, exits with the job's code). Through MCP: `gpu_setup` until ready, `gpu_job_run`, `gpu_job_status` until the state is not `running`, `gpu_job_pull`.
-5. A running job keeps the machine up; `max_lifetime` and the budget still shut it down. Pull outputs before `gpu destroy`, which deletes them. On Vast.ai an idle machine is destroyed too (a stopped one would still bill its disk), so after `--detach` pull within `idle_timeout` of the job's end.
+5. A running job keeps the machine up; `max_lifetime` and the budget still shut it down, so raise `max_lifetime` before a long job (`gpu job run` refuses a `timeout` longer than it). Results are kept until downloaded: the machine is stopped rather than destroyed while it holds results nobody pulled, `gpu job pull` works on a stopped machine, and `gpu destroy` downloads them first. If destroy refuses because it could not fetch them, tell the user; only their explicit yes justifies `--discard-outputs`.
 
 ## Serve any model (images, voice, transcription, embeddings)
 

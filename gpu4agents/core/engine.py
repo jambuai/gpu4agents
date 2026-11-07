@@ -7,6 +7,7 @@ reconciliation, idempotency and cleanup. It knows about the provider
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 import tempfile
@@ -486,6 +487,8 @@ class Engine:
             activity_probe=probe,
             runtime_pid_path=self.runtime.runtime_pid_path(),
             runtime_log_path=self.runtime.runtime_log_path(),
+            stop_keeps_disk=self.provider.capabilities.stop
+            and self.provider.capabilities.persistent_disk,
         )
         runtime_env = dict(self.runtime.env())
         # A configured key is already on the command line; only a generated
@@ -1169,6 +1172,14 @@ class Engine:
                 "or set run: in gpujob.yaml"
             )
         timeout = timeout or manifest.timeout
+        timeout_s = parse_duration(timeout) if timeout else None
+        lifetime = self.config.max_lifetime_s
+        if lifetime and timeout_s and timeout_s > lifetime:
+            raise ConfigError(
+                f"the job may run {format_duration(timeout_s)} but lifecycle.max_lifetime "
+                f"shuts the machine down after {format_duration(lifetime)}; raise "
+                "max_lifetime in gpu.yaml (and the session budget, if set) to at least the timeout"
+            )
         merged_env = dict(manifest.env)
         merged_env.update(env or {})
 
@@ -1182,9 +1193,16 @@ class Engine:
             env={**self.job_env(state), **merged_env},
             exclude=list(manifest.exclude) + list(exclude),
             label=label or manifest.label or "",
-            timeout_s=parse_duration(timeout) if timeout else None,
+            timeout_s=timeout_s,
         )
         self.echo(f"+ job {record['id']} running on instance {state.instance_id}")
+        if lifetime and state.session_started_at:
+            left = lifetime - (utc_now() - state.session_started_at)
+            if timeout_s is None or timeout_s > left:
+                self.echo(
+                    f"! lifecycle.max_lifetime shuts this machine down in {format_duration(max(0.0, left))}"
+                    ", even mid-job; what the job wrote by then is kept and downloaded"
+                )
         return record
 
     def _submit(
@@ -1387,13 +1405,233 @@ class Engine:
         return info
 
     def job_pull(self, job_id: Optional[str] = None, dest: Optional[Path] = None) -> dict[str, Any]:
+        """Download a job's outputs; a stopped machine is started for it and put back."""
         job_id = self._resolve_job(job_id)
-        _, jobs = self._job_client(start=False)
+        with self.store.process_lock():
+            state = self._reconcile(self.store.load())
+            woken = False
+            if state.has_instance() and state.state == InstanceState.STOPPED.value:
+                state = self._wake_for_outputs(state)
+                woken = True
+            try:
+                _, jobs = self._job_client(start=False)
+                result = self._pull_outputs(jobs, job_id, dest)
+            finally:
+                if woken:
+                    self._settle_after_wake(state)
+            return result
+
+    def _pull_outputs(self, jobs: JobClient, job_id: str, dest: Optional[Path] = None) -> dict[str, Any]:
         target = Path(dest) if dest else self.config.project_dir / OUTPUTS_DIRNAME / job_id
         files = jobs.download_outputs(job_id, target)
-        JobRecords(self.store.dir).update(job_id, outputs_dir=str(target), outputs=len(files))
+        try:
+            unsaved = bool(jobs.info(job_id).get("outputs_unsaved", False))
+        except (StateError, WatchdogUnavailable):
+            unsaved = True
+        JobRecords(self.store.dir).update(
+            job_id, outputs_dir=str(target), outputs=len(files), outputs_unsaved=unsaved
+        )
         self.events.emit(ev.JOB_OUTPUTS_PULLED, job_id=job_id, files=len(files), dest=str(target))
+        self.echo(f"+ job {job_id}: {len(files)} output files in {target}")
         return {"job_id": job_id, "outputs_dir": str(target), "files": files}
+
+    # ------------------------------------------------------------------
+    # job results are never deleted unseen
+    # ------------------------------------------------------------------
+
+    def unsaved_job_outputs(self, state: RuntimeState, jobs: Optional[JobClient] = None) -> list[str]:
+        """Jobs on this instance whose results may not exist anywhere else.
+
+        With ``jobs`` (the machine's runner) the machine's own answer is
+        recorded locally, so it is still known once the machine is stopped.
+        Without it, a job never confirmed saved counts as unsaved.
+        """
+        if not state.instance_id:
+            return []
+        records = JobRecords(self.store.dir)
+        mine = {
+            r["id"]: r
+            for r in records.all()
+            if r.get("instance_id") == state.instance_id and not r.get("service")
+        }
+        if jobs is not None and mine:
+            remote = {r.get("id"): r for r in jobs.list()}
+            for job_id, record in list(mine.items()):
+                found = remote.get(job_id)
+                # Gone from the machine: there is nothing left there to lose.
+                unsaved = bool(found.get("outputs_unsaved", True)) if found else False
+                if record.get("outputs_unsaved") != unsaved:
+                    mine[job_id] = records.update(
+                        job_id,
+                        outputs_unsaved=unsaved,
+                        **({"state": found.get("state")} if found else {}),
+                    )
+        return sorted(j for j, r in mine.items() if r.get("outputs_unsaved", True))
+
+    def _reachable_jobs(self, state: RuntimeState) -> Optional[JobClient]:
+        if not InstanceState(state.state).is_billable_compute:
+            return None
+        client = self.beacon(state)
+        if client is None or not client.ping():
+            return None
+        jobs = JobClient(client)
+        try:
+            jobs.ensure_runner()
+        except (StateError, WatchdogUnavailable):
+            return None
+        return jobs
+
+    WAKE_RETRY_S = 3600.0
+
+    def _wake_allowed(self) -> bool:
+        """The guard restarts a machine for its results at most once an hour."""
+        path = self.store.dir / "outputs-wake.json"
+        try:
+            last = float(json.loads(path.read_text()).get("at") or 0)
+        except (OSError, ValueError, AttributeError):
+            last = 0.0
+        if utc_now() - last < self.WAKE_RETRY_S:
+            return False
+        self.store.ensure_dirs()
+        path.write_text(json.dumps({"at": utc_now()}))
+        return True
+
+    def _save_job_outputs(
+        self, state: RuntimeState, throttle: bool = False, finished_only: bool = False
+    ) -> tuple[RuntimeState, list[str]]:
+        """Download every unsaved job result. Returns the state and what is still unsaved.
+
+        A stopped machine is started for it (and left running: the caller
+        decides what happens to it next).
+        """
+        if not state.instance_id or not JobRecords(self.store.dir).all():
+            return state, []
+        jobs = self._reachable_jobs(state)
+        unsaved = self.unsaved_job_outputs(state, jobs)
+        if not unsaved:
+            return state, []
+        if jobs is None and state.state == InstanceState.STOPPED.value:
+            if throttle and not self._wake_allowed():
+                return state, unsaved
+            try:
+                state = self._wake_for_outputs(state)
+            except JambuError as exc:
+                self.events.emit(ev.JOB_OUTPUTS_KEPT, job_ids=unsaved, error=str(exc))
+                self.echo(f"! could not start instance {state.instance_id} to fetch job results: {exc}")
+                return state, unsaved
+            jobs = self._reachable_jobs(state)
+            if jobs is not None:
+                unsaved = self.unsaved_job_outputs(state, jobs)
+        if jobs is None:
+            self.events.emit(ev.JOB_OUTPUTS_KEPT, job_ids=unsaved, error="watchdog unreachable")
+            return state, unsaved
+        if finished_only:
+            done = {r.get("id") for r in jobs.list() if r.get("state") != "running"}
+            unsaved = [j for j in unsaved if j in done]
+        left = []
+        for job_id in unsaved:
+            try:
+                self._pull_outputs(jobs, job_id)
+            except (JambuError, WatchdogUnavailable, OSError) as exc:
+                self.events.emit(ev.JOB_OUTPUTS_KEPT, job_ids=[job_id], error=str(exc))
+                left.append(job_id)
+        # A job still running was just pulled as far as it got; what it writes
+        # after this is lost with the machine, but nothing it already wrote is.
+        return state, left
+
+    def _wake_for_outputs(self, state: RuntimeState) -> RuntimeState:
+        """Start a stopped machine just far enough to reach its watchdog."""
+        instance = state.instance
+        if instance is None or not self.provider.capabilities.stop:
+            raise StateError(f"instance {state.instance_id} cannot be started again")
+        self.echo(f"> starting instance {instance.id} to download job results")
+        instance = self.provider.start(instance)
+        state.instance = instance
+        state.mark_billable(True)
+        state.mark_session_start()
+        self.events.emit(ev.INSTANCE_STARTED, instance_id=instance.id, reason="job_outputs")
+        state.state = InstanceState.STARTING.value
+        self.store.save(state)
+        instance = self._wait_running(state)
+        state.instance = instance
+        state.endpoint = instance.endpoint_url(ENDPOINT_NAME)
+        watchdog_url = instance.endpoint_url("watchdog")
+        if watchdog_url:
+            state.watchdog.url = watchdog_url
+        self.store.save(state)
+        client = self.beacon(state)
+        deadline = time.time() + 120
+        while client is not None and time.time() < deadline:
+            if client.ping():
+                state.watchdog.last_contact = utc_now()
+                state.watchdog.last_error = None
+                return state
+            time.sleep(5)
+        raise StateError(f"the watchdog on instance {instance.id} did not answer after the restart")
+
+    def _settle_after_wake(self, state: RuntimeState) -> None:
+        """Put a machine started only for its results back the way policy wants it."""
+        caps = self.provider.capabilities
+        billing_stop = not caps.stop_eliminates_billing and not self.config.lifecycle.keep_disk
+        if billing_stop and caps.destroy and not self.unsaved_job_outputs(state):
+            action = policy.ACTION_DESTROY
+        else:
+            action = policy.ACTION_STOP
+        try:
+            self._terminate(state, action=action, reason="job_outputs_saved")
+        except ProviderError:
+            pass  # the watchdog still shuts an idle machine down
+        self.store.save(state)
+
+    def _protect_job_outputs(
+        self, state: RuntimeState, decision: policy.Decision, locked: bool
+    ) -> tuple[RuntimeState, policy.Decision]:
+        """No automatic shutdown deletes job results nobody downloaded.
+
+        Before one would, the results are downloaded into gpu-outputs/. A
+        stopped machine kept only for them (a stop that still bills, without
+        keep_disk) is started, emptied and destroyed. What cannot be fetched
+        keeps the machine: stopped where the disk survives that, else as is.
+        """
+        caps = self.provider.capabilities
+        stopped = state.state == InstanceState.STOPPED.value
+        if (
+            not decision.terminates
+            and InstanceState(state.state).is_billable_compute
+            and self.unsaved_job_outputs(state)
+        ):
+            # Fetch finished jobs' results while the machine is still up: then
+            # the watchdog can destroy it when idle instead of keeping a disk.
+            state, _ = self._save_job_outputs(state, finished_only=True)
+            return state, decision
+        if not decision.terminates:
+            billing_stop = not caps.stop_eliminates_billing and not self.config.lifecycle.keep_disk
+            if not (stopped and billing_stop and caps.destroy and not locked):
+                return state, decision
+            if not self.unsaved_job_outputs(state):
+                return state, decision
+            state, left = self._save_job_outputs(state, throttle=True)
+            detail = dict(decision.detail)
+            if not left:
+                return state, policy.Decision(policy.ACTION_DESTROY, "job_outputs_saved", detail)
+            detail["job_outputs_unsaved"] = left
+            if InstanceState(state.state).is_billable_compute:
+                return state, policy.Decision(policy.ACTION_STOP, "job_outputs_unsaved", detail)
+            return state, policy.Decision(policy.ACTION_NONE, "job_outputs_unsaved", detail)
+
+        if decision.action != policy.ACTION_DESTROY and caps.persistent_disk:
+            return state, decision  # a stop keeps the disk, results included
+        state, left = self._save_job_outputs(state, throttle=True)
+        if not left:
+            return state, decision
+        detail = dict(decision.detail)
+        detail["job_outputs_unsaved"] = left
+        running = InstanceState(state.state).is_billable_compute
+        if running and caps.stop and caps.persistent_disk:
+            return state, policy.Decision(policy.ACTION_STOP, decision.reason, detail)
+        if not running or decision.reason == policy.REASON_IDLE:
+            return state, policy.Decision(policy.ACTION_NONE, "job_outputs_unsaved", detail)
+        return state, decision
 
     def job_cancel(self, job_id: Optional[str] = None) -> dict[str, Any]:
         job_id = self._resolve_job(job_id)
@@ -1467,6 +1705,8 @@ class Engine:
             "session_cost_usd": state.session_cost_usd,
             "session_started_at": state.session_started_at,
             "stopped_since": state.stopped_since,
+            # Jobs whose results are only on the machine (as last known here).
+            "job_outputs_unsaved": self.unsaved_job_outputs(state) if state.instance_id else [],
             "workloads": [
                 {
                     "id": w.id,
@@ -1565,12 +1805,22 @@ class Engine:
             self.store.save(state)
             return {"changed": True, "state": state.state, "action": action}
 
-    def destroy(self, reason: str = "manual") -> dict[str, Any]:
+    def destroy(self, reason: str = "manual", discard_outputs: bool = False) -> dict[str, Any]:
         with self.store.process_lock():
             state = self._reconcile(self.store.load())
             if not state.instance_id:
                 self.echo("= nothing to destroy")
                 return {"changed": False, "state": state.state}
+            if not discard_outputs:
+                # Results a job wrote are downloaded first, waking a stopped machine.
+                state, left = self._save_job_outputs(state)
+                if left:
+                    self.store.save(state)
+                    raise StateError(
+                        f"job {', '.join(left)} wrote results that are not downloaded yet and "
+                        "could not be fetched now; destroying the machine would delete them. "
+                        "Retry, or run `gpu job pull`; `gpu destroy --discard-outputs` deletes them."
+                    )
             self._terminate(state, action=policy.ACTION_DESTROY, reason=reason)
             self.store.save(state)
             return {"changed": True, "state": state.state}
@@ -1646,6 +1896,8 @@ class Engine:
             decision = policy.evaluate(snap, cfg)
             if idle_skipped:
                 decision.detail["idle_skipped"] = "watchdog_unreachable"
+            if apply:
+                state, decision = self._protect_job_outputs(state, decision, snap.lock_active(cfg))
             if decision.terminates and apply:
                 self.events.emit(
                     ev.LIFECYCLE_GUARD_TRIGGERED,

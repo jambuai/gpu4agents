@@ -414,6 +414,8 @@ class Server:
         project_dir = self._project_dir(args)
         cancelled = self._cancel_setup(project_dir)
         argv = ["destroy", "--yes", "--reason", str(args.get("reason") or "agent")]
+        if args.get("discard_outputs"):
+            argv.append("--discard-outputs")
         result = self._ok(self.cli(argv, project_dir))
         if cancelled:
             result["setup_cancelled"] = cancelled
@@ -683,10 +685,16 @@ class Server:
                 "gpu_destroy",
                 "Delete the GPU",
                 "Delete the machine and its disk: nothing is billed afterwards, and the next "
-                "gpu_setup rents and downloads from scratch. Cancels a setup in progress. Requires "
+                "gpu_setup rents and downloads from scratch. Cancels a setup in progress. Job results "
+                "not downloaded yet are fetched into gpu-outputs/ first; if that fails it refuses, "
+                "and discard_outputs=true (only with the user's yes) deletes them. Requires "
                 "confirm=true after the user agrees.",
                 _schema(
-                    {"confirm": {"type": "boolean"}, "reason": {"type": "string"}},
+                    {
+                        "confirm": {"type": "boolean"},
+                        "reason": {"type": "string"},
+                        "discard_outputs": {"type": "boolean"},
+                    },
                     ["confirm"],
                 ),
                 self.tool_destroy,

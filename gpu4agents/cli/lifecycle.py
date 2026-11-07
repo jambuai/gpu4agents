@@ -79,8 +79,13 @@ def destroy_command(
     ctx: typer.Context,
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
     reason: str = typer.Option("manual", "--reason", help="Recorded with the destroy event."),
+    discard_outputs: bool = typer.Option(
+        False,
+        "--discard-outputs",
+        help="Destroy even if job results could not be downloaded first (they are deleted).",
+    ),
 ) -> None:
-    """Destroy the remote resource (idempotent)."""
+    """Destroy the remote resource (idempotent). Job results are downloaded first."""
     context = get_context(ctx)
     try:
         engine = context.engine()
@@ -93,7 +98,7 @@ def destroy_command(
                 if not confirm:
                     console.print("aborted")
                     raise typer.Exit(1)
-        result = engine.destroy(reason=reason)
+        result = engine.destroy(reason=reason, discard_outputs=discard_outputs)
     except JambuError as exc:
         handle(exc)
         return

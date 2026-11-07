@@ -71,6 +71,14 @@ A stopped instance is then destroyed once it has been stopped longer than `lifec
 
 `stopped_since` keeps the first time the CLI saw the instance stopped, but only while nothing says it ran since. A session start, local activity, watchdog contact or a provider start time newer than `stopped_since` means the instance was restarted and stopped again while the CLI was not looking (from the web console, say), so the clock restarts at the current observation instead of destroying a fresh stop.
 
+## Job results
+
+A job's results are on the machine's disk until someone downloads them. No automatic shutdown deletes them unseen.
+
+On the machine, the job runner marks a job's outputs saved once `GET /jobs/<id>/outputs` streamed them after the job ended and nothing changed since. While any are unsaved, it changes what the watchdog does (a `TERMINATE_HOOKS` entry): a destroy becomes a stop where a stop keeps the disk (`outputs_kept`); where it would not (no persistent disk, or no stop at all), an idle shutdown waits up to 2 hours after the last job ended (`outputs_hold`). After that, or when `max_lifetime` or the budget fires there, the machine goes and the event is `outputs_lost`. An explicit `gpu stop` or `gpu destroy` and the stop-failure escalation are not changed.
+
+On this computer, `gpu guard` and `gpu sweep` download the results of finished jobs into `gpu-outputs/<job id>/` while the machine runs, and before any automatic destroy. A stopped machine that still holds results, on a provider where a stopped machine bills and without `keep_disk`, is started, emptied and destroyed (reason `job_outputs_saved`); a failed attempt is retried after an hour and recorded as `job_outputs_kept`. `gpu job pull` starts a stopped machine too, and puts it back afterwards. `gpu destroy` downloads first and refuses when it cannot, unless `--discard-outputs`. `gpu status` lists the jobs whose results are only on the machine (`job_outputs_unsaved`).
+
 ## A second path
 
 Run the same rule from anywhere that has API access:
