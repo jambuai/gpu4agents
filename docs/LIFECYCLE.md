@@ -67,7 +67,9 @@ The watchdog runs inside a bash respawn loop started with `nohup`. If the watchd
 
 A stopped Vast.ai instance still bills for storage, and its watchdog is not running. So where a stop leaves a bill behind, the policy destroys instead of stopping, for idle, `max_lifetime` and the budget alike. `lifecycle.keep_disk: true` keeps the old behavior (stop, restart in about a minute) for users who accept the storage bill.
 
-A stopped instance is then destroyed once it has been stopped longer than `lifecycle.stopped_ttl` (reason `stopped_ttl`). This needs destroy support and no active lock. Nothing runs on a stopped machine, so only your computer can enforce it: `gpu guard`, `gpu sweep`, or the timer `gpu sweep --install-timer` writes (systemd on Linux, a LaunchAgent on macOS). A manual `gpu stop` on Vast.ai is covered by the same rule.
+A stopped instance is then destroyed once it has been stopped longer than `lifecycle.stopped_ttl` (reason `stopped_ttl`). This needs destroy support and no active lock. Nothing runs on a stopped machine, so only your computer can enforce it: `gpu guard`, `gpu sweep`, or the timer `gpu sweep --install-timer` writes (systemd on Linux, a LaunchAgent on macOS). `gpu agent install` asks once whether to install that timer. A manual `gpu stop` on Vast.ai is covered by the same rule.
+
+A manual stop is the easy one to forget, so it is never silent. Where a stopped machine still bills, `gpu stop` (and the MCP `gpu_stop`) returns `still_billing: true`, the disk's cost per day (`stopped_cost_usd_per_day`, from Vast's `storage_cost` and the disk size) and a `warning` that says whether the sweep timer will remove it after `stopped_ttl`. After that, every `gpu` command, in any directory, warns on stderr about each registered machine still stopped and billing, until the timer is on (or, with it, once one is past its `stopped_ttl`). That check reads state files only; it never calls the provider. `GPU_NO_STOPPED_CHECK=1` silences it. The skill tells the agent to destroy, not stop, once the work is done and its results are home.
 
 `stopped_since` keeps the first time the CLI saw the instance stopped, but only while nothing says it ran since. A session start, local activity, watchdog contact or a provider start time newer than `stopped_since` means the instance was restarted and stopped again while the CLI was not looking (from the web console, say), so the clock restarts at the current observation instead of destroying a fresh stop.
 
@@ -90,6 +92,12 @@ Run the same rule from anywhere that has API access:
 `guard` evaluates the policy against reconciled state and enforces it. `gpu sweep --install-timer` runs it for every registered project; see [Keeping the account clean](USAGE.md#keeping-the-account-clean).
 
 Inference traffic is counted on the instance only. When the watchdog is enabled and installed but did not answer during this reconcile, `guard` therefore does not apply `idle_timeout`: its local idle clock would stop an endpoint that is busy serving requests. `max_lifetime`, the session budget and `stopped_ttl` still apply, and the decision detail records `idle_skipped: watchdog_unreachable`. With `lifecycle.watchdog.enabled: false` the CLI guard owns the idle rule as before.
+
+## A machine that vanished
+
+A destroyed machine leaves nothing to ask: the provider forgets it, and its watchdog went with it. When the CLI next finds the machine missing, it replays this project's own rules (`idle_timeout`, `max_lifetime`, the session budget) on what it last knew. If they called for a destroy by now (on a provider where a stop bills and without `keep_disk`), it records `instance_destroyed` with that `reason`, `by: watchdog` and `inferred: true`, and `state_reconciled` carries `likely_reason`, e.g. `idle_timeout (watchdog)`. Otherwise `likely_reason` is `unknown`: the provider console, another tool, the host, or an account out of credit.
+
+The watchdog's own events (`watchdog_identified`, `instance_idle`, ...) used to reach the local log only on a later command. `gpu setup` now fetches them as soon as the machine is ready, so a machine that goes while nobody runs gpu still has the record that it was guarded.
 
 ## A model server that dies at boot
 

@@ -279,7 +279,8 @@ class VastProvider(GPUProvider):
         offers = [mapper.map_offer(raw) for raw in raw_offers]
         min_cuda = mapper.effective_min_cuda(spec, self.options)
         offers = [o for o in offers if mapper.offer_matches(o, spec, min_cuda)]
-        offers.sort(key=lambda o: o.hourly_cost_usd)
+        # The approved offer first, while it lasts; then the cheapest.
+        offers.sort(key=lambda o: (o.id != spec.preferred_offer_id, o.hourly_cost_usd))
         return offers[:limit]
 
     def setup(self, spec: ComputeSpec) -> Instance:
@@ -449,6 +450,10 @@ class VastProvider(GPUProvider):
                 time.sleep(1.5 * (attempt + 1) / 2)
 
         return LogStream(_lines(), source=f"vast:{instance.id}")
+
+    def boot_script(self, instance: Instance) -> Optional[str]:
+        raw = self.client.get_instance(instance.id)
+        return str(raw.get("onstart") or "") or None if raw else None
 
     def refresh(self, instance: Instance) -> Instance:
         current = self._read_instance(instance.id)

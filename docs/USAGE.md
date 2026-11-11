@@ -6,23 +6,24 @@ Operator reference. The project front page is the [README](../README.md). Field-
 
 | Command | What it does |
 | --- | --- |
-| `gpu init` | Write a starter `gpu.yaml` and `.env.example` (`--flat` for a legacy `config.yml`) |
+| `gpu init` | Write a starter `gpu.yaml` and `.env.example` (`--flat` for a legacy `config.yml`). Refuses a temporary or scratchpad folder, where the project would be lost (`--allow-temp` overrides) |
 | `gpu inspect-model <repo>` | Suggest `min_vram_gb`, `dtype`, and `tool_calling` for a HuggingFace model, with sources cited. `--add-profile <name>` writes it into the model catalog |
 | `gpu profiles` | List the model profiles in `gpu.models.yaml` |
 | `gpu providers` | Provider capability matrix and credential status |
 | `gpu validate` | Schema, policy, credentials, capabilities, real capacity. Fails before provisioning |
-| `gpu offers` | Matching GPU offers and their hourly price |
-| `gpu setup` | Provision, install the watchdog, start the runtime, wait for READY |
+| `gpu offers` | Matching GPU offers and their hourly price. `--for 30` (minutes the job takes on an RTX 4090) ranks them by the estimated cost of the whole job |
+| `gpu setup` | Provision, install the watchdog, start the runtime, wait for READY. `--offer ID` rents only that offer's card at no more than its quoted price; the result reports `rented` next to `quoted` |
 | `gpu run <cmd>` | Guarantee READY, then run the command with heartbeats |
 | `gpu status` | Reconcile local and provider state, show the guard decision |
 | `gpu lock --for 2h` | Prevent automatic shutdown until the TTL expires |
 | `gpu unlock` | Resume normal lifecycle rules |
-| `gpu stop` | Stop compute. Idempotent |
+| `gpu stop` | Stop compute. Idempotent. Where a stopped machine still bills its disk (Vast.ai) it says how much, and whether anything will remove it |
 | `gpu destroy` | Destroy the remote resource. Idempotent. Job results not downloaded yet are fetched first; if that fails it refuses, and `--discard-outputs` deletes them |
 | `gpu logs` | The model server's log on the instance (`--source runtime\|onstart\|watchdog\|provider`, `--lines N`). Falls back to the provider's container log when the watchdog does not answer |
 | `gpu events` | Structured lifecycle event log |
 | `gpu guard` | Evaluate and enforce the lifecycle rule from cron or CI |
 | `gpu ls` | Every jambu instance in the provider account, and which registered project owns it |
+| `gpu adopt <id>` | Make an orphan this project's, to reuse it or destroy it. Where the provider kept its boot script (Vast.ai), its watchdog and model key come back |
 | `gpu sweep` | Guard every registered project by its own rules, then report (or `--apply`) stops and destroys of orphans |
 | `gpu sweep --install-timer` | Schedule `sweep --apply` (systemd user timer on Linux, LaunchAgent on macOS), and register this project |
 | `gpu endpoint` | Print the model endpoint URL |

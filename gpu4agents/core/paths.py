@@ -40,3 +40,33 @@ def gpu_home() -> Path:
         return Path(override).expanduser()
     home = Path.home()
     return adopt_legacy(home / STATE_DIRNAME, home / LEGACY_STATE_DIRNAME)
+
+
+EPHEMERAL_ROOTS = ("/tmp", "/var/tmp", "/dev/shm", "/private/tmp", "/private/var/tmp")
+
+
+def ephemeral_reason(path: Path) -> "str | None":
+    """Why ``path`` is a bad home for a gpu project, or None.
+
+    A project kept in a temp or agent-session scratch folder is lost with it,
+    and the machine it rented becomes an orphan no later session can use.
+    ``GPU_ALLOW_TEMP_PROJECT=1`` (or `gpu init --allow-temp`) allows it.
+    """
+    import tempfile
+
+    if os.environ.get("GPU_ALLOW_TEMP_PROJECT"):
+        return None
+    resolved = Path(path).expanduser().resolve()
+    if "scratchpad" in resolved.parts:
+        return "it is an agent session's scratchpad"
+    roots = {Path(r) for r in EPHEMERAL_ROOTS} | {Path(tempfile.gettempdir())}
+    for root in roots:
+        try:
+            resolved.relative_to(root.resolve() if root.exists() else root)
+        except ValueError:
+            try:
+                resolved.relative_to(root)
+            except ValueError:
+                continue
+        return f"it is under the temporary directory {root}"
+    return None

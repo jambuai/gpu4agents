@@ -366,3 +366,23 @@ def inspect_model(
         )
 
     return result
+
+
+# Image models whose peak memory (the VAE decode at full resolution, the text
+# encoders loaded beside the denoiser) is far above what their weights suggest.
+# (substring of the lowercased repo id) -> (min GB, GB to be safe at high resolution)
+KNOWN_VRAM_FLOORS = (
+    ("stable-diffusion-xl", (16, 24)),
+    ("sdxl", (16, 24)),
+    ("flux", (24, 32)),
+    ("stable-diffusion-3", (24, 32)),
+)
+
+
+def known_vram_floor(model_id: str) -> Optional[tuple[int, int]]:
+    """(minimum, safe) VRAM in GB for a model whose peak the weights hide, else None."""
+    lowered = (model_id or "").lower()
+    for needle, floor in KNOWN_VRAM_FLOORS:
+        if needle in lowered:
+            return floor
+    return None

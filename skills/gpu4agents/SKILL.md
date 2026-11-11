@@ -5,11 +5,13 @@ description: GPU for Agents. Rent a cloud GPU on your own, serve an open-weights
 
 # GPU for Agents
 
-`gpu` (the `gpu4agents` package) rents a machine from a GPU provider, serves a model on it with vLLM behind an OpenAI-compatible API or runs your own code on it as a job, and installs a watchdog on the machine. The watchdog shuts the machine down once nothing has used it for `idle_timeout` (15 min by default), so billing ends even if this conversation does.
+`gpu` (the `gpu4agents` package) rents a machine from a GPU provider, serves a model on it with vLLM behind an OpenAI-compatible API or runs your own code on it as a job, and installs a watchdog on the machine. The watchdog shuts the machine down once nothing has used it for `idle_timeout` (15 min by default; the user can change it in gpu.yaml), so billing ends even if this conversation does.
 
 Vast.ai, RunPod and Lambda are built in. Any other provider (CoreWeave, Paperspace, a company cluster) plugs in through an adapter: one Python file that implements the provider contract. See "Another provider" below.
 
 Each project directory has a `gpu.yaml` (what to rent and serve, and from which provider) and a `.gpu/` directory (what was rented). One project, one machine.
+
+The project lives in the user's repository: `gpu.yaml` and `.gpu/` at its root, with `.gpu/` in `.gitignore`. Never in a temporary or scratchpad folder (your session's scratchpad included): when that folder goes, the machine keeps billing and no later session can use it (`gpu ls` shows it as `orphan`). `gpu init` refuses such a folder. Scripts you write may live anywhere; the project may not.
 
 ## Setup, once per machine
 
@@ -17,7 +19,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.12.0 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.13.0 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>
@@ -62,7 +64,9 @@ This writes this skill and registers the `gpu` MCP server for that agent. The to
 | create gpu.yaml | `gpu_init(model)` | `gpu init --model ORG/NAME [--provider NAME]` |
 | check config and credentials | `gpu_validate` | `gpu --json validate` |
 | see prices, rent nothing | `gpu_offers` | `gpu --json offers` |
+| rank cards by the cost of a whole job | `gpu_offers(for_minutes_on_4090)` | `gpu --json offers --for 30` |
 | start / ensure ready | `gpu_setup` | `gpu --json setup` |
+| start on the card the user approved | `gpu_setup(offer_id)` | `gpu --json setup --offer ID` |
 | endpoint without starting | `gpu_connection` | `gpu --json env` |
 | run a job against it | `gpu_run(command=[...])` | `gpu run python job.py` |
 | state, cost, idle time | `gpu_status` | `gpu --json status` |
@@ -75,24 +79,33 @@ This writes this skill and registers the `gpu` MCP server for that agent. The to
 | download job outputs | `gpu_job_pull(job_id)` | `gpu job pull` |
 | stop a job | `gpu_job_cancel(job_id)` | `gpu job cancel` |
 | everything billing in the account | `gpu_ls` | `gpu --json ls` |
+| take over an orphan | `gpu_adopt(instance_id)` | `gpu adopt ID` |
 | providers and what each can do | | `gpu --json providers` |
 
 ## Rules: this spends the user's money
 
-1. Ask before renting. Before the first `gpu_setup` / `gpu setup` / `gpu run` in a conversation, show the model, the GPU, the price (`gpu_offers`) and the cap (`budget.max_hourly_cost_usd`), and get a yes. Never raise the budget in `gpu.yaml` without asking.
+1. Ask before renting. Before the first `gpu_setup` / `gpu setup` / `gpu run` in a conversation, show the model, the GPU and its price (one offer from `gpu_offers`), the caps (`budget.max_hourly_cost_usd`, `budget.max_session_cost_usd`), and that it shuts down after `idle_timeout` (15 min by default, theirs to change in gpu.yaml), and get a yes. Never raise the budget in `gpu.yaml` without asking.
+   - Pin what you quoted: pass that offer's id (`gpu_setup(offer_id=...)`, `gpu setup --offer ID`). Only that card, at no more than that price, is rented; if it is gone, nothing is, and you ask again with a new quote.
+   - `gpu_setup`'s result has `rented` beside `quoted` and `matches_quote`. If they differ, tell the user before starting any work. A higher price than the one approved needs a new yes.
 2. Setup is slow. The first setup takes 5 to 15 minutes (image pull, model download), and a bad host is replaced automatically. The MCP `gpu_setup` returns `status: "running"` while it works: call it again to keep waiting. From a shell, run `gpu --json setup` in the background with no timeout. Never start a second project, `--recreate`, or destroy because setup is slow. `gpu_status` (it shows `busy: true` during setup) and `gpu_logs(source="onstart")` show progress. If the user wants to give up, `gpu_stop` or `gpu_destroy` cancel the setup and destroy the half-booted machine.
-3. Never handle the provider key. See step 2 of the setup. If a command fails with exit code 5, send the user to `gpu login`.
-4. Clean up. When the work is done, offer `gpu_stop` (cheap to resume: about a minute, same key) or `gpu_destroy` (nothing billed; next time rents and downloads again). Destroy only with the user's explicit yes. Before finishing, run `gpu_ls` and report anything still running.
+3. Never handle the provider key. See step 2 of the setup. If a command fails with exit code 5, send the user to `gpu login`. The only credentials check is `gpu login --check` (or `gpu_validate`): never list environment variables or a secret manager to find keys, and never use another provider's key (an OpenAI key, say) for work gpu4agents can do.
+4. Clean up. When the work is done and its outputs are pulled, the default is `gpu_destroy` (`confirm=true`; `gpu destroy --yes`): nothing keeps billing, and it is the same choice the watchdog makes. The results are already home, so this is no surprise to the user; tell them it was done. Offer `gpu_stop` instead only when the user says they will be back soon, or when `lifecycle.keep_disk: true`, and say that a stopped machine bills for its disk until destroyed (on Vast.ai; `gpu stop`'s result says how much). Before finishing, run `gpu_ls` and report anything still running or stopped.
 
 ## A typical experiment
 
-1. If there is no `gpu.yaml`: `gpu_init(model=..., max_hourly_cost_usd=...)`. Size the GPU for the model: about 2 GB of VRAM per billion parameters in bf16, plus room for the KV cache. A 7 to 9B model wants 24 GB; a 0.5 to 3B model fits on 16 to 24 GB. `gpu inspect-model ORG/NAME` suggests VRAM and a tool-call parser.
-2. `gpu_validate`, then `gpu_offers`. Show the user the price and ask.
-3. `gpu_setup` until `status: "ready"`. You get `base_url`, `api_key`, `model`.
+1. If there is no `gpu.yaml`: `gpu_init(model=..., max_hourly_cost_usd=...)` at the root of the user's repository. Size the GPU (see "Sizing the GPU" below). `gpu inspect-model ORG/NAME` suggests VRAM and a tool-call parser.
+2. `gpu_validate` (it warns when the card is too small for a known model), then `gpu_offers`. Show the user one offer and its price, and ask (rule 1).
+3. `gpu_setup(offer_id=...)` until `status: "ready"`. You get `base_url`, `api_key`, `model`, and `rented` next to `quoted`.
 4. Run the work:
    - a script: `gpu_run(command=["python", "eval.py"])` (or `gpu run python eval.py`). The script gets `OPENAI_BASE_URL`, `OPENAI_API_KEY` and `JAMBU_MODEL_ID` in its environment, which any OpenAI SDK reads, and the watchdog keeps the machine up while it runs. Write the script to read those variables instead of pasting the key into code.
    - single requests: `curl "$base_url/chat/completions" -H "Authorization: Bearer $api_key"` with `"model": model`. Every request counts as activity.
 5. Report results and cost (`gpu_status` has `session_cost_usd`), then rule 4.
+
+## Sizing the GPU
+
+- Size for the peak, with about 1.5 to 2 times headroom, not for the weights. A chat model needs about 2 GB of VRAM per billion parameters in bf16 plus the KV cache: a 7 to 9B model wants 24 GB, a 0.5 to 3B model 16 to 24 GB. Image models peak far above their weights (the VAE decode at full resolution): SDXL needs 16 GB, and 24 GB at 1344x768 or larger; FLUX needs 24 GB or more. A 12 GB card for SDXL runs out of memory.
+- When a server and a job share one card, stop the server before the job, or size the card for both. An idle image server still holds most of the card's memory.
+- Compare offers by the cost of the whole job, not the price per hour. A card 3 to 4 times faster at 3 to 4 times the hourly price costs about the same per job and finishes far sooner. `gpu offers --for <minutes on an RTX 4090>` ranks by that estimate.
 
 ## Your own code on the GPU (jobs)
 
@@ -130,8 +143,9 @@ Everything else in this skill (rules, commands, monitoring) works the same with 
 - `gpu --json status` (or `gpu_status`): `state`, `hourly_cost_usd`, `session_cost_usd`, `idle_seconds`, `locked_until`, `decision` (what the watchdog will do next and why), `watchdog.reachable`, `workloads`, and `busy` while a setup runs. Report cost and idle time when the user asks how things are going, and before a long wait.
 - `gpu --json logs --source runtime|onstart|watchdog|provider`: the model server, the boot script, the watchdog, or the container log from the provider.
 - `gpu events`: the timeline of this project (rented, ready, idle, stopped, and why).
-- `gpu --json ls` (or `gpu_ls`): every machine billing in the account, with the project that owns it or `orphan`.
-- `gpu sweep` shows what would be stopped or destroyed account-wide, and `gpu sweep --apply` does it. `gpu sweep --install-timer` (systemd on Linux, launchd on macOS) runs it every few minutes as a safety net. Suggest the timer once to a user who rents often.
+- `gpu --json ls` (or `gpu_ls`): every machine billing in the account, with the project that owns it or `orphan`. An orphan is a machine whose project folder was lost. To reuse or destroy it, run `gpu adopt <id>` (`gpu_adopt`) in the project that should own it: where the provider kept its boot script (Vast.ai) its watchdog and key come back, and `gpu setup` reuses it when gpu.yaml matches. Otherwise it can still be destroyed from there. Report orphans to the user and offer this.
+- Every `gpu` command warns on stderr about a registered machine left stopped where a stop still bills. Tell the user.
+- `gpu sweep` shows what would be stopped or destroyed account-wide, and `gpu sweep --apply` does it. `gpu sweep --install-timer` (systemd on Linux, launchd on macOS) runs it every few minutes as a safety net, and it is the only thing that enforces `stopped_ttl` on a stopped machine (nothing on the machine can). `gpu agent install` asks about it once. Suggest it to a user who rents often and does not have it.
 
 ## When something fails
 
@@ -152,7 +166,7 @@ Exit codes are the same for the CLI and the MCP tools (`exit_code` in the error)
 
 - `gpu: command not found` right after installing: use `~/.local/bin/gpu`, or open a new shell.
 - `gpu` prints a git error (`fatal: not a git repository`, or it pushed): `gpu` is a shell alias (Oh My Zsh). Use `command gpu` or `gpu4agents`, and tell the user the installer can remove the alias for new terminals.
-- Requests fail with connection refused or a timeout: the machine was shut down for being idle. Call `gpu_setup` again (about a minute after a stop, a few minutes after a destroy), take the new `base_url` from its output, and retry once.
+- Requests fail with connection refused or a timeout: the machine was shut down after `idle_timeout`. Call `gpu_setup` again (about a minute after a stop, a few minutes after a destroy), take the new `base_url` from its output, and retry once.
 - `401`: a new machine was rented and the key changed; take it from `gpu_connection`.
 - A long job with quiet stretches longer than `idle_timeout`: `gpu_lock(duration="2h")`, then `gpu_unlock`.
 

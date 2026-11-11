@@ -35,6 +35,8 @@ def jambu_home(tmp_path, monkeypatch):
     monkeypatch.delenv("JAMBU_HOME", raising=False)
     # `gpu init --model X` reads X's model card; tests that want it unset this.
     monkeypatch.setenv("GPU_NO_MODEL_CARD", "1")
+    # pytest's tmp_path is under /tmp, where `gpu init` refuses a project.
+    monkeypatch.setenv("GPU_ALLOW_TEMP_PROJECT", "1")
     return home
 
 

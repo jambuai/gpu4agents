@@ -62,6 +62,7 @@ class FakeProvider(GPUProvider):
         # The marketplace: one offer per machine, cheapest first.
         self.hosts = ["m1", "m2", "m3", "m4", "m5"]
         self.host_prices: dict[str, float] = {}
+        self.host_gpus: dict[str, str] = {}
         # Machines that fail to boot, and how: "failed" (the provider reports
         # FAILED), "vanish" (the instance disappears) or "loading" (it never
         # reaches running).
@@ -73,6 +74,8 @@ class FakeProvider(GPUProvider):
         self.boot_polls = 0
         self.rented_hosts: list[str] = []
         self.searches: list[list[str]] = []
+        # instance id -> the boot script, for providers that keep it (Vast.ai).
+        self.boot_scripts: dict[str, str] = {}
 
     def fail_first_hosts(self, count: int, how: str = "failed") -> None:
         """Script the first ``count`` machines rented to fail to boot."""
@@ -91,7 +94,7 @@ class FakeProvider(GPUProvider):
         offers = [
             Offer(
                 id=f"offer-{host}",
-                gpu_name="RTX 4090",
+                gpu_name=self.host_gpus.get(host, "RTX 4090"),
                 gpu_count=spec.gpu.count,
                 gpu_vram_gb=float(spec.gpu.min_vram_gb),
                 disk_gb=float(spec.disk_gb),
@@ -101,7 +104,12 @@ class FakeProvider(GPUProvider):
             for host in self.hosts
             if host not in spec.exclude_hosts
         ]
-        offers.sort(key=lambda o: o.hourly_cost_usd)
+        if spec.gpu.name_filter:
+            offers = [o for o in offers if spec.gpu.name_filter.lower() in o.gpu_name.lower()]
+        # Like a real search, a pinned (approved) quote is held to its price.
+        if spec.max_hourly_cost_usd is not None and spec.preferred_offer_id:
+            offers = [o for o in offers if o.hourly_cost_usd <= spec.max_hourly_cost_usd]
+        offers.sort(key=lambda o: (o.id != spec.preferred_offer_id, o.hourly_cost_usd))
         return offers[:limit]
 
     def setup(self, spec: ComputeSpec) -> Instance:
@@ -128,7 +136,7 @@ class FakeProvider(GPUProvider):
             provider=self.name,
             state=state,
             created_at=time.time(),
-            gpu_name="RTX 4090",
+            gpu_name=offer.gpu_name,
             gpu_count=spec.gpu.count,
             hourly_cost_usd=offer.hourly_cost_usd,
             host_id=offer.host_id,
@@ -206,6 +214,9 @@ class FakeProvider(GPUProvider):
 
     def logs(self, instance: Instance) -> LogStream:
         return LogStream(iter(["line one", "line two"]), source="fake")
+
+    def boot_script(self, instance: Instance):
+        return self.boot_scripts.get(instance.id)
 
     def watchdog_spec(self, spec_or_instance=None) -> WatchdogSpec:
         return WatchdogSpec(actions_source=FAKE_ACTIONS, env={}, context={})
