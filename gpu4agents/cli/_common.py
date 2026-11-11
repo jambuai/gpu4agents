@@ -129,3 +129,46 @@ def register_project(context: Context) -> None:
         _register(context.config())
     except OSError as exc:
         context.echo(f"! could not register the project for `gpu sweep`: {exc}")
+
+
+def warn_stopped_billing() -> None:
+    """Name, on stderr, every registered machine left stopped where a stop still bills.
+
+    The stop that leaves a disk billing is made in one session and forgotten
+    by the next; any `gpu` command is the next chance to hear about it. Only
+    state files are read, never the provider API. Quiet when the sweep timer
+    is on and nothing is past its stopped_ttl.
+    """
+    import os
+
+    if os.environ.get("GPU_NO_STOPPED_CHECK"):
+        return
+    try:
+        from ..core.durations import format_duration
+        from ..core.sweep import stopped_and_billing
+        from . import timer as timer_mod
+
+        found = stopped_and_billing()
+        if not found:
+            return
+        timer_on = timer_mod.is_installed()
+    except Exception:  # noqa: BLE001 - a reminder must never break a command
+        return
+    for item in found:
+        if timer_on and not item["overdue"]:
+            continue
+        cost = f"~${item['stopped_cost_usd_per_day']:.2f}/day" if item["stopped_cost_usd_per_day"] else "money"
+        since = (
+            f"for {format_duration(item['stopped_seconds'])}" if item["stopped_seconds"] is not None else ""
+        )
+        project = str(Path(item["config"]).parent)
+        line = (
+            f"! still billing: {item['provider']} machine {item['instance_id']} is stopped {since}, "
+            f"costing {cost} for its disk (project {project}). "
+            f"`gpu destroy` in that directory ends it"
+        )
+        if item["overdue"]:
+            line += "; it is past its stopped_ttl"
+        elif not timer_on:
+            line += "; nothing will remove it until `gpu sweep --install-timer` is set up"
+        err_console.print(Text(" ".join(line.split()), style="yellow"))

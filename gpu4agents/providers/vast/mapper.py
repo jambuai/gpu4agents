@@ -149,6 +149,18 @@ def extract_endpoints(raw: dict[str, Any], wanted: dict[int, str]) -> dict[str, 
     return endpoints
 
 
+HOURS_PER_MONTH = 730.0
+
+
+def stopped_hourly_cost(raw: dict[str, Any]) -> Optional[float]:
+    """What the disk bills per hour, stopped or not: storage_cost is $/GB-month."""
+    rate = _float_or_none(raw.get("storage_cost"))
+    disk = _float_or_none(raw.get("disk_space"))
+    if not rate or not disk:
+        return None
+    return rate * disk / HOURS_PER_MONTH
+
+
 def map_instance(raw: dict[str, Any], wanted_ports: dict[int, str]) -> Instance:
     created = raw.get("start_date") or raw.get("created_at")
     try:
@@ -171,6 +183,7 @@ def map_instance(raw: dict[str, Any], wanted_ports: dict[int, str]) -> Instance:
         endpoints=extract_endpoints(raw, wanted_ports),
         label=str(raw.get("label") or ""),
         host_id=host_id(raw),
+        stopped_hourly_cost_usd=stopped_hourly_cost(raw),
         raw=raw,
     )
 

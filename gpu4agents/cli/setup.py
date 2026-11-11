@@ -61,6 +61,11 @@ def init_command(
         None, "--min-vram-gb", help="Minimum GPU memory to rent (default 24, or sized from the model)."
     ),
     force: bool = typer.Option(False, "--force", help="Overwrite an existing config file."),
+    allow_temp: bool = typer.Option(
+        False,
+        "--allow-temp",
+        help="Allow a project in a temporary or scratchpad folder (lost with it; its machine becomes an orphan).",
+    ),
     flat: bool = typer.Option(
         False,
         "--flat",
@@ -83,6 +88,21 @@ def init_command(
 
     from .account import default_provider_name
 
+    from ..core.paths import ephemeral_reason
+
+    reason = None if allow_temp else ephemeral_reason(Path.cwd())
+    if reason:
+        console.print(
+            Text(
+                f"! not here: {Path.cwd()} is no place for a gpu project ({reason}). The project "
+                "(gpu.yaml and .gpu/) records the machine you rent; when this folder goes, the "
+                "machine keeps billing and no later session can use it. Run `gpu init` at the root "
+                "of the user's repository instead (add .gpu/ to .gitignore). Scripts may live "
+                "anywhere. --allow-temp overrides this.",
+                style="yellow",
+            )
+        )
+        raise typer.Exit(2)
     provider = provider or default_provider_name()
     try:
         credential_names = list(load_builtin_providers().get_class(provider).required_credentials)
@@ -115,7 +135,20 @@ def init_command(
         task = task or detected_task
         if note:
             console.print(Text(f"  {note}", style="dim"))
+    from ..core.model_inspect import known_vram_floor
+
     vram = min_vram_gb or sized or 24
+    floor = known_vram_floor(model) if engine != "none" and not min_vram_gb else None
+    if floor and vram < floor[0]:
+        # The weights hide the peak (VAE decode, text encoders): size for the peak.
+        vram = floor[0]
+        console.print(
+            Text(
+                f"  {model} peaks well above its weights: min_vram_gb {floor[0]} "
+                f"({floor[1]} to be safe at high resolution)",
+                style="dim",
+            )
+        )
     if flat:
         target = Path.cwd() / "config.yml"
         content = DEFAULT_CONFIG_TEMPLATE_FLAT.format(model_id=model)
@@ -256,6 +289,14 @@ def setup_command(
     no_wait: bool = typer.Option(
         False, "--no-wait", help="Return as soon as the instance is created."
     ),
+    offer: Optional[str] = typer.Option(
+        None,
+        "--offer",
+        help=(
+            "The offer id from `gpu offers` the user approved. Only that card, at no more than "
+            "that price, is rented; if it is gone, nothing is."
+        ),
+    ),
 ) -> None:
     """Provision the instance, install the watchdog and start the model server."""
     context = get_context(ctx)
@@ -263,7 +304,10 @@ def setup_command(
         engine = context.engine()
         register_project(context)
         state = engine.setup(
-            recreate=recreate, allow_cost_override=allow_cost_override, wait=not no_wait
+            recreate=recreate,
+            allow_cost_override=allow_cost_override,
+            wait=not no_wait,
+            offer_id=offer,
         )
     except JambuError as exc:
         handle(exc)
@@ -277,9 +321,13 @@ def _print_connection(context, engine, state) -> None:
     watchdog = state.watchdog.to_dict()
     watchdog.pop("token", None)
     payload["watchdog"] = watchdog
+    compared = engine.rented_vs_quoted(state)
+    payload.update(compared)
     if context.json:
         print_json(payload)
         return
+    if compared.get("warning"):
+        console.print(Text(f"! {compared['warning']}", style="yellow"))
     if state.endpoint:
         routes = ", ".join(payload.get("routes") or []) or "see GET /v1/models"
         console.print(
@@ -311,33 +359,45 @@ def redeploy_command(ctx: typer.Context) -> None:
 def offers_command(
     ctx: typer.Context,
     limit: int = typer.Option(10, "--limit", "-n", help="How many offers to show."),
+    job_time: Optional[str] = typer.Option(
+        None,
+        "--for",
+        help=(
+            "How long the job takes on an RTX 4090 (minutes, or a duration like 2h). Ranks offers "
+            "by the estimated cost of the whole job instead of the price per hour."
+        ),
+    ),
 ) -> None:
     """Show matching capacity and its price before committing to it."""
+    from ..core.durations import parse_duration
+    from ..core.errors import ConfigError
+
     context = get_context(ctx)
     try:
+        minutes = None
+        if job_time:
+            try:
+                minutes = float(job_time)
+            except ValueError:
+                try:
+                    seconds = parse_duration(job_time)
+                except ValueError as exc:
+                    raise ConfigError(f"--for: {exc}") from exc
+                minutes = (seconds or 0) / 60.0
+            if not minutes or minutes <= 0:
+                raise ConfigError("--for must be a positive time, e.g. 30 or 2h")
         engine = context.engine()
-        engine.provider.require_capability("pricing_query")
-        spec = engine.build_spec()
-        offers = engine.provider.find_offers(spec, limit=limit)
+        rows = engine.offers(limit=limit, for_minutes_on_4090=minutes)
     except JambuError as exc:
         handle(exc)
         return
-
-    rows = [
-        {
-            "id": o.id,
-            "gpu": o.gpu_name,
-            "count": o.gpu_count,
-            "vram_gb": o.gpu_vram_gb,
-            "disk_gb": o.disk_gb,
-            "hourly_cost_usd": o.hourly_cost_usd,
-            "region": o.region,
-            "cuda_max": o.cuda_max,
-        }
-        for o in offers
-    ]
     if context.json:
-        print_json({"offers": rows})
+        print_json(
+            {
+                "offers": rows,
+                "next": "quote one offer to the user; on their yes, gpu setup --offer <id> rents that card only",
+            }
+        )
         return
 
     if not rows:
@@ -346,11 +406,15 @@ def offers_command(
 
     ceiling = engine.config.budget.max_hourly_cost_usd
     table = Table(title=f"{engine.provider.display_name} offers", title_justify="left")
-    for column in ("OFFER", "GPU", "N", "VRAM", "DISK", "$/H", "REGION"):
+    ranked = minutes is not None
+    columns = ["OFFER", "GPU", "N", "VRAM", "DISK", "$/H", "REGION"]
+    if ranked:
+        columns += ["EST. TIME", "EST. JOB $"]
+    for column in columns:
         table.add_column(column)
     for row in rows:
         over = ceiling is not None and row["hourly_cost_usd"] > float(ceiling)
-        table.add_row(
+        cells = [
             row["id"],
             row["gpu"],
             str(row["count"]),
@@ -361,7 +425,17 @@ def offers_command(
                 style="red" if over else "green",
             ),
             row["region"] or "-",
-        )
+        ]
+        if ranked:
+            cells += [
+                f"~{row['est_minutes']:.0f} min" if row.get("est_minutes") else "unknown card",
+                fmt_money(row.get("est_job_cost_usd")) or "-",
+            ]
+        table.add_row(*cells)
     console.print(table)
+    if ranked:
+        console.print(
+            Text("  ranked by estimated job cost; times are rough estimates from card speed", style="dim")
+        )
     if ceiling:
         console.print(Text(f"  budget ceiling: ${float(ceiling):.3f}/h", style="dim"))

@@ -73,6 +73,9 @@ def stop_command(
         return
     if context.json:
         print_json(result)
+        return
+    if result.get("warning"):
+        console.print(Text(f"! {result['warning']}", style="yellow"))
 
 
 def destroy_command(
@@ -130,3 +133,32 @@ def guard_command(
     reason = result.get("reason")
     style = "yellow" if action != "none" else "green"
     console.print(Text(f"{action}: {reason}", style=style))
+
+
+def adopt_command(
+    ctx: typer.Context,
+    instance_id: str = typer.Argument(..., help="The orphan's id, as `gpu ls` shows it."),
+) -> None:
+    """Take over a machine gpu rented whose project is gone (`gpu ls` shows it as orphan).
+
+    Run it in the project that should own it. Where the provider keeps the
+    machine's boot script (Vast.ai), its watchdog and model key come back and
+    `gpu setup` reuses it if this gpu.yaml matches; otherwise it can still be
+    watched, stopped and destroyed from here.
+    """
+    context = get_context(ctx)
+    try:
+        result = context.engine().adopt(instance_id)
+    except JambuError as exc:
+        handle(exc)
+        return
+    if context.json:
+        print_json(result)
+        return
+    console.print(
+        Text(
+            f"+ adopted {result['instance_id']} ({result['gpu']}, {result['state']})",
+            style="green",
+        )
+    )
+    console.print(f"next: {result['next']}")

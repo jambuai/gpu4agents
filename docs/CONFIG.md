@@ -113,9 +113,9 @@ which source each number comes from.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `gpu.min_vram_gb` | `24` | Minimum VRAM per GPU. |
+| `gpu.min_vram_gb` | `24` | Minimum VRAM per GPU. Size for the peak, not the weights. `gpu init` raises it for image models whose peak the weights hide (SDXL 16, FLUX 24), and `validate` warns below that. |
 | `gpu.count` | `1` | Number of GPUs on one machine. |
-| `gpu.name_filter` | – | Substring match, e.g. `A100`, `RTX 4090`. |
+| `gpu.name_filter` | – | Substring match, e.g. `A100`, `RTX 4090`. `gpu setup --offer ID` pins the approved offer's card the same way for one setup, and caps the price at its quote. |
 | `gpu.cuda_min` | – | Minimum host CUDA version. `gpu` raises it to what the runtime image needs, read from its tag (`-cu129` means 12.9, vLLM's bare `v0.32+` and `latest` mean 13.0), so an image never lands on a driver too old to run it. |
 | `gpu.compute_cap_min` | – | Minimum GPU compute capability (architecture), e.g. `8.0` for Ampere. Distinct from `cuda_min`: a Pascal (GTX 10xx, 6.1) or Volta (V100, 7.0) card can sit behind a modern CUDA-13 driver, and so clear `cuda_min`, yet still be too old for a runtime image whose kernels are built for newer architectures. The image then crashes at engine startup. `gpu` raises this to what the runtime needs: a CUDA-13 vLLM image floors it at `8.0` (those wheels drop Volta), a CUDA-12 vLLM image at `7.0`. The cheapest Vast offers are often these old cards, so without the floor the search keeps picking a GPU the image cannot run. |
 | `disk_gb` | `80` | Disk. Must fit the model weights plus the container. |
@@ -191,7 +191,7 @@ The cost protection. See [the safety invariant](#safety-invariant).
 | --- | --- | --- |
 | `max_lifetime` | `6h` | Hard ceiling on instance age. `null` = unbounded. |
 | `idle_timeout` | `15m` | Shut down after this long with no activity. `null` = unbounded. |
-| `stopped_ttl` | `24h` | Destroy an instance that has been `STOPPED` this long. A stopped Vast instance no longer bills GPU time but still bills storage. `null` keeps stopped instances forever. |
+| `stopped_ttl` | `24h` | Destroy an instance that has been `STOPPED` this long. A stopped Vast instance no longer bills GPU time but still bills storage. `null` keeps stopped instances forever. Enforced only from your computer (`gpu sweep --install-timer`, which `gpu agent install` offers); `gpu stop` says whether that is set up. |
 | `auto_stop` | `true` | The guard may stop the instance. |
 | `auto_destroy` | `false` | The guard destroys instead of stopping. |
 | `keep_disk` | `false` | Where a stopped instance still bills storage (Vast.ai, a RunPod pod with a volume), the guard destroys the instance instead of stopping it, because nothing on a stopped machine can remove it later. `true` stops it, keeping the disk for a restart in about a minute, and leaves the removal to `stopped_ttl`, which only `gpu guard` or `gpu sweep` on your computer enforce (`gpu sweep --install-timer`). |

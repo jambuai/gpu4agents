@@ -118,6 +118,9 @@ class ComputeSpec:
     max_hourly_cost_usd: Optional[float] = None
     # Machines (Offer.host_id) not to rent: hosts that already failed to boot.
     exclude_hosts: list[str] = field(default_factory=list)
+    # The offer the user approved (`gpu setup --offer`): tried first when the
+    # provider still has it. Adapters that cannot rent a given offer ignore it.
+    preferred_offer_id: Optional[str] = None
     # Free-form provider hints; adapters ignore keys they do not understand.
     provider_options: dict[str, Any] = field(default_factory=dict)
 
@@ -174,6 +177,9 @@ class Instance:
     label: str = ""
     # The machine it runs on (see Offer.host_id).
     host_id: Optional[str] = None
+    # What it still costs per hour while stopped (its disk), when the provider
+    # says. Only meaningful where stop_eliminates_billing is False.
+    stopped_hourly_cost_usd: Optional[float] = None
     raw: dict[str, Any] = field(default_factory=dict)
 
     def endpoint_url(self, name: str) -> Optional[str]:
@@ -195,6 +201,7 @@ class Instance:
             "ssh_user": self.ssh_user,
             "label": self.label,
             "host_id": self.host_id,
+            "stopped_hourly_cost_usd": self.stopped_hourly_cost_usd,
             "endpoints": {
                 name: {
                     "url": ep.url,
@@ -231,6 +238,7 @@ class Instance:
             endpoints=endpoints,
             label=data.get("label", ""),
             host_id=data.get("host_id"),
+            stopped_hourly_cost_usd=data.get("stopped_hourly_cost_usd"),
         )
 
 

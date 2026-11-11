@@ -100,3 +100,49 @@ qwen3.8-35b-a3b-distill:
     gpu_memory_utilization: 0.90
     tensor_parallel_size: 2
     tool_calling: auto  # resolves to qwen3_xml automatically (qwen3.8 in the name)
+
+# Image models: size for the peak, not the weights. SDXL's weights are ~7 GB,
+# but the VAE decode at full resolution needs far more: on a 12 GB card it ran
+# out of memory at 1344x768 (and an idle server on the same card took 11 GB
+# from a job). 16 GB works at 1024x1024; 24 GB is the safe pick at 1344x768
+# and up, or when a job shares the card.
+sdxl-base:
+  model:
+    id: stabilityai/stable-diffusion-xl-base-1.0
+    task: image
+  compute:
+    gpu:
+      min_vram_gb: 16  # 24 to be safe at 1344x768 or larger
+      count: 1
+    disk_gb: 80
+  runtime:
+    engine: hf
+    port: 8000
+
+flux-dev:
+  # Gated: accept the license on Hugging Face and set HF_TOKEN.
+  model:
+    id: black-forest-labs/FLUX.1-dev
+    task: image
+    hf_token_env: HF_TOKEN
+  compute:
+    gpu:
+      min_vram_gb: 24  # 32+ to keep the T5 encoder on the card at high resolution
+      count: 1
+    disk_gb: 100
+  runtime:
+    engine: hf
+    port: 8000
+
+flux-schnell:
+  model:
+    id: black-forest-labs/FLUX.1-schnell
+    task: image
+  compute:
+    gpu:
+      min_vram_gb: 24
+      count: 1
+    disk_gb: 100
+  runtime:
+    engine: hf
+    port: 8000

@@ -42,6 +42,8 @@ JOB_FINISHED = "job_finished"
 JOB_OUTPUTS_PULLED = "job_outputs_pulled"
 # Results nobody downloaded kept a machine from being destroyed (or a fetch failed).
 JOB_OUTPUTS_KEPT = "job_outputs_kept"
+# A machine whose project was lost was taken over by this one (`gpu adopt`).
+INSTANCE_ADOPTED = "instance_adopted"
 
 
 class EventLog:

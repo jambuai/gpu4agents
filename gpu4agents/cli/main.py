@@ -13,8 +13,12 @@ from ..core.errors import JambuError
 from . import account
 from . import agent as agent_cli
 from . import inspect as inspect_cli
-from . import job, lifecycle, providers, run, setup, status, validate
+from . import _common, job, lifecycle, providers, run, setup, status, validate
 from ._common import Context, err_console, get_context, print_json
+
+# The MCP server speaks JSON-RPC on stdio and the agent reads its tools' results;
+# `ls` and `sweep` report stopped machines themselves.
+QUIET_COMMANDS = ("mcp", "ls", "sweep")
 
 app = typer.Typer(
     name="gpu",
@@ -57,6 +61,8 @@ def main_callback(
     context.json = json_output
     context.verbose = verbose
     ctx.obj = context
+    if ctx.invoked_subcommand not in QUIET_COMMANDS:
+        _common.warn_stopped_billing()
 
 
 app.command("init")(setup.init_command)
@@ -80,6 +86,7 @@ app.command("unlock")(lifecycle.unlock_command)
 app.command("stop")(lifecycle.stop_command)
 app.command("destroy")(lifecycle.destroy_command)
 app.command("guard")(lifecycle.guard_command)
+app.command("adopt")(lifecycle.adopt_command)
 app.command("login")(account.login_command)
 app.command("ls")(account.ls_command)
 app.command("sweep")(account.sweep_command)

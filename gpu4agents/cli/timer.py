@@ -161,6 +161,18 @@ def render_plist(*, every_s: float, python: str, jambu_home: Optional[str] = Non
 """
 
 
+def is_installed() -> bool:
+    """Whether the sweep timer is on: the LaunchAgent on macOS, an enabled unit on Linux.
+
+    Writing the units is not enough: until `systemctl --user enable` links
+    the timer into timers.target.wants, nothing runs it.
+    """
+    if _launchd():
+        return plist_path().is_file()
+    timer = unit_paths()[1]
+    return timer.is_file() and (timer.parent / "timers.target.wants" / timer.name).exists()
+
+
 def install_timer(every_s: float, python: Optional[str] = None) -> dict:
     """Write (or rewrite) the units, or the LaunchAgent on macOS."""
     python = python or sys.executable

@@ -255,3 +255,37 @@ def build_onstart_script(
 
 def _shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+def recover_boot_secrets(script: str, api_key_env: "Optional[str]" = None) -> dict:
+    """The watchdog token, its port and the model key, read back from a boot script.
+
+    `gpu adopt` uses it on a machine whose project was lost: the provider still
+    holds the script it booted with. The watchdog config also carries the
+    provider credentials the machine uses to shut itself down; those are never
+    returned.
+    """
+    import re
+    import shlex
+
+    found: dict = {}
+    match = re.search(r"echo '([^']+)' > " + re.escape(CONFIG_REMOTE_PATH) + r"\.b85", script or "")
+    if match:
+        try:
+            config = json.loads(zlib.decompress(base64.b85decode(match.group(1))).decode())
+        except Exception:  # noqa: BLE001 - a script from another version
+            config = {}
+        if config.get("token"):
+            found["token"] = str(config["token"])
+        if config.get("port"):
+            found["port"] = int(config["port"])
+    if api_key_env:
+        prefix = f"export {api_key_env}="
+        for line in (script or "").splitlines():
+            if line.startswith(prefix):
+                try:
+                    found["api_key"] = shlex.split(line[len("export "):])[0].split("=", 1)[1]
+                except (ValueError, IndexError):
+                    pass
+                break
+    return found

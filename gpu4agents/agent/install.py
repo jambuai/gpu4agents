@@ -292,3 +292,36 @@ def install(
     if any(t in targets for t in ("claude", "codex", "gemini", "cursor")):
         notes.append("restart the agent (or start a new session) so it loads the skill and the gpu tools")
     return {"installed": done, "targets": targets, "notes": notes}
+
+
+def _enable_timer(result: dict[str, Any]) -> bool:
+    """Run the enable command `gpu sweep --install-timer` prints (systemctl or launchctl)."""
+    proc = subprocess.run(["sh", "-c", result["enable"]], capture_output=True, text=True)
+    return proc.returncode == 0
+
+
+def offer_sweep_timer(context: Any, wanted: Optional[bool]) -> dict[str, Any]:
+    """The install flow's one question: schedule the sweep, which enforces stopped_ttl.
+
+    Nothing on a stopped machine can remove it, so where a stop still bills
+    (Vast.ai) only something on this computer can: the sweep timer.
+    """
+    from ..cli import timer as timer_mod
+    from ..cli.account import _require_file_credentials
+
+    howto = "`gpu sweep --install-timer` schedules the cleanup of machines left stopped (they bill for disk on Vast.ai)"
+    if timer_mod.is_installed():
+        return {"installed": True, "action": "unchanged"}
+    if not wanted:
+        return {"installed": False, "action": "skipped", "next": howto}
+    try:
+        _require_file_credentials(context)
+        result = timer_mod.install_timer(300.0)
+    except (ConfigError, OSError) as exc:
+        return {"installed": False, "action": "failed", "error": str(exc), "next": howto}
+    enabled = _enable_timer(result)
+    out = {"installed": enabled, "action": "created" if enabled else "written", "files": result["files"]}
+    out["timer"] = result.get("timer") or result.get("plist")
+    if not enabled:
+        out["next"] = f"enable it with: {result['enable']}"
+    return out

@@ -46,9 +46,19 @@ def install_command(
     directory: Path = typer.Option(
         Path("."), "--dir", help="Project directory (default: the current one)."
     ),
+    sweep_timer: Optional[bool] = typer.Option(
+        None,
+        "--sweep-timer/--no-sweep-timer",
+        help=(
+            "Also schedule `gpu sweep --apply`, which removes machines left stopped (and billing) "
+            "after stopped_ttl. Asked in a terminal when neither flag is given."
+        ),
+    ),
 ) -> None:
     """Install the gpu4agents skill and register the gpu MCP server."""
-    from ..agent.install import install
+    import sys
+
+    from ..agent.install import install, offer_sweep_timer
 
     context = get_context(ctx)
     try:
@@ -56,6 +66,15 @@ def install_command(
     except JambuError as exc:
         handle(exc)
         return
+    if sweep_timer is None and not context.json and sys.stdin.isatty():
+        sweep_timer = typer.confirm(
+            "A machine left stopped keeps billing for its disk on some providers (Vast.ai). "
+            "Run a small timer every 5 minutes that removes it after stopped_ttl (24h by default)?",
+            default=True,
+        )
+    result["sweep_timer"] = offer_sweep_timer(context, sweep_timer)
+    if result["sweep_timer"].get("next"):
+        result["notes"].append(result["sweep_timer"]["next"])
     if context.json:
         print_json(result)
         return

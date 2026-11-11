@@ -67,17 +67,31 @@ server (gpu_init picks from the model card; the result says which routes).
 
 Rules:
 - Renting costs the user money. Before the first gpu_setup in a conversation,
-  tell the user the model, the price cap (gpu_offers shows prices) and ask.
+  tell the user the model, the card and its price from gpu_offers, the caps,
+  and that it shuts down after idle_timeout (15 min by default, theirs to
+  change in gpu.yaml); ask. On their yes, pass that offer's id to gpu_setup
+  (offer_id) so only that card at that price is rented. If gpu_setup reports
+  matches_quote false, tell the user before starting work.
+- The project (gpu.yaml and .gpu/) lives in the user's repository, never in a
+  temp or scratchpad folder. A gpu_ls row marked orphan can be taken over
+  with gpu_adopt.
+- Size the GPU for the peak, not the weights (1.5-2x headroom); a server and
+  a job sharing one card need room for both.
 - gpu_setup takes 5-15 minutes the first time. It returns status "running"
   while it works: call gpu_setup again to keep waiting. Never start a new
   project or recreate because it is slow.
 - A stopped machine restarts in about a minute with the same key, but
   base_url may change: always take it from the latest gpu_setup/gpu_connection.
-- When the work is done, offer gpu_stop (keeps the disk, cheap) or
-  gpu_destroy (nothing billed). gpu_destroy needs confirm=true and the user's
-  explicit yes. Finish by checking gpu_ls for anything still running.
+- When the work is done and its results are home, gpu_destroy
+  (confirm=true): nothing keeps billing, the same choice the watchdog makes.
+  gpu_stop only when the user will be back soon or keeps the disk on purpose,
+  and say it bills for disk until destroyed. Finish by checking gpu_ls for
+  anything still running or stopped.
 - Never print or ask for the provider's API key; the user runs `gpu login`
-  in a terminal. The endpoint api_key is per machine.
+  in a terminal. The only credentials check is gpu_validate / `gpu login
+  --check`: never list environment variables or a secret manager to find
+  keys, and never use another provider's key for work gpu can do. The
+  endpoint api_key is per machine.
 - To run your own code on the GPU (training, image or audio models, anything
   that needs CUDA), write it in a directory following
   https://gpu4agents.jambu.ai/jobs.md, then gpu_setup, gpu_job_run,
@@ -265,7 +279,10 @@ class Server:
 
     def tool_offers(self, args: dict[str, Any]) -> Any:
         limit = int(args.get("limit") or 5)
-        return self._ok(self.cli(["offers", "--limit", str(limit)], self._project_dir(args)))
+        argv = ["offers", "--limit", str(limit)]
+        if args.get("for_minutes_on_4090"):
+            argv += ["--for", str(float(args["for_minutes_on_4090"]))]
+        return self._ok(self.cli(argv, self._project_dir(args)))
 
     def tool_setup(self, args: dict[str, Any]) -> Any:
         project_dir = self._project_dir(args)
@@ -274,6 +291,8 @@ class Server:
         started = False
         if not job.running():
             argv = ["setup"] + (["--recreate"] if args.get("recreate") else [])
+            if args.get("offer_id"):
+                argv += ["--offer", str(args["offer_id"])]
             job.start(self._argv(argv), project_dir)
             started = True
         job.wait(wait)
@@ -289,12 +308,17 @@ class Server:
         if status == "succeeded":
             connection = report.pop("result", None) or {}
             connection.pop("watchdog", None)
-            return {
+            ready = {
                 "status": "ready",
                 "elapsed_s": report.get("elapsed_s"),
                 **connection,
                 "next": "use base_url, api_key and model with any OpenAI client, or gpu_run",
             }
+            if connection.get("matches_quote") is False:
+                ready["next"] = (
+                    f"{connection.get('warning')}. Report the change to the user before starting work"
+                )
+            return ready
         code = int(report.get("exit_code") or 1)
         stderr = "\n".join(report.get("stderr_tail") or [])
         error = CliResult(code, "", stderr).error()
@@ -454,7 +478,10 @@ class Server:
         if info.get("state") == "running":
             info["next"] = "still running; call gpu_job_status again later (the machine stays up while it runs)"
         else:
-            info["next"] = "gpu_job_pull(job_id) downloads the outputs; then offer gpu_stop"
+            info["next"] = (
+                "gpu_job_pull(job_id) downloads the outputs; once they are home and the work is done, "
+                "gpu_destroy (confirm=true) so nothing keeps billing"
+            )
         return info
 
     def tool_job_pull(self, args: dict[str, Any]) -> Any:
@@ -465,6 +492,9 @@ class Server:
 
     def tool_job_cancel(self, args: dict[str, Any]) -> Any:
         return self._ok(self.cli(["job", "cancel", str(args["job_id"])], self._project_dir(args)))
+
+    def tool_adopt(self, args: dict[str, Any]) -> Any:
+        return self._ok(self.cli(["adopt", str(args["instance_id"])], self._project_dir(args)))
 
     def tool_ls(self, args: dict[str, Any]) -> Any:
         start = self._start_dir(args)
@@ -517,7 +547,18 @@ class Server:
                 "gpu_offers",
                 "Show GPU offers",
                 "Cheapest machines that match gpu.yaml, with their hourly price. Nothing is rented.",
-                _schema({"limit": {"type": "integer", "minimum": 1, "maximum": 50}}),
+                _schema(
+                    {
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 50},
+                        "for_minutes_on_4090": {
+                            "type": "number",
+                            "description": (
+                                "How long the job would take on an RTX 4090. Ranks offers by the estimated "
+                                "cost of the whole job (price/h x minutes on that card), not price/h."
+                            ),
+                        },
+                    }
+                ),
                 self.tool_offers,
                 read_only,
             ),
@@ -539,6 +580,13 @@ class Server:
                         "recreate": {
                             "type": "boolean",
                             "description": "Replace a machine built from an older gpu.yaml (exit code 2 tells you when).",
+                        },
+                        "offer_id": {
+                            "type": "string",
+                            "description": (
+                                "The gpu_offers id the user approved. Only that card at no more than that "
+                                "price is rented; if it is gone, nothing is and you ask again."
+                            ),
                         },
                     }
                 ),
@@ -674,9 +722,12 @@ class Server:
             Tool(
                 "gpu_stop",
                 "Stop the GPU",
-                "Stop the machine now. Compute billing ends; the disk and model cache are kept, so "
-                "the next gpu_setup restarts it in about a minute. Cancels a setup in progress "
-                "(a machine still booting is destroyed).",
+                "Stop the machine now; the disk and model cache are kept, so the next gpu_setup "
+                "restarts it in about a minute. Compute billing ends, but on some providers (Vast.ai) "
+                "the disk keeps billing until destroyed: the result says so (still_billing, warning). "
+                "Use it only when the user will be back soon or keeps the disk on purpose; when the "
+                "work is done, gpu_destroy. Cancels a setup in progress (a machine still booting is "
+                "destroyed).",
                 _schema({"reason": {"type": "string"}}),
                 self.tool_stop,
                 {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True},
@@ -687,8 +738,9 @@ class Server:
                 "Delete the machine and its disk: nothing is billed afterwards, and the next "
                 "gpu_setup rents and downloads from scratch. Cancels a setup in progress. Job results "
                 "not downloaded yet are fetched into gpu-outputs/ first; if that fails it refuses, "
-                "and discard_outputs=true (only with the user's yes) deletes them. Requires "
-                "confirm=true after the user agrees.",
+                "and discard_outputs=true (only with the user's yes) deletes them. The default "
+                "cleanup once the work is done and its results are home (the watchdog makes the same "
+                "choice); tell the user it was done. Requires confirm=true.",
                 _schema(
                     {
                         "confirm": {"type": "boolean"},
@@ -699,6 +751,15 @@ class Server:
                 ),
                 self.tool_destroy,
                 {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": True},
+            ),
+            Tool(
+                "gpu_adopt",
+                "Take over an orphan",
+                "Make a machine gpu_ls shows as 'orphan' (its project folder was lost) belong to "
+                "this project, so it can be reused or destroyed from here. Costs nothing by itself.",
+                _schema({"instance_id": {"type": "string"}}, ["instance_id"]),
+                self.tool_adopt,
+                {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True},
             ),
             Tool(
                 "gpu_ls",

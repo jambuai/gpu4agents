@@ -68,3 +68,67 @@ def compute_cap(gpu_name: str) -> Optional[float]:
         if needle in key:
             return _COMPUTE_CAP[needle]
     return None
+
+
+# Rough speed of each GPU model on deep-learning work (bf16/fp16 tensor
+# throughput, sanity-checked against diffusion and LLM benchmarks), with an
+# RTX 4090 as 1.0. Good enough to rank offers by what a whole job costs, not
+# to promise a time: `gpu offers --for` labels its figures as estimates.
+_RELATIVE_SPEED = {
+    "b300": 3.2,
+    "b200": 3.0,
+    "gb200": 3.0,
+    "h200": 2.4,
+    "gh200": 2.4,
+    "h100": 2.1,
+    "rtxpro6000": 1.4,
+    "rtx5090": 1.4,
+    "rtx5080": 0.9,
+    "l40s": 1.0,
+    "l40": 0.9,
+    "l4": 0.3,
+    "a100": 1.0,
+    "a1000": 0.15,
+    "rtx6000ada": 1.0,
+    "rtx5000ada": 0.7,
+    "rtx4000ada": 0.35,
+    "rtx2000ada": 0.2,
+    "rtx4090": 1.0,
+    "rtx4080": 0.75,
+    "rtx4070ti": 0.55,
+    "rtx4070": 0.45,
+    "rtx4060ti": 0.3,
+    "rtx4060": 0.22,
+    "a6000": 0.6,
+    "a5000": 0.45,
+    "a4500": 0.4,
+    "a4000": 0.3,
+    "a40": 0.55,
+    "a10g": 0.35,
+    "a10": 0.4,
+    "a16": 0.1,
+    "rtx3090": 0.55,
+    "rtx3080": 0.45,
+    "rtx3070": 0.3,
+    "rtx3060": 0.25,
+    "quadrortx6000": 0.35,
+    "rtx6000": 0.35,
+    "quadrortx8000": 0.35,
+    "rtx2080": 0.25,
+    "rtx2070": 0.18,
+    "rtx2060": 0.15,
+    "t4": 0.12,
+    "v100": 0.35,
+    "p100": 0.12,
+    "p40": 0.08,
+}
+_SPEED_ORDER = sorted(_RELATIVE_SPEED, key=len, reverse=True)
+
+
+def relative_speed(gpu_name: str) -> Optional[float]:
+    """How fast a GPU model is next to an RTX 4090 (1.0), or None if unknown."""
+    key = re.sub(r"[\s_\-]+", "", (gpu_name or "").lower()).replace("nvidia", "").replace("geforce", "")
+    for needle in _SPEED_ORDER:
+        if needle in key:
+            return _RELATIVE_SPEED[needle]
+    return None

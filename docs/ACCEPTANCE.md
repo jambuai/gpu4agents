@@ -1,6 +1,6 @@
 # Acceptance criteria: where each one is implemented and tested
 
-Eighteen guarantees, mapped to the code and the test that holds each one.
+Twenty-three guarantees, mapped to the code and the test that holds each one.
 
 | # | Guarantee | Implementation | Test |
 | --- | --- | --- | --- |
@@ -22,6 +22,11 @@ Eighteen guarantees, mapped to the code and the test that holds each one.
 | 16 | Orphans are found account-wide, each project keeps its own rules, and nothing else is touched | `GPUProvider.list_instances` (capability `list_instances`) returns only `jambu-` labels; `gpu setup` registers the project in `~/.gpu/projects.json`; `core/sweep.py::guard_projects` runs each registered project's own `Engine.guard_tick`; only untracked instances are orphans: running past `--orphan-max-age` is stopped (never destroyed), stopped past `--stopped-ttl` (from the sweep's own first sighting in `~/.gpu/sweep.json`) is destroyed; `gpu sweep --install-timer` schedules one working-directory-independent unit and refuses a key that is only in the shell | `test_sweep.py::test_vast_lists_only_jambu_labelled_instances`, `::test_non_jambu_instances_are_never_touched`, `::test_another_projects_restarted_and_locked_instance_is_not_destroyed`, `::test_each_project_is_judged_by_its_own_max_lifetime`, `::test_a_running_orphan_past_orphan_max_age_is_stopped_never_destroyed`, `::test_a_stopped_orphan_is_destroyed_once_seen_stopped_past_stopped_ttl`, `::test_install_timer_writes_one_unit_independent_of_the_project`, `::test_install_timer_refuses_a_key_only_in_the_shell_environment` |
 | 17 | The CLI guard never stops a serving endpoint it cannot see | `Engine._idle_blind`: with the watchdog enabled and installed but unreachable, `guard_tick` evaluates without `idle_timeout` and records `idle_skipped`; `max_lifetime`, budget and `stopped_ttl` still apply | `test_engine_sessions.py::test_guard_leaves_idle_to_an_unreachable_watchdog`, `::test_max_lifetime_still_applies_when_the_watchdog_is_unreachable` |
 | 18 | A fresh stop or a short API outage never costs the disk | `RuntimeState.mark_stopped` restarts `stopped_since` on evidence the instance ran since; the watchdog escalates a failing stop to destroy only after `escalate_after_s` (30m) of continuous failure and resets on renewed use | `test_engine_sessions.py::test_a_stale_stopped_since_does_not_destroy_a_fresh_stop`, `test_watchdog.py::test_an_api_blip_does_not_destroy_the_disk`, `::test_failures_reset_when_the_instance_is_back_in_use` |
+| 19 | A manual stop that keeps billing is never silent, and something removes it | `Engine.stop` returns `still_billing`, `stopped_cost_usd_per_day` (Vast: `storage_cost` x disk) and a `warning` naming the bill and whether the sweep timer will remove it; every `gpu` command warns on stderr about a registered machine stopped and billing (`core/sweep.py::stopped_and_billing`, state files only); `gpu agent install` asks once to install the sweep timer, the only thing that enforces `stopped_ttl` on a stopped machine | `test_field_run.py::test_stop_where_a_stopped_machine_bills_says_so_and_names_the_bill`, `::test_every_command_warns_about_a_stopped_machine_still_billing`, `::test_acceptance_manual_stop_then_only_the_timer_runs`, `::test_agent_install_asks_once_for_the_sweep_timer` |
+| 20 | A project is never kept where it will be lost, and a lost project's machine can be taken over | `gpu init` refuses a temporary or scratchpad folder (`core/paths.py::ephemeral_reason`, `--allow-temp` overrides); `gpu adopt` (`Engine.adopt`) takes over an orphan, recovering its watchdog token and model key from the boot script the provider kept (`GPUProvider.boot_script`, `watchdog/builder.py::recover_boot_secrets`, which never returns the provider key) | `test_field_run.py::test_init_refuses_a_temp_or_scratchpad_directory`, `::test_adopt_takes_over_an_orphan_with_its_watchdog_and_key`, `::test_adopt_refuses_another_projects_machine_or_a_foreign_one`, `::test_boot_script_recovery_reads_the_token_and_key_but_never_the_provider_key` |
+| 21 | The card the user approved is the card rented, at no more than the price quoted | `gpu offers` remembers its offers in `.gpu/offers.json`; `gpu setup --offer ID` pins the card's name and caps the price at the quote, host retries included, and rents nothing if it is gone; every setup reports `rented`, `quoted` and `matches_quote` | `test_field_run.py::test_a_pinned_setup_never_falls_back_to_another_card`, `::test_a_pinned_setup_never_pays_more_than_the_quote`, `::test_a_pinned_host_retry_stays_on_the_quoted_card`, `::test_an_unpinned_setup_says_when_it_rented_something_else` |
+| 22 | A machine that vanished leaves a reason | `Engine._why_missing` replays this project's rules on what was last known; when they called for a destroy, the reconcile records `instance_destroyed reason=<rule> by=watchdog inferred=true`, else `likely_reason: unknown`; setup brings the watchdog's own events home as soon as the machine is ready | `test_field_run.py::test_a_machine_gone_after_its_idle_timeout_is_recorded_as_the_watchdogs_doing`, `::test_a_machine_gone_while_in_use_is_not_blamed_on_the_watchdog`, `::test_setup_brings_the_watchdogs_own_events_home` |
+| 23 | The GPU is sized for the peak and offers can be compared per job | `model_inspect.known_vram_floor` (SDXL 16/24 GB, FLUX 24/32 GB) raises `gpu init`'s default and makes `validate` warn; `gpu offers --for <minutes on an RTX 4090>` ranks by estimated job cost (`providers/gpus.py::relative_speed`) | `test_field_run.py::test_validate_warns_when_the_card_is_sized_for_the_weights_not_the_peak`, `::test_init_sizes_a_known_image_model_for_its_peak`, `::test_offers_for_a_job_rank_by_the_cost_of_the_whole_job` |
 
 ## Validated on real hardware
 
@@ -74,6 +79,24 @@ The first attempt found problems the unit tests had missed. Each is fixed and te
 - during a setup, `gpu status`, `gpu logs`, `gpu stop` and `gpu destroy` failed on the project lock (reported as "no instance"). Now `status` and `logs` report the last saved state with `busy: true`, the MCP `gpu_stop` / `gpu_destroy` cancel the setup first, and a held lock is its own exit code, 12;
 - the host that failed last when setup gave up was not remembered as bad, so the next setup rented it again;
 - on Vast, three hosts in a row stalled 30 minutes each pulling the 12 GB Docker Hub image, and setup gave up after 90 minutes with nothing left billing. Vast now defaults to `vastai/vllm:v0.32.0-cuda-13.0`, the same vLLM that Vast's hosts cache: in the cancel test the container was running within a minute.
+
+## A real session, filmed (0.12.0, 2026-11-11)
+
+A Claude Code session used GPU for Agents 0.12.0 end to end to make images for the home page with SDXL and to run a CUDA benchmark, filmed for the home page video. It was real use, not a test, and it found the problems fixed in 0.13.0 (guarantees 19 to 23). These held, and must keep holding:
+
+| What held | Evidence |
+| --- | --- |
+| The agent asked before renting, with the model, the card, its price per hour, the $1/h cap and the $5 session cap | the transcript (`video/public/footage/with.screens.txt`) |
+| It reused the running machine for a second task (the benchmark) instead of renting another | take 2's events: `job_submitted` on the same instance after the image workloads |
+| It reported the cost (about $0.06) and what was still billing | the transcript |
+| It recovered by itself from an out-of-memory error and from missing NVRTC headers | the transcript; `workload_finished` failed then finished in take 2's events |
+| After the session was killed, take 1's machine was gone within about 30 minutes | take 1 was idle from 00:32:56; with `idle_timeout` 15m and a Vast.ai stop that bills, the watchdog destroys. Its local log said only "instance missing at provider", because the watchdog's events had not been fetched before the machine went. 0.13.0 records the inferred reason (guarantee 22) and fetches the watchdog's events at setup |
+
+What it got wrong, and the fix:
+- the agent ended with `gpu stop`, which on Vast.ai keeps billing the disk, and nothing would ever destroy it: no sweep timer was installed (19);
+- the project lived in the agent's session scratchpad, so a later session saw the machine as an orphan it could not use (20);
+- `min_vram_gb: 9` for SDXL: the 12 GB card ran out of memory decoding 1344x768, and the idle server held 11 GB the benchmark needed (23);
+- the approval quoted an RTX 3060 at about $0.08/h; an RTX 2060 at $0.094/h was rented, and the agent noticed only in its final report (21).
 
 ## The MVP command surface
 

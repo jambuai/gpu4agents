@@ -77,16 +77,17 @@ Another agent that reads `SKILL.md` files: `gpu agent skill > path/to/skills/gpu
 | --- | --- | --- |
 | `gpu_init` | write `gpu.yaml` for a model, with an optional price cap and VRAM | no |
 | `gpu_validate` | check the config and credentials | no |
-| `gpu_offers` | cheapest matching machines and their price | no |
-| `gpu_setup` | rent / restart and wait for the model; returns `base_url`, `api_key`, `model` | yes |
+| `gpu_offers` | cheapest matching machines and their price; with `for_minutes_on_4090`, ranked by the estimated cost of the whole job | no |
+| `gpu_setup` | rent / restart and wait for the model; returns `base_url`, `api_key`, `model`, and `rented` next to `quoted`. With `offer_id` only the approved card, at no more than its quoted price, is rented | yes |
 | `gpu_status` | state, cost so far, idle time, the watchdog's next move, setup progress | no |
 | `gpu_connection` | `base_url`, `api_key`, `model` without starting anything | no |
 | `gpu_run` | run a local command with `OPENAI_BASE_URL` / `OPENAI_API_KEY` / `JAMBU_MODEL_ID` set | yes, if it has to start the machine |
 | `gpu_logs` | runtime, onstart, watchdog or provider log | no |
 | `gpu_lock` / `gpu_unlock` | keep the machine up through a quiet period | while locked |
-| `gpu_stop` | stop now; disk kept, restart takes about a minute | ends billing for compute |
-| `gpu_destroy` | delete; needs `confirm=true`; downloads job results first, `discard_outputs=true` deletes them | ends all billing |
+| `gpu_stop` | stop now; disk kept, restart takes about a minute. On Vast.ai the disk keeps billing; the result says how much | ends billing for compute |
+| `gpu_destroy` | delete; needs `confirm=true`; downloads job results first, `discard_outputs=true` deletes them. The default cleanup once the work is done | ends all billing |
 | `gpu_ls` | every machine in the account, from any project | no |
+| `gpu_adopt` | make an orphan (a machine whose project folder was lost) belong to this project, to reuse or destroy it | no |
 
 Each tool runs the `gpu` CLI with `--json` in the project directory, so errors carry the same `exit_code` as the [application contract](INTEGRATION.md#exit-codes), plus `meaning` and `next` for the agent. A tool takes an optional `project_dir`; by default it is the server's `--project`, `$GPU_PROJECT_DIR`, or the directory the client started it in.
 
@@ -94,7 +95,7 @@ Each tool runs the `gpu` CLI with `--json` in the project directory, so errors c
 
 ## What keeps the agent in line
 
-- The skill tells the agent to show the price and ask before renting, wait out a slow setup instead of starting over, never touch the provider key, and offer stop or destroy (and check `gpu_ls`) when done.
+- The skill tells the agent to keep the project in the user's repository, size the card for the peak, show one offer's card and price and ask before renting, rent that offer only (`offer_id`) and report any change, wait out a slow setup instead of starting over, never touch the provider key or go looking for keys, and destroy once the work is done and its results are home (and check `gpu_ls`).
 - The server's tool annotations mark `gpu_destroy` destructive and the read-only tools read-only, so a client can let `gpu_status` run freely and ask for every `gpu_setup` and `gpu_destroy`. In Claude Code that is the `permissions` list in `.claude/settings.json`, e.g. `"allow": ["mcp__gpu__gpu_status", "mcp__gpu__gpu_offers", "mcp__gpu__gpu_ls"]`.
 - `gpu.yaml` holds the hard limits the agent cannot exceed without editing the file: `budget.max_hourly_cost_usd`, `budget.max_session_cost_usd`, `lifecycle.max_lifetime`.
 - The watchdog stops the machine after `idle_timeout` whatever the agent does, and `gpu sweep --install-timer` catches anything left behind.

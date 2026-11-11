@@ -134,6 +134,14 @@ class GPUProvider(ABC):
         """Provider calls the remote watchdog uses to stop/destroy itself."""
         return None
 
+    def boot_script(self, instance: Instance) -> Optional[str]:
+        """The boot script the instance was created with, if the provider keeps it.
+
+        Optional: it lets `gpu adopt` reconnect to an orphan's watchdog. None
+        means adoption still works for status, stop and destroy.
+        """
+        return None
+
     def refresh(self, instance: Instance) -> Instance:
         """Re-read provider data into the normalized handle (ports, ip, state)."""
         status = self.status(instance)

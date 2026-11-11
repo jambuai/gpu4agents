@@ -445,6 +445,52 @@ def _emit(sink: EventLog, planned: SweepAction) -> None:
     sink.emit(name, instance_id=planned.instance.id, reason=planned.reason, source="sweep")
 
 
+def stopped_and_billing(now: Optional[float] = None) -> list[dict[str, Any]]:
+    """Registered projects whose machine is stopped where a stopped machine still bills.
+
+    Reads state files only, no API call, so every `gpu` command can afford it:
+    a stop that keeps billing is otherwise forgotten the moment the session ends.
+    """
+    from ..providers.registry import load_builtin_providers
+
+    now = now if now is not None else utc_now()
+    try:
+        providers = load_builtin_providers()
+        paths = ProjectRegistry().paths()
+    except Exception:  # noqa: BLE001 - a warning must never break a command
+        return []
+    found = []
+    for path in paths:
+        state = _state_beside(path)
+        if state is None or not state.instance_id or state.state != InstanceState.STOPPED.value:
+            continue
+        hourly = state.instance.stopped_hourly_cost_usd if state.instance else None
+        if not hourly:
+            # No disk price recorded: the provider's declared behaviour decides.
+            try:
+                if providers.get_class(state.provider).capabilities.stop_eliminates_billing:
+                    continue
+            except Exception:  # noqa: BLE001 - a plugin provider: no way to know
+                continue
+        try:
+            ttl = load_config(path).stopped_ttl_s
+        except Exception:  # noqa: BLE001
+            ttl = DEFAULT_STOPPED_TTL_S
+        stopped_for = now - state.stopped_since if state.stopped_since else None
+        found.append(
+            {
+                "config": str(path),
+                "provider": state.provider,
+                "instance_id": state.instance_id,
+                "stopped_seconds": round(stopped_for, 1) if stopped_for is not None else None,
+                "stopped_ttl_s": ttl,
+                "overdue": bool(ttl is not None and stopped_for is not None and stopped_for > ttl),
+                "stopped_cost_usd_per_day": round(hourly * 24, 2) if hourly else None,
+            }
+        )
+    return found
+
+
 def tracked_by_projects(paths: list[Path]) -> dict[tuple[str, str], Path]:
     """(provider, instance id) -> config path, from state files only (no API calls)."""
     out: dict[tuple[str, str], Path] = {}

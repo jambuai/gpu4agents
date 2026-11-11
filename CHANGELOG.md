@@ -2,6 +2,28 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-11-11
+
+The first real, filmed use of 0.12.0 (an agent making images with SDXL and running a CUDA benchmark) found these. Each is fixed and tested.
+
+### Fixed
+- **A machine stopped by hand no longer bills forever without a word.** The agent ended its session with `gpu stop`; on Vast.ai that keeps billing the disk, and with no sweep timer installed nothing would ever destroy it.
+  - `gpu stop` and the MCP `gpu_stop` say so: `still_billing`, the disk's cost per day, and whether the sweep timer will remove it after `stopped_ttl`.
+  - Every `gpu` command, in any directory, warns about a registered machine left stopped and billing. It reads state files only, so it costs no API call.
+  - `gpu agent install` asks once to install the sweep timer (`--sweep-timer` / `--no-sweep-timer`). The timer is the only thing that enforces `stopped_ttl` on a stopped machine.
+  - The skill now says to destroy once the work is done and the results are home, the same choice the watchdog makes. Stop only when the user will be back soon or keeps the disk on purpose.
+- **The card the user approved is the one rented.** The agent quoted an RTX 3060 at about $0.08/h and got an RTX 2060 at $0.094/h when the quoted offer was taken. `gpu offers` remembers what it showed, and `gpu setup --offer ID` (MCP `gpu_setup(offer_id)`) rents only that card at no more than that price, host retries included, or nothing. Every setup reports `rented`, `quoted` and `matches_quote`, and warns when they differ.
+- **A project is never kept where it will be lost.** The agent kept `gpu.yaml` in its session scratchpad; the next session saw the machine as an orphan it could not use. `gpu init` refuses a temporary or scratchpad folder (`--allow-temp` overrides), and the skill puts the project at the root of the user's repository.
+- **A machine that vanished leaves a reason.** The log said only "instance missing at provider". Now the reconcile replays the project's rules on what it last knew and records `instance_destroyed reason=idle_timeout by=watchdog inferred=true` when they called for it, or `likely_reason: unknown` when they did not. `gpu setup` also fetches the watchdog's own events as soon as the machine is ready.
+
+### Added
+- `gpu adopt <instance-id>` (MCP `gpu_adopt`) takes over an orphan this account owns. On Vast.ai the boot script the provider kept gives back its watchdog token and model key, so `gpu setup` reuses it when gpu.yaml matches; otherwise it can still be destroyed from there. The provider key in that script is never read back.
+- `gpu offers --for <minutes on an RTX 4090>` (MCP `for_minutes_on_4090`) ranks offers by the estimated cost of the whole job, not the price per hour.
+- Image models are sized for their peak: `gpu init` gives SDXL 16 GB and FLUX 24 GB, and `gpu validate` warns below that (a 12 GB card ran out of memory with SDXL at 1344x768). `gpu.models.yaml` has `sdxl-base`, `flux-dev` and `flux-schnell` profiles.
+
+### Changed
+- The skill and the MCP instructions: size for the peak with 1.5 to 2 times headroom; stop a server before a job that shares its card; compare offers per job; say that `idle_timeout` is 15 minutes by default and the user's to change; the only credentials check is `gpu login --check`, never listing environment variables or a secret store, never another provider's key.
+
 ## [0.12.0] - 2026-11-07
 
 ### Fixed

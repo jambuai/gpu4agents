@@ -29,6 +29,7 @@ from .credentials import CredentialResolver
 from .durations import format_duration
 from .errors import (
     BudgetExceededError,
+    CapacityUnavailableError,
     ConfigError,
     HostFailure,
     JambuError,
@@ -61,6 +62,7 @@ from .models import (
     JAMBU_LABEL_PREFIX,
     ValidationResult,
     Workload,
+    is_jambu_label,
 )
 from .hosts import BadHosts
 from .state import RuntimeState, StateStore, WatchdogInfo, utc_now
@@ -120,6 +122,10 @@ class Engine:
         # Whether the last reconcile read the watchdog's state. Traffic activity
         # lives only on the instance, so without it the local idle clock lies.
         self.watchdog_read = False
+        # The offer quoted for this setup (pinned with --offer, else the
+        # cheapest match when setup searched) and the cheapest last seen.
+        self.quote: Optional[dict[str, Any]] = None
+        self._cheapest = None
 
     # ------------------------------------------------------------------
     # policy plumbing
@@ -227,6 +233,17 @@ class Engine:
                 "lifecycle.stopped_ttl",
             )
 
+        from .model_inspect import known_vram_floor
+
+        floor = known_vram_floor(cfg.model.id or "") if cfg.runtime.engine != "none" else None
+        if floor and cfg.compute.gpu.min_vram_gb < floor[0]:
+            result.warn(
+                f"compute.gpu.min_vram_gb is {cfg.compute.gpu.min_vram_gb}, but {cfg.model.id} needs "
+                f"about {floor[0]} GB at its peak ({floor[1]} GB to be safe at high resolution, "
+                "e.g. 1344x768 and up). Size for the peak, not the weights",
+                "compute.gpu.min_vram_gb",
+            )
+
         result.merge(self.runtime.validate())
         if cfg.runtime.engine != "none" and image_tag(self.runtime.image()) == "latest":
             result.warn(
@@ -259,6 +276,28 @@ class Engine:
     # reconciliation (spec section 18)
     # ------------------------------------------------------------------
 
+    def _why_missing(self, state: RuntimeState) -> Optional[str]:
+        """The rule that would have had the watchdog destroy this machine by now, if any.
+
+        A destroyed machine leaves nothing to ask: the provider forgets it and
+        the watchdog went with it. What can be said is whether this project's
+        own rules (idle_timeout, max_lifetime, the budget) called for a destroy
+        given what was last known. None: they did not, so something else did.
+        """
+        if not self.config.lifecycle.watchdog.enabled or not (
+            state.watchdog.installed or state.watchdog.token
+        ):
+            return None
+        if state.state in (InstanceState.STOPPED.value, InstanceState.DESTROYED.value):
+            return None
+        snapshot = self.snapshot(state)
+        snapshot.provider_state = policy.READY
+        snapshot.starting = False
+        decision = policy.evaluate(snapshot, self.policy_config(state.hourly_cost_usd))
+        if decision.action != policy.ACTION_DESTROY:
+            return None
+        return decision.reason
+
     def reconcile(self, state: Optional[RuntimeState] = None) -> RuntimeState:
         """Merge local state with provider truth. Repairs local state in place."""
         owns_lock = state is None
@@ -285,13 +324,27 @@ class Engine:
 
         previous = state.state
         if not status.exists:
+            likely = self._why_missing(state)
+            instance_id = state.instance_id
             state.clear_instance(InstanceState.DESTROYED.value)
             self.events.emit(
                 ev.STATE_RECONCILED,
                 previous_state=previous,
                 state=InstanceState.DESTROYED.value,
                 reason="instance missing at provider",
+                likely_reason=f"{likely} (watchdog)" if likely else (
+                    "unknown: not this project's lifecycle rules (the provider console, "
+                    "another tool, the host, or the account out of credit)"
+                ),
             )
+            if likely:
+                self.events.emit(
+                    ev.INSTANCE_DESTROYED,
+                    instance_id=instance_id,
+                    reason=likely,
+                    by="watchdog",
+                    inferred=True,
+                )
             return state
 
         current = status.instance or instance
@@ -513,6 +566,7 @@ class Engine:
                 )
             return None
         offers = self.provider.find_offers(spec, limit=5)
+        self._cheapest = offers[0] if offers else None
         if not offers:
             return None
         cheapest = offers[0]
@@ -534,15 +588,126 @@ class Engine:
             )
         return cheapest.hourly_cost_usd
 
+    # -- quotes: the offer the user said yes to is the one rented -------------
+
+    def _offers_path(self) -> Path:
+        return self.store.dir / "offers.json"
+
+    def offers(self, limit: int = 10, for_minutes_on_4090: Optional[float] = None) -> list[dict[str, Any]]:
+        """Matching offers, remembered so `setup --offer` can pin one.
+
+        Cheapest per hour first; with ``for_minutes_on_4090`` (how long the job
+        takes on an RTX 4090), cheapest per job first, since a faster card at a
+        higher hourly price often costs the same and finishes far sooner.
+        """
+        from ..providers.gpus import relative_speed
+
+        self.provider.require_capability("pricing_query")
+        spec = self.build_spec()
+        searched = limit * 5 if for_minutes_on_4090 else limit
+        rows = [
+            {
+                "id": o.id,
+                "gpu": o.gpu_name,
+                "count": o.gpu_count,
+                "vram_gb": o.gpu_vram_gb,
+                "disk_gb": o.disk_gb,
+                "hourly_cost_usd": o.hourly_cost_usd,
+                "region": o.region,
+                "cuda_max": o.cuda_max,
+            }
+            for o in self.provider.find_offers(spec, limit=searched)
+        ]
+        if for_minutes_on_4090:
+            for row in rows:
+                speed = relative_speed(row["gpu"])
+                minutes = for_minutes_on_4090 / speed if speed else None
+                row["est_minutes"] = round(minutes, 1) if minutes else None
+                row["est_job_cost_usd"] = (
+                    round(row["hourly_cost_usd"] * minutes / 60.0, 4) if minutes else None
+                )
+            rows.sort(
+                key=lambda r: (
+                    r["est_job_cost_usd"] is None,
+                    r["est_job_cost_usd"] or 0.0,
+                    r["est_minutes"] or 0.0,
+                )
+            )
+            rows = rows[:limit]
+        try:
+            path = self._offers_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"quoted_at": utc_now(), "offers": rows}, indent=2) + "\n")
+        except OSError:
+            pass  # a read-only project still gets its prices
+        return rows
+
+    def _quote_for(self, offer_id: str) -> dict[str, Any]:
+        rows: list[dict[str, Any]] = []
+        try:
+            rows = json.loads(self._offers_path().read_text()).get("offers") or []
+        except (OSError, ValueError):
+            rows = []
+        for row in rows:
+            if str(row.get("id")) == str(offer_id):
+                return {"offer_id": str(offer_id), "gpu": row["gpu"], "hourly_cost_usd": row["hourly_cost_usd"]}
+        if self.provider.capabilities.pricing_query:
+            for offer in self.provider.find_offers(self.build_spec(), limit=50):
+                if str(offer.id) == str(offer_id):
+                    return {"offer_id": offer.id, "gpu": offer.gpu_name, "hourly_cost_usd": offer.hourly_cost_usd}
+        raise ConfigError(
+            f"offer {offer_id} is not one `gpu offers` showed for this project; run `gpu offers` "
+            "again and ask the user about the card and price it shows"
+        )
+
+    @staticmethod
+    def _price_tolerance(price: float) -> float:
+        # Quotes are compared after rounding; anything beyond that is a new price.
+        return max(price * 0.02, 0.001)
+
+    def _pin(self, spec: ComputeSpec, quote: dict[str, Any]) -> None:
+        spec.gpu.name_filter = quote["gpu"]
+        cap = float(quote["hourly_cost_usd"]) + self._price_tolerance(float(quote["hourly_cost_usd"]))
+        spec.max_hourly_cost_usd = min(cap, spec.max_hourly_cost_usd or cap)
+        spec.preferred_offer_id = quote["offer_id"]
+
+    def rented_vs_quoted(self, state: RuntimeState) -> dict[str, Any]:
+        """What was rented next to what the user was quoted, and whether they agree."""
+        instance = state.instance
+        rented = {
+            "instance_id": state.instance_id,
+            "gpu": instance.gpu_name if instance else None,
+            "hourly_cost_usd": instance.hourly_cost_usd if instance else state.hourly_cost_usd,
+        }
+        quote = self.quote
+        out: dict[str, Any] = {"rented": rented, "quoted": quote, "matches_quote": True}
+        if not quote or not rented["gpu"]:
+            return out
+        price = rented["hourly_cost_usd"] or 0.0
+        same_card = quote["gpu"].lower() in rented["gpu"].lower()
+        dearer = price > float(quote["hourly_cost_usd"]) + self._price_tolerance(float(quote["hourly_cost_usd"]))
+        if same_card and not dearer:
+            return out
+        out["matches_quote"] = False
+        out["warning"] = (
+            f"rented {rented['gpu']} at ${price:.3f}/h, not the {quote['gpu']} at "
+            f"${float(quote['hourly_cost_usd']):.3f}/h that was quoted: tell the user before using it"
+            + ("; a higher price needs their yes" if dearer else "")
+        )
+        return out
+
     def setup(
         self,
         *,
         recreate: bool = False,
         allow_cost_override: bool = False,
         wait: bool = True,
+        offer_id: Optional[str] = None,
     ) -> RuntimeState:
         cfg = self.config
         fingerprint = cfg.fingerprint()
+        pinned = self._quote_for(offer_id) if offer_id else None
+        self.quote = pinned
 
         with self.store.process_lock():
             state = self._reconcile(self.store.load())
@@ -590,10 +755,27 @@ class Engine:
             for attempt in range(1, attempts + 1):
                 spec = self.build_spec(onstart)
                 spec.exclude_hosts = list(excluded)
+                if pinned:
+                    self._pin(spec, pinned)
+                    if not self.provider.find_offers(spec, limit=1):
+                        exc = CapacityUnavailableError(
+                            f"the {pinned['gpu']} at ${float(pinned['hourly_cost_usd']):.3f}/h the user approved "
+                            "is no longer available at that price. Nothing was rented: run `gpu offers` "
+                            "and ask the user again"
+                        )
+                        self._fail_setup(state, exc)
+                        raise exc
                 # Every new offer is held to the budget, not just the first.
                 estimated = self._check_budget(spec, allow_cost_override)
                 if estimated:
                     self.echo(f"  cheapest match: ${estimated:.3f}/h")
+                if self.quote is None and self._cheapest is not None:
+                    cheapest = self._cheapest
+                    self.quote = {
+                        "offer_id": cheapest.id,
+                        "gpu": cheapest.gpu_name,
+                        "hourly_cost_usd": cheapest.hourly_cost_usd,
+                    }
                 try:
                     return self._provision(state, spec, token, fingerprint, wait, api_key)
                 except HostFailure as exc:
@@ -682,6 +864,9 @@ class Engine:
             hourly_cost_usd=instance.hourly_cost_usd,
         )
 
+        compared = self.rented_vs_quoted(state)
+        if compared.get("warning"):
+            self.echo(f"! {compared['warning']}")
         if not wait:
             return state
         return self.ensure_ready(state=state)
@@ -812,7 +997,21 @@ class Engine:
             state.state = InstanceState.READY.value
             state.touch()
             self.store.save(state)
+            self._pull_watchdog_events(state)
             return state
+
+    def _pull_watchdog_events(self, state: RuntimeState) -> None:
+        """Bring the watchdog's events home now: if the machine goes while nobody
+        runs gpu, they are the only record that it was guarded."""
+        client = self.beacon(state)
+        if client is None:
+            return
+        try:
+            pulled = client.events(limit=200)
+        except Exception:  # noqa: BLE001 - a record, never a failure
+            return
+        if pulled:
+            self.events.extend(pulled)
 
     def _wait_running(self, state: RuntimeState) -> Instance:
         """Wait for the machine itself (mostly the image pull), up to
@@ -1801,9 +2000,141 @@ class Engine:
             action = (
                 policy.ACTION_STOP if self.provider.capabilities.stop else policy.ACTION_DESTROY
             )
+            instance = state.instance
             self._terminate(state, action=action, reason=reason)
             self.store.save(state)
-            return {"changed": True, "state": state.state, "action": action}
+            result: dict[str, Any] = {"changed": True, "state": state.state, "action": action}
+            if action == policy.ACTION_STOP:
+                result.update(self._stopped_bill(instance))
+            return result
+
+    def adopt(self, instance_id: str) -> dict[str, Any]:
+        """Take over a machine gpu rented whose project was lost (an orphan).
+
+        Its project folder went away (a temp or session scratch folder), so no
+        one held its watchdog token or model key. The provider still knows the
+        machine, and some (Vast.ai) keep the boot script that carries both.
+        With them the machine is reusable; without them it can still be
+        watched, stopped and destroyed from here.
+        """
+        from . import sweep as sweep_mod
+        from ..watchdog.builder import recover_boot_secrets
+
+        with self.store.process_lock():
+            state = self._reconcile(self.store.load())
+            if state.has_instance():
+                raise StateError(
+                    f"this project already has machine {state.instance_id}; adopt from "
+                    "another directory, or `gpu destroy` this one first"
+                )
+            owners = sweep_mod.tracked_by_projects(sweep_mod.ProjectRegistry().paths())
+            owner = owners.get((self.provider.name, str(instance_id)))
+            if owner is not None and owner.is_file() and owner.resolve() != self.config.source_path.resolve():
+                raise ConfigError(
+                    f"project {owner.parent} already tracks machine {instance_id}; run gpu there"
+                )
+            status = self.provider.status(Instance(id=str(instance_id), provider=self.provider.name))
+            current = status.instance if status.exists else None
+            if current is None:
+                raise ConfigError(f"there is no machine {instance_id} in this {self.provider.display_name} account")
+            if not is_jambu_label(current.label):
+                raise ConfigError(
+                    f"machine {instance_id} was not created by gpu (label {current.label!r}); not adopting it"
+                )
+
+            secrets_found: dict[str, Any] = {}
+            try:
+                script = self.provider.boot_script(current)
+            except ProviderError:
+                script = None
+            if script:
+                secrets_found = recover_boot_secrets(script, api_key_env=self.runtime.api_key_env)
+
+            fingerprint = self.config.fingerprint()
+            same_config = current.label.endswith(f"-{fingerprint[:6]}")
+            reusable = same_config and bool(secrets_found.get("token"))
+            state = RuntimeState()
+            state.provider = self.provider.name
+            state.instance_id = current.id
+            state.instance = current
+            state.fingerprint = fingerprint if same_config else f"adopted-{current.label}"
+            state.model_id = self.config.model.id if same_config else None
+            state.api_key = secrets_found.get("api_key") or self.config.runtime.api_key
+            state.created_at = current.created_at or utc_now()
+            state.session_started_at = state.created_at
+            state.last_activity = utc_now()
+            state.hourly_cost_usd = current.hourly_cost_usd
+            state.endpoint = current.endpoint_url(ENDPOINT_NAME)
+            state.state = status.state.value
+            state.watchdog = WatchdogInfo(
+                installed=bool(secrets_found.get("token")),
+                token=secrets_found.get("token"),
+                port=secrets_found.get("port") or self.config.lifecycle.watchdog.port,
+                url=current.endpoint_url("watchdog"),
+            )
+            self.store.save(state)
+            sweep_mod.ProjectRegistry().register(self.config.source_path)
+            self.events.emit(
+                ev.INSTANCE_ADOPTED,
+                instance_id=current.id,
+                label=current.label,
+                watchdog=bool(secrets_found.get("token")),
+                same_config=same_config,
+            )
+            state = self._reconcile(state)
+            self.store.save(state)
+
+        if reusable:
+            nxt = "gpu setup reuses it (it restarts it if stopped); gpu destroy deletes it"
+        elif not same_config:
+            nxt = (
+                "it was set up from a different gpu.yaml, so gpu setup will not reuse it: "
+                "gpu destroy deletes it (or gpu setup --recreate replaces it)"
+            )
+        else:
+            nxt = (
+                "its watchdog key could not be recovered from the provider, so it cannot be "
+                "reused safely: gpu destroy deletes it"
+            )
+        return {
+            "instance_id": current.id,
+            "state": state.state,
+            "gpu": f"{current.gpu_count}x {current.gpu_name}".strip(),
+            "hourly_cost_usd": current.hourly_cost_usd,
+            "watchdog": bool(secrets_found.get("token")),
+            "reusable": reusable,
+            "next": nxt,
+        }
+
+    def _stopped_bill(self, instance: Optional[Instance]) -> dict[str, Any]:
+        """What a stop leaves billing, said out loud (a stop that bills is easy to forget)."""
+        if self.provider.capabilities.stop_eliminates_billing:
+            return {"still_billing": False}
+        from ..cli import timer as timer_mod
+        from .durations import format_duration
+
+        hourly = instance.stopped_hourly_cost_usd if instance else None
+        per_day = round(hourly * 24, 2) if hourly else None
+        timer_on = timer_mod.is_installed()
+        ttl = self.config.stopped_ttl_s
+        bill = f"~${per_day:.2f}/day" if per_day else "money"
+        warning = f"stopped, but still billing {bill} for its disk"
+        if ttl is None:
+            warning += "; lifecycle.stopped_ttl is off, so it bills until `gpu destroy`"
+        elif timer_on:
+            warning += f"; the sweep timer has it destroyed after stopped_ttl ({format_duration(ttl)})"
+        else:
+            warning += (
+                f"; it is destroyed after stopped_ttl ({format_duration(ttl)}) only if "
+                "`gpu sweep --install-timer` is set up, and it is not. `gpu destroy` ends the bill now"
+            )
+        return {
+            "still_billing": True,
+            "stopped_cost_usd_per_day": per_day,
+            "stopped_ttl_s": ttl,
+            "sweep_timer_installed": timer_on,
+            "warning": warning,
+        }
 
     def destroy(self, reason: str = "manual", discard_outputs: bool = False) -> dict[str, Any]:
         with self.store.process_lock():
