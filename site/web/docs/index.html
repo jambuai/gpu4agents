@@ -232,7 +232,7 @@
 
     <main id="top">
       <header class="hero">
-        <span class="eyebrow">Documentation · v0.12.0</span>
+        <span class="eyebrow">Documentation · v0.13.0</span>
         <h1>How GPU for Agents works</h1>
         <p class="lead">A coding agent can only read and write text. With its own GPU it can make images and voices, transcribe audio, run open models and test GPU code on real hardware. <b>GPU for Agents</b> gives it that machine with the controls built in: a budget it can't exceed, a log of every step, and a watchdog on the machine that stops it when the work stops.</p>
         <details class="mtoc"><summary>On this page</summary><div>
@@ -292,8 +292,8 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
 <span class="c"># or: uv tool install --python 3.12 gpu4agents  /  pipx install gpu4agents</span>
 <span class="p">$ </span>gpu init --model Qwen/Qwen2.5-7B-Instruct   <span class="c"># writes gpu.yaml</span>
 <span class="p">$ </span>gpu validate                                <span class="c"># config, credentials, real capacity; fails before renting</span>
-<span class="p">$ </span>gpu offers                                  <span class="c"># matching machines and their hourly price</span>
-<span class="p">$ </span>gpu setup                                   <span class="c"># rent, install the watchdog, serve, wait until ready</span>
+<span class="p">$ </span>gpu offers                                  <span class="c"># matching machines and their hourly price (--for 30: cost of the whole job)</span>
+<span class="p">$ </span>gpu setup --offer 1234567                   <span class="c"># rent that card at that price, install the watchdog, serve, wait until ready</span>
 <span class="p">$ </span>eval "$(gpu env)"                           <span class="c"># OPENAI_BASE_URL, OPENAI_API_KEY, JAMBU_MODEL_ID</span></pre></div>
         <div class="note">Vast.ai, RunPod and Lambda are built in (<a href="#providers">how they differ</a>). Any other provider (CoreWeave, Paperspace, a company cluster, your own servers) is one adapter file, and the agent can write it from the provider's API docs: see <a href="#provider-contract">Provider adapters</a>.</div>
       </section>
@@ -507,6 +507,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
           <tr><td>first <code>setup</code></td><td>blocks 5 to 15 minutes while the machine is rented and the model downloads</td><td>waits; setup bounds itself</td></tr>
           <tr><td>idle for <code>idle_timeout</code></td><td>connection refused or a timeout</td><td>calls <code>setup</code> again, retries once</td></tr>
           <tr><td><code>setup</code> on a stopped machine</td><td>restart, no new rent, no new download; the IP and port may change</td><td>uses the new <code>base_url</code></td></tr>
+          <tr><td><code>stop</code> on Vast.ai</td><td><code>still_billing: true</code> and the disk's cost per day; every <code>gpu</code> command warns while it lasts</td><td>destroys it when the work is done, or leaves it to the sweep timer</td></tr>
           <tr><td>stopped for <code>stopped_ttl</code></td><td>the machine is gone</td><td>the next <code>setup</code> rents a new one, with a new key</td></tr>
           <tr><td><code>max_lifetime</code> reached</td><td>stopped even under traffic</td><td>same as idle</td></tr>
         </table></div>
@@ -535,7 +536,9 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
           <li>After 30 minutes of failed stops it destroys the machine instead (<code>stop_failed_escalation</code>): a machine that bills forever costs more than a lost disk.</li>
         </ul>
         <h3>A second line of defense</h3>
-        <p>The same rule runs from outside too. <code>gpu guard</code> evaluates it from cron or CI, and <code>gpu sweep --install-timer</code> runs every 5 minutes over every registered project, then stops orphans running longer than 24 hours and destroys orphans stopped longer than 24 hours. It only ever sees machines labeled <code>jambu-</code>; nothing else in the account is touched. It's a dry run until <code>--apply</code>.</p>
+        <p>The same rule runs from outside too. <code>gpu guard</code> evaluates it from cron or CI, and <code>gpu sweep --install-timer</code> runs every 5 minutes over every registered project, then stops orphans running longer than 24 hours and destroys orphans stopped longer than 24 hours. It only ever sees machines labeled <code>jambu-</code>; nothing else in the account is touched. It's a dry run until <code>--apply</code>. The timer is the only thing that enforces <code>stopped_ttl</code> on a machine stopped by hand, so <code>gpu agent install</code> offers to install it.</p>
+        <h3>When a machine disappears</h3>
+        <p>If the watchdog destroyed the machine while no command was running, the next command fetches its events, or, when the machine is already gone, replays the project's rules on what it last knew and records <code>instance_destroyed</code> with <code>inferred: true</code> and the likely reason. A machine whose project folder was lost can be taken over with <code>gpu adopt &lt;instance-id&gt;</code>: on Vast.ai the boot script gives back its watchdog token and model key, never the provider key.</p>
       </section>
 
       <!-- ================= DECISION ================= -->
@@ -673,7 +676,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
           <tr><th>Group</th><th>Events</th></tr>
           <tr><td>Rent and boot</td><td><code>provision_requested</code> <code>budget_rejected</code> <code>instance_created</code> <code>host_failed</code> <code>runtime_starting</code> <code>runtime_ready</code> <code>setup_failed</code> <code>cleanup_performed</code></td></tr>
           <tr><td>Work</td><td><code>workload_started</code> <code>workload_finished</code> <code>job_submitted</code> <code>job_finished</code> <code>job_outputs_pulled</code> <code>job_outputs_kept</code></td></tr>
-          <tr><td>Lifecycle</td><td><code>instance_idle</code> <code>instance_locked</code> <code>instance_unlocked</code> <code>lifecycle_guard_triggered</code> <code>instance_stopped</code> <code>instance_started</code> <code>instance_destroyed</code> <code>state_reconciled</code></td></tr>
+          <tr><td>Lifecycle</td><td><code>instance_idle</code> <code>instance_locked</code> <code>instance_unlocked</code> <code>lifecycle_guard_triggered</code> <code>instance_stopped</code> <code>instance_started</code> <code>instance_destroyed</code> <code>instance_adopted</code> <code>state_reconciled</code></td></tr>
           <tr><td>Watchdog</td><td><code>watchdog_started</code> <code>watchdog_identified</code> <code>session_started</code> <code>runtime_exited</code> <code>guard_retry</code> <code>guard_reissue</code> <code>activity_probe_error</code></td></tr>
           <tr><td>Errors and sweep</td><td><code>provider_error</code> <code>watchdog_error</code> <code>sweep_action</code> (in <code>~/.gpu/logs/events.jsonl</code>)</td></tr>
         </table></div>
@@ -852,17 +855,18 @@ conn = ensure_gpu()
           <tr><th>Tool</th><th>Does</th><th>Costs money</th></tr>
           <tr><td><code>gpu_init</code></td><td>write <code>gpu.yaml</code> for a model, with an optional price cap and VRAM</td><td class="no">no</td></tr>
           <tr><td><code>gpu_validate</code></td><td>check config and credentials</td><td class="no">no</td></tr>
-          <tr><td><code>gpu_offers</code></td><td>cheapest matching machines and their price</td><td class="no">no</td></tr>
-          <tr><td><code>gpu_setup</code></td><td>rent or restart, wait for the model (background job, re-attachable)</td><td class="yes">yes</td></tr>
+          <tr><td><code>gpu_offers</code></td><td>cheapest matching machines and their price; with <code>for_minutes_on_4090</code>, ranked by the cost of the whole job</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_setup</code></td><td>rent or restart, wait for the model (background job, re-attachable); with <code>offer_id</code>, only the card the user approved, at its quoted price; reports <code>rented</code> vs <code>quoted</code></td><td class="yes">yes</td></tr>
           <tr><td><code>gpu_status</code></td><td>state, cost so far, idle time, the watchdog's next move</td><td class="no">no</td></tr>
           <tr><td><code>gpu_connection</code></td><td><code>base_url</code>, <code>api_key</code>, <code>model</code> without starting anything</td><td class="no">no</td></tr>
           <tr><td><code>gpu_run</code></td><td>run a local command with the endpoint in its environment</td><td>if it has to start the machine</td></tr>
           <tr><td><code>gpu_job_run</code> · <code>_status</code> · <code>_pull</code> · <code>_cancel</code></td><td>run code on the GPU and bring the outputs back</td><td class="yes">yes</td></tr>
           <tr><td><code>gpu_logs</code></td><td>runtime, onstart, watchdog or provider log</td><td class="no">no</td></tr>
           <tr><td><code>gpu_lock</code> / <code>gpu_unlock</code></td><td>keep the machine up through a quiet period</td><td>while locked</td></tr>
-          <tr><td><code>gpu_stop</code></td><td>stop now; restart takes about a minute</td><td>ends GPU time</td></tr>
+          <tr><td><code>gpu_stop</code></td><td>stop now; restart takes about a minute; says when the disk keeps billing (<code>still_billing</code>)</td><td>ends GPU time</td></tr>
           <tr><td><code>gpu_destroy</code></td><td>delete; needs <code>confirm=true</code></td><td>ends all</td></tr>
           <tr><td><code>gpu_ls</code></td><td>every machine in the account, from any project</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_adopt</code></td><td>take over an orphan this account owns, so it can be reused or destroyed</td><td class="no">no</td></tr>
         </table></div>
       </section>
 

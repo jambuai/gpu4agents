@@ -16,7 +16,7 @@
 #   --keep-gpu-alias  leave a shell alias named gpu alone (see step 4)
 #
 # Environment:
-#   GPU4AGENTS_SPEC  what to install (default: gpu4agents>=0.12.0); a version pin or a wheel path
+#   GPU4AGENTS_SPEC  what to install (default: gpu4agents>=0.13.0); a version pin or a wheel path
 #   GPU4AGENTS_PYTHON  Python version uv uses for the tool (default: 3.12)
 
 set -eu
@@ -24,7 +24,7 @@ set -eu
 AGENT="auto"
 MODIFY_PATH=1
 FIX_ALIAS=1
-SPEC="${GPU4AGENTS_SPEC:-gpu4agents>=0.12.0}"
+SPEC="${GPU4AGENTS_SPEC:-gpu4agents>=0.13.0}"
 PYVER="${GPU4AGENTS_PYTHON:-3.12}"
 
 while [ $# -gt 0 ]; do
