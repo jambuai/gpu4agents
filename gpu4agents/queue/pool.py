@@ -600,7 +600,20 @@ class Pool:
         return self._jobs(m).info(remote_id)
 
     def fetch_outputs(self, m: PoolMachine, remote_id: str, dest: Path) -> list[str]:
-        return self._jobs(m).download_outputs(remote_id, Path(dest))
+        """Download a run's outputs. Once the runner counts them as saved (the run had
+        ended), the machine no longer holds anything of that run that a retire could lose."""
+        jobs = self._jobs(m)
+        names = jobs.download_outputs(remote_id, Path(dest))
+        try:
+            info = jobs.info(remote_id)
+        except (StateError, WatchdogUnavailable):
+            return names
+        if info.get("state") != "running" and not info.get("outputs_unsaved"):
+            with self._lock:
+                if remote_id in m.jobs:
+                    m.jobs.remove(remote_id)
+            self._save(m)
+        return names
 
     def cancel(self, m: PoolMachine, remote_id: str) -> None:
         self._jobs(m).cancel(remote_id)

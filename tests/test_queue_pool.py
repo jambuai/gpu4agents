@@ -524,6 +524,22 @@ def test_retire_counts_an_unreachable_machine_s_jobs_as_lost(pool_parts, tmp_pat
     assert events(tmp_path, "pool_machine_retired")[0]["outputs_lost_ids"] == ["q7-a1"]
 
 
+@pytest.mark.parametrize("reachable", [True, False])
+def test_retire_never_counts_outputs_already_saved_as_lost(pool_parts, tmp_path, reachable):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    pool.dispatch(m, "q9-a1", write_result(tmp_path), {"run": "python3 main.py"}, {})
+    wait_remote(pool, m, "q9-a1")
+    assert pool.fetch_outputs(m, "q9-a1", tmp_path / "saved") == ["r.txt"]  # the coordinator has them
+    # No poll in between: retire comes before the pool would list the job again.
+    if not reachable:
+        provider.agents[m.instance_id].close()
+    result = pool.retire(m, "test")
+    assert result.destroyed and result.lost == [] and result.pulled == {}
+    [retired] = events(tmp_path, "pool_machine_retired")
+    assert retired["outputs_lost"] == 0 and retired["outputs_lost_ids"] == []
+
+
 def test_backoff_runs_from_the_failure_not_the_open(pool_parts):
     pool, provider, observer, clock, cfg = pool_parts()
     provider.no_offers = True
