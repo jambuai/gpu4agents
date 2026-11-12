@@ -551,3 +551,54 @@ def test_a_booting_slot_or_a_young_instance_is_not_an_orphan(pool_parts):
     finally:
         gate.set()
         settle(pool, m)
+
+
+# -- fix round 2 ----------------------------------------------------------------
+
+
+def test_an_orphan_without_a_real_creation_time_is_aged_from_first_sight(pool_parts):
+    pool, provider, observer, clock, cfg = pool_parts()
+    from gpu4agents.core.models import Instance
+
+    label = f"{pool.label_prefix()}s4-{cfg.fingerprint()[:6]}"
+    provider.instances["x9"] = Instance(id="x9", provider="fake", label=label)
+
+    def listed():
+        provider.instances["x9"].created_at = clock()  # the mapper says "now", every time
+        return [i.id for i in pool.orphans()]
+
+    assert listed() == []
+    clock.advance(60)
+    assert listed() == []
+    # The first sighting survives a restart of the pool.
+    pool = Pool(cfg, observer, provider=provider, clock=clock)
+    clock.advance(61)
+    assert listed() == ["x9"]
+
+
+def test_a_recovered_machine_s_restart_budget_resets(pool_parts):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    instance = provider.instances[m.instance_id]
+    for _ in range(4):
+        provider.stop(instance)
+        pool.poll()
+        assert m.state == MachineState.STOPPED
+        provider.start(instance)
+        settle(pool, m)  # back to checking: deadline and health check, then ready
+        assert m.state == MachineState.READY
+
+
+def test_a_pull_that_crashes_reports_every_job_lost(pool_parts, tmp_path, monkeypatch):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    pool.dispatch(m, "q8-a1", write_result(tmp_path), {"run": "python3 main.py"}, {})
+    wait_remote(pool, m, "q8-a1")
+
+    def boom(*a, **k):
+        raise RuntimeError("unexpected")
+
+    monkeypatch.setattr(pool, "_pull_left_outputs", boom)
+    result = pool.retire(m, "test")
+    assert result.destroyed and result.lost == ["q8-a1"] and result.pulled == {}
+    assert events(tmp_path, "pool_machine_retired")[0]["outputs_lost_ids"] == ["q8-a1"]

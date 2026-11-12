@@ -153,6 +153,7 @@ class Pool:
         self.last_failed_at: Optional[float] = None
         self.open_backoff_s: float = 0.0
         self._resumes: dict[str, int] = {}
+        self._seen: Optional[dict[str, float]] = None  # untracked instance id -> first seen
         self._blocked: Optional[str] = None
         self._offer: Optional[Any] = None
         self._offer_at: Optional[float] = None
@@ -342,6 +343,7 @@ class Pool:
                 self._threads.pop(m.slot, None)
                 m.state = MachineState.READY
                 m.ready_at = now
+                self._resumes.pop(m.slot, None)  # recovered: its restart budget starts over
                 m.last_seen_at = now
             self._save(m)
             cold = max(0.0, now - (m.opened_at or now))
@@ -622,6 +624,8 @@ class Pool:
             self._pull_left_outputs(m, eng, state, result)
         except Exception as exc:  # noqa: BLE001 - outputs never keep a machine alive
             self.obs.emit(ev.PROVIDER_ERROR, operation="pool_retire_outputs", slot=m.slot, error_type=type(exc).__name__)
+            # Whatever was not pulled before the failure is lost, and says so.
+            result.lost.extend(j for j in m.jobs if j not in result.pulled and j not in result.lost)
         now = self.clock()
         self._bill(m, now)
         try:
@@ -915,6 +919,9 @@ class Pool:
                 held = None
             if held:
                 tracked.add(held)
+        now = self.clock()
+        seen = self._load_seen()
+        current: dict[str, float] = {}
         out = []
         for inst in self.provider.list_instances():
             label = inst.label or ""
@@ -923,7 +930,41 @@ class Pool:
             slot = label[len(prefix): -len(suffix)]
             if not _SLOT.fullmatch(slot) or slot in booting or inst.id in tracked:
                 continue
-            if inst.created_at and time.time() - float(inst.created_at) < ORPHAN_MIN_AGE_S:
+            # Some providers do not say when an instance was created (their mappers
+            # fill in "now"): age it from when this pool first saw it too.
+            first = current[inst.id] = seen.get(inst.id, now)
+            born = min(float(inst.created_at), first) if inst.created_at else first
+            if now - born < ORPHAN_MIN_AGE_S:
                 continue
             out.append(inst)
+        self._save_seen(current)
         return out
+
+    def _seen_path(self) -> Path:
+        return self.dir / "seen.json"
+
+    def _load_seen(self) -> dict[str, float]:
+        with self._lock:
+            if self._seen is None:
+                try:
+                    data = json.loads(self._seen_path().read_text())
+                    self._seen = {str(k): float(v) for k, v in data.items()} if isinstance(data, dict) else {}
+                except (OSError, ValueError, TypeError):
+                    self._seen = {}
+            return dict(self._seen)
+
+    def _save_seen(self, current: dict[str, float]) -> None:
+        """Keep first sightings of the untracked instances still listed; drop the rest."""
+        with self._lock:
+            if current == self._seen:
+                return
+            self._seen = dict(current)
+        path = self._seen_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".seen-", suffix=".json")
+            with os.fdopen(fd, "w") as handle:
+                json.dump(current, handle)
+            os.replace(tmp, path)
+        except OSError:
+            pass
