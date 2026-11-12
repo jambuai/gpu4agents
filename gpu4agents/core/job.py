@@ -81,6 +81,8 @@ class JobManifest(BaseModel):
     timeout: Optional[str] = None
     exclude: list[str] = Field(default_factory=list)
     label: Optional[str] = None
+    max_cost_usd: Optional[float] = None
+    min_vram_gb: Optional[float] = None
 
     @field_validator("run", "setup", mode="before")
     @classmethod

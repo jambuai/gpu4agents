@@ -294,6 +294,97 @@ class WorkloadConfig(_Base):
     sync: bool = False
 
 
+class QueueHealthCheck(_Base):
+    command: Optional[str] = None  # None = built-in CUDA check
+    min_free_vram_gb: Optional[float] = None
+    timeout: str = "2m"
+    between_jobs: bool = True
+
+    _v_timeout = _duration("timeout")
+
+
+class QueueDefaults(_Base):
+    timeout: str = "1h"
+    max_cost_usd: Optional[float] = None
+    deadline_margin: str = "10m"
+
+    _v_timeout = _duration("timeout")
+    _v_margin = _duration("deadline_margin")
+
+
+class QueueConfig(_Base):
+    """``gpu_runtime.queue``: present means queue mode. Credentials never live here."""
+
+    backend: str = "local"  # "local" | "redis" | "module:factory"
+    outputs: str = "local"  # "local" | "s3" | "module:factory"
+    min_machines: int = 0
+    max_machines: int = 1
+    max_usd_per_hour: Optional[float] = None
+    scale_up_after: str = "30s"
+    jobs_per_machine: int = 1
+    max_attempts: int = 3
+    unresponsive_after: str = "5m"
+    max_machine_lifetime: Optional[str] = None
+    tick: str = "5s"
+    preflight: Optional[str] = None  # "module:function"
+    health_check: QueueHealthCheck = Field(default_factory=QueueHealthCheck)
+    defaults: QueueDefaults = Field(default_factory=QueueDefaults)
+
+    _v_scale = _duration("scale_up_after")
+    _v_unresp = _duration("unresponsive_after")
+    _v_life = _duration("max_machine_lifetime")
+    _v_tick = _duration("tick")
+
+    @field_validator("backend", "outputs")
+    @classmethod
+    def _no_urls(cls, v: str) -> str:
+        if "://" in v:
+            raise ValueError(
+                "put the address in the environment (GPU_QUEUE_URL for the queue, "
+                "GPU_OUTPUTS_URL for outputs), never in gpu.yaml; use a name here "
+                "(local, redis, s3 or module:factory)"
+            )
+        return v
+
+    @field_validator("min_machines")
+    @classmethod
+    def _min_ok(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("min_machines must be >= 0")
+        return v
+
+    @field_validator("max_machines", "jobs_per_machine", "max_attempts")
+    @classmethod
+    def _at_least_one(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("must be >= 1")
+        return v
+
+    @model_validator(mode="after")
+    def _max_not_below_min(self) -> "QueueConfig":
+        if self.max_machines < self.min_machines:
+            raise ValueError(
+                f"max_machines ({self.max_machines}) is below min_machines ({self.min_machines})"
+            )
+        return self
+
+    @property
+    def scale_up_after_s(self) -> float:
+        return parse_duration(self.scale_up_after) or 0.0
+
+    @property
+    def unresponsive_after_s(self) -> float:
+        return parse_duration(self.unresponsive_after) or 300.0
+
+    @property
+    def tick_s(self) -> float:
+        return parse_duration(self.tick) or 5.0
+
+    @property
+    def max_machine_lifetime_s(self) -> Optional[float]:
+        return parse_duration(self.max_machine_lifetime)
+
+
 class RuntimeConfig(_Base):
     """The whole parsed gpu-runtime config (gpu.yaml's gpu_runtime: section, or a legacy config.yml)."""
 
@@ -306,6 +397,7 @@ class RuntimeConfig(_Base):
     health: HealthConfig = Field(default_factory=HealthConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     workload: WorkloadConfig = Field(default_factory=WorkloadConfig)
+    queue: Optional[QueueConfig] = None
 
     # Populated by the loader; not part of the YAML document.
     source_path: Optional[Path] = Field(default=None, exclude=True)
