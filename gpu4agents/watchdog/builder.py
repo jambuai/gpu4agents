@@ -151,7 +151,7 @@ def build_agent_config(
     return config
 
 
-def _b85_gz_block(text: str, width: int = 76) -> str:
+def _b85_gz_block(text: str, width: int = 4000) -> str:
     """Compressed, line-wrapped payload (``width=0``: one line).
 
     The boot script travels inside a provider API field, so the ~30 KB agent is

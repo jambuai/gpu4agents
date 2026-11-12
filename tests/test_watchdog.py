@@ -1167,3 +1167,11 @@ def test_deadline_route_refuses_moving_backwards(agent_factory):
     reply = agent.client.try_request("POST", "/deadline", {"until": until - 300})
     assert reply["deadline_at"] == until
     assert agent.client.state()["deadline_at"] == until
+
+
+def test_deadline_route_rejects_bad_values(agent_factory):
+    agent = agent_factory(policy(idle_timeout_s=3_600.0))
+    agent.client.mark_ready()
+    for bad in (None, "soon", 0, -5, "inf", "nan"):
+        assert agent.client.try_request("POST", "/deadline", {"until": bad}) is None
+    assert agent.client.state()["deadline_at"] is None

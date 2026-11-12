@@ -268,3 +268,11 @@ def test_no_deadline_set_means_only_idle_and_lifetime_apply():
 def test_deadline_is_ignored_outside_queue_mode():
     cfg = p.PolicyConfig(deadline_enforced=False)
     assert not p.evaluate(p.Snapshot(now=1000, created_at=0, last_activity=999, deadline_at=1), cfg).terminates
+
+
+def test_a_lock_does_not_override_the_deadline():
+    cfg = p.PolicyConfig(deadline_enforced=True, idle_timeout_s=900)
+    snap = p.Snapshot(now=1000, created_at=0, last_activity=999, deadline_at=999,
+                      locked=True, locked_until=2000)
+    d = p.evaluate(snap, cfg)
+    assert d.terminates and d.reason == "deadline"

@@ -960,7 +960,10 @@ def dispatch(path, body):
         if until is None and ttl:
             until = now + float(ttl)
         if until is None and not cfg.allow_indefinite_lock:
-            return 400, {"error": "indefinite locks are disabled"}
+            return 400, {
+                "error": "indefinite locks are disabled "
+                "(set lifecycle.allow_indefinite_lock: true to permit them)"
+            }
         with _LOCK:
             _STATE["locked"] = True
             _STATE["locked_until"] = float(until) if until is not None else None
@@ -973,7 +976,9 @@ def dispatch(path, body):
         try:
             until = float(body.get("until"))
         except (TypeError, ValueError):
-            return 400, {"error": "bad until"}
+            until = 0.0
+        if not 0 < until < float("inf"):
+            return 400, {"error": "until must be a finite unix time > 0"}
         with _LOCK:
             old = _STATE.get("deadline_at") or 0
             keep = _STATE["deadline_at"] = max(old, until)

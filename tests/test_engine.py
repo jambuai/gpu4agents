@@ -964,4 +964,31 @@ def test_queue_mode_policy_drops_lifetime_and_session_budget(write_config, tmp_p
     assert pooled.deadline_enforced is True
     plain = Engine(cfg, provider=provider).policy_config()
     assert plain.max_session_cost_usd == 5
+    assert plain.max_lifetime_s == 3600
     assert plain.deadline_enforced is False
+
+
+def test_slot_must_be_label_safe(config, tmp_path):
+    provider = FakeProvider(config, CredentialResolver(config.project_dir))
+    for bad in ("S1", "a-b", "", "x y"):
+        with pytest.raises(ValueError):
+            Engine(config, provider=provider, state_dir=tmp_path / "p", slot=bad)
+
+
+def test_set_deadline_goes_through_the_engine_to_the_watchdog(config, tmp_path):
+    provider = FakeProvider(config, CredentialResolver(config.project_dir))
+    eng = Engine(config, provider=provider)
+    eng.setup(wait=False)
+    sent = []
+
+    class Client:
+        def __getattr__(self, name):
+            return lambda *a, **k: None
+
+        def set_deadline(self, until):
+            sent.append(until)
+            return {"ok": True, "deadline_at": until + 1}
+
+    eng.beacon = lambda state: Client()
+    assert eng.set_deadline(5000.0) == 5001.0
+    assert sent == [5000.0]

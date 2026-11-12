@@ -112,6 +112,8 @@ class Engine:
         slot: Optional[str] = None,
     ) -> None:
         self.config = config
+        if slot is not None and not re.fullmatch(r"[a-z0-9]+", slot):
+            raise ValueError(f"slot must match [a-z0-9]+, got {slot!r}")
         self.slot = slot
         self.echo = echo or _noop
         self.credentials = credentials or CredentialResolver(
