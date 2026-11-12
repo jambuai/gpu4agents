@@ -301,3 +301,82 @@ def test_s3_non_404_errors_raise(tmp_path, src, s3, monkeypatch):
     monkeypatch.setattr(store._s3, "get_object", denied)
     with pytest.raises(ClientError):
         store.verify(ref)
+
+
+def test_verify_waits_for_a_swap_in_progress(tmp_path, src, monkeypatch):
+    import os
+    import threading
+
+    import gpu4agents.queue.outputs as o
+
+    store = LocalOutputStore(tmp_path / "gpu-outputs")
+    store.put_outputs("job1", 1, src)
+    (src / "a.txt").write_text("v2-new")
+    paused, go = threading.Event(), threading.Event()
+    real, n = os.replace, []
+
+    def slow(a, b):
+        n.append(b)
+        real(a, b)
+        if len(n) == 1:  # between the aside-rename and the staging replace
+            paused.set()
+            assert go.wait(10)
+
+    monkeypatch.setattr(o.os, "replace", slow)
+    box = {}
+    t = threading.Thread(target=lambda: box.update(ref=store.put_outputs("job1", 2, src)))
+    t.start()
+    assert paused.wait(10)
+    res = {}
+    v = threading.Thread(target=lambda: res.update(p=store.verify(OutputRef(str(tmp_path / "gpu-outputs" / "job1"), box.get("ref", OutputRef("", [])).files or _files(src)))))
+    v.start()
+    v.join(0.5)
+    assert v.is_alive()  # blocked on the lock, not recovering mid-swap
+    go.set()
+    t.join(10)
+    v.join(10)
+    assert res["p"] == [] and (tmp_path / "gpu-outputs" / "job1" / "a.txt").read_text() == "v2-new"
+
+
+def _files(src):
+    from gpu4agents.queue.outputs import _scan
+
+    return _scan(src)
+
+
+def test_crash_during_failed_attempt_reput_is_recovered(tmp_path, src, monkeypatch):
+    import os
+
+    import gpu4agents.queue.outputs as o
+
+    store = LocalOutputStore(tmp_path / "gpu-outputs")
+    good = store.put_outputs("job1", 1, src)
+    first = store.put_outputs("job1", 2, src, success=False)
+    (src / "a.txt").write_text("again")
+    real, n = os.replace, []
+
+    def flaky(a, b):
+        n.append(b)
+        if len(n) == 2:
+            raise OSError("crash")
+        return real(a, b)
+
+    monkeypatch.setattr(o.os, "replace", flaky)
+    with pytest.raises(OSError):
+        store.put_outputs("job1", 2, src, success=False)
+    monkeypatch.setattr(o.os, "replace", real)
+    assert store.verify(good) == [] and store.verify(first) == []
+    job = tmp_path / "gpu-outputs" / "job1"
+    assert not [p for p in job.iterdir() if ".old-" in p.name]
+
+
+def test_recovery_permission_error_becomes_a_problem(tmp_path, src, monkeypatch):
+    store = LocalOutputStore(tmp_path / "gpu-outputs")
+    ref = store.put_outputs("job1", 1, src)
+
+    def denied(job_id):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(store, "recover", denied)
+    problems = store.verify(ref)
+    assert any("recovery" in p for p in problems)

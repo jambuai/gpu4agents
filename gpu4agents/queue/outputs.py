@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import contextlib
 import json
 import os
 import re
@@ -14,6 +15,11 @@ from pathlib import Path
 from typing import Any
 
 from ..core.errors import ConfigError
+
+try:
+    import fcntl
+except ImportError:  # no flock on this platform (Windows): locking is a no-op there
+    fcntl = None  # type: ignore[assignment]
 
 MANIFEST = "MANIFEST.json"
 _JOB_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -115,9 +121,30 @@ class LocalOutputStore(OutputStore):
         shutil.copyfile(src, dest)
         return dest
 
+    @contextlib.contextmanager
+    def _lock(self, job_id: str):
+        """Exclusive per-job lock, so recovery in one process never lands in the middle of another's swap."""
+        if fcntl is None:
+            yield
+            return
+        lock_dir = self.root / ".locks"
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        with open(lock_dir / f"{job_id}.lock", "a") as fh:
+            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+
     def recover(self, job_id: str) -> None:
         """Finish or undo a swap that crashed: the previous result comes back, earlier attempts are kept."""
         _check_job_id(job_id)
+        if not self.root.is_dir():
+            return
+        with self._lock(job_id):
+            self._recover_locked(job_id)
+
+    def _recover_locked(self, job_id: str) -> None:
         if not self.root.is_dir():
             return
         pat = re.compile(rf"\.{re.escape(job_id)}\.old-\d+")
@@ -130,17 +157,37 @@ class LocalOutputStore(OutputStore):
                 if child.name.startswith(".attempt-") and not (target / child.name).exists():
                     os.replace(child, target / child.name)
             shutil.rmtree(aside)
+        if target.is_dir():  # a failed attempt's swap: job/..attempt-N.old-M
+            for aside in sorted(target.iterdir()):
+                m = re.fullmatch(r"\.(\.attempt-\d+)\.old-\d+", aside.name)
+                if not m:
+                    continue
+                orig = target / m.group(1)
+                if orig.exists():
+                    shutil.rmtree(aside)
+                else:
+                    os.replace(aside, orig)
 
-    def _recover_ref(self, ref: OutputRef) -> None:
+    def _recover_ref(self, ref: OutputRef) -> list[str]:
+        """Recover under the lock; a store that cannot be written yields a problem entry, not an exception."""
         loc = Path(ref.location)
-        for cand in (loc, loc.parent):
-            if cand.parent.resolve() == self.root.resolve() and _JOB_ID.match(cand.name):
-                self.recover(cand.name)
-                return
+        try:
+            for cand in (loc, loc.parent):
+                if cand.parent.resolve() == self.root.resolve() and _JOB_ID.match(cand.name):
+                    self.recover(cand.name)
+                    break
+        except OSError as exc:
+            return [f"recovery of an interrupted swap failed: {type(exc).__name__} {exc.strerror or ''}".strip()]
+        return []
 
     def put_outputs(self, job_id: str, attempt: int, src_dir: Path, success: bool = True) -> OutputRef:
         _check_job_id(job_id)
-        self.recover(job_id)
+        self.root.mkdir(parents=True, exist_ok=True)
+        with self._lock(job_id):
+            self._recover_locked(job_id)
+            return self._put_locked(job_id, attempt, src_dir, success)
+
+    def _put_locked(self, job_id: str, attempt: int, src_dir: Path, success: bool) -> OutputRef:
         job_dir = self._inside(self.root, job_id)
         target = job_dir if success else self._inside(self.root, job_id, f".attempt-{int(attempt)}")
         files = _scan(Path(src_dir))
@@ -169,9 +216,8 @@ class LocalOutputStore(OutputStore):
         return OutputRef(location=str(target), files=files)
 
     def verify(self, ref: OutputRef) -> list[str]:
-        self._recover_ref(ref)
+        problems = self._recover_ref(ref)
         base = Path(ref.location)
-        problems = []
         try:
             stored = json.loads((base / MANIFEST).read_text())["files"]
             if _norm(stored) != _norm(ref.files):
