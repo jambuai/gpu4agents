@@ -17,7 +17,7 @@ import pytest
 from gpu4agents.core import events as ev
 from gpu4agents.core.events import EventLog
 from gpu4agents.queue.backends.local import LocalBackend
-from gpu4agents.queue.coordinator import Coordinator, TickReport
+from gpu4agents.queue.coordinator import DEADLINE_GRACE_S, Coordinator, TickReport
 from gpu4agents.queue.models import JobState, Outcome, QueueJob
 from gpu4agents.queue.observe import Observer
 from gpu4agents.queue.outputs import LocalOutputStore, OutputRef
@@ -46,11 +46,16 @@ class World:
         self.backend = LocalBackend(tmp_path / "queue.db", clock=self.clock)
         self.outputs = LocalOutputStore(tmp_path / "gpu-outputs", bundles_dir=tmp_path / "bundles")
         self.obs = Observer(EventLog(tmp_path / "logs"), tmp_path / "metrics.prom")
-        self.pool = FakePool(self.obs, self.clock, tmp_path / "machines", **pool_kwargs)
+        self.pool = self.new_pool("machines", **pool_kwargs)
 
-    def coordinator(self, worker_id: str = "coord-a", **kwargs) -> Coordinator:
+    def new_pool(self, name: str, **kwargs) -> FakePool:
+        pool = FakePool(self.obs, self.clock, self.tmp / name, **kwargs)
+        pool.advance = self.clock.advance
+        return pool
+
+    def coordinator(self, worker_id: str = "coord-a", pool: FakePool | None = None, **kwargs) -> Coordinator:
         return Coordinator(
-            self.cfg, self.backend, self.outputs, self.pool, self.obs,
+            self.cfg, self.backend, self.outputs, pool or self.pool, self.obs,
             worker_id=worker_id, clock=self.clock, **kwargs,
         )
 
@@ -346,6 +351,7 @@ def test_a_job_whose_coordinator_died_mid_run_is_adopted_while_still_running(wor
     assert job.state == JobState.SUCCEEDED
     assert len(w.pool.starts) == 1
     assert [d[2] for d in w.pool.dispatches] == ["started"]
+    assert w.pool.opens == 1  # the reaped job waiting to be re-adopted was not new work
 
 
 def test_a_job_lost_with_its_coordinator_and_machine_is_requeued(world):
@@ -588,3 +594,342 @@ def test_run_ticks_until_stopped_and_releases_the_lease(world):
     assert w.backend.coordinator() is None
     assert w.events(ev.COORDINATOR_STARTED)[0]["config_hash"]
     assert w.events(ev.COORDINATOR_STOPPED)
+
+
+# ---------------------------------------------------------------------------
+# leases during slow work, leadership, unknown machines (fix round 1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("op", ["dispatch", "fetch_outputs"])
+def test_a_slow_transfer_keeps_its_leases(world, op):
+    w = world()
+    coord = w.coordinator()
+    w.pool.delays[op] = 600.0  # ten job leases on the injected clock
+    w.pool.during = coord.beat  # what the heartbeat thread does meanwhile
+    w.submit("j1")
+
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    assert len(w.pool.starts) == 1
+    assert not w.events(ev.QUEUE_STALE_WRITE_REFUSED)
+    assert not w.events(ev.COORDINATOR_LEASE_LOST)
+
+
+def test_a_dispatch_that_outlives_its_lease_cancels_its_run(world):
+    w = world()
+    coord = w.coordinator()
+    w.submit("j0")
+    w.final(coord, "j0")  # a warm machine
+    w.submit("j1")
+    w.pool.delays["dispatch"] = 600.0  # and no heartbeat: the leases run out
+    taken = []
+
+    def intruder():
+        if not taken:
+            claim = w.backend.claim("intruder", 3600, job_id="j1")
+            if claim is not None:
+                taken.append(claim)
+
+    w.pool.during = intruder
+    w.step(coord)
+
+    assert taken, "the job's lease ran out during the dispatch"
+    assert w.pool.cancels == ["j1-a1"]
+    assert w.pool.remotes["j1-a1"].state == "cancelled"
+    stale = w.events(ev.QUEUE_STALE_WRITE_REFUSED)
+    assert any(e.get("operation") == "dispatch" and e.get("cancelled") for e in stale)
+    assert w.job("j1").state == JobState.CLAIMED  # the intruder's, untouched
+
+
+def test_no_claim_after_a_long_poll_lost_the_lease(world):
+    w = world(max_machines=1)
+    a = w.coordinator("coord-a")
+    w.submit("j0")
+    w.final(a, "j0")
+    w.submit("j1")
+    w.pool.delays["poll"] = 60.0
+    w.pool.during = lambda: w.backend.acquire_coordinator("coord-b", 600)
+
+    w.step(a)
+
+    assert not a.leader
+    assert w.job("j1").state == JobState.QUEUED
+    assert [r.id for r in w.pool.starts] == ["j0-a1"]
+    assert w.events(ev.COORDINATOR_LEASE_LOST)
+
+
+def test_a_standby_with_its_own_pool_waits_out_the_old_machine_s_deadline(world):
+    w = world()
+    w.pool.script("j1", FakeRun(polls=100_000))
+    w.submit("j1")
+    a = w.coordinator("coord-a")
+    w.until_state(a, "j1", JobState.RUNNING)
+    deadline = w.job("j1").limits["deadline_at"]
+    del a
+
+    pool_b = w.new_pool("machines-b")
+    b = w.coordinator("coord-b", pool=pool_b)
+    w.submit("j2")  # pool B opens its own s1 meanwhile: a slot name is not a machine
+    w.final(b, "j2", max_ticks=80)
+    w.step(b, 10)
+
+    assert w.clock() < deadline
+    assert w.job("j1").attempts == []
+    assert [r.id for r in pool_b.starts] == ["j2-a1"]
+
+    w.clock.now = deadline + DEADLINE_GRACE_S + 1
+    job = w.final(b, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    assert [a.outcome for a in job.attempts] == [Outcome.MACHINE_LOST, Outcome.SUCCEEDED]
+    assert "waited for its deadline" in job.attempts[0].detail
+    assert [r.id for r in pool_b.starts] == ["j2-a1", "j1-a2"]
+    assert len(w.pool.starts) == 1
+
+
+def test_an_upload_that_may_still_be_on_its_way_is_waited_for(world, monkeypatch):
+    w = world()
+    a = w.coordinator("coord-a")
+    w.submit("j0")
+    w.final(a, "j0")  # a warm machine
+    w.submit("j1")
+    real = w.pool.dispatch
+
+    def die(*args, **kwargs):
+        raise Crash()  # killed after recording the attempt, before the dispatch landed
+
+    monkeypatch.setattr(w.pool, "dispatch", die)
+    with pytest.raises(Crash):
+        w.step(a, 3)
+    monkeypatch.setattr(w.pool, "dispatch", real)
+    started = w.job("j1").limits["started_at"]
+    del a
+
+    b = w.coordinator("coord-b")
+    w.step(b, 40)  # leases gone; the machine answers without j1-a1, but uploads take time
+    assert w.job("j1").attempts == []
+    assert [r.id for r in w.pool.starts] == ["j0-a1"]
+
+    w.clock.now = started + 600 + 61
+    job = w.final(b, "j1")
+    assert job.state == JobState.SUCCEEDED
+    assert [a.outcome for a in job.attempts] == [Outcome.MACHINE_LOST, Outcome.SUCCEEDED]
+    assert [r.id for r in w.pool.starts] == ["j0-a1", "j1-a2"]
+
+
+def test_fetched_outputs_survive_a_crash_and_are_delivered(world, monkeypatch):
+    w = world()
+    w.pool.script("j1", FakeRun(outputs={"model.bin": b"weights"}))
+    w.submit("j1")
+    a = w.coordinator("coord-a")
+    real = w.outputs.put_outputs
+
+    def die(*args, **kwargs):
+        raise Crash()
+
+    monkeypatch.setattr(w.outputs, "put_outputs", die)
+    with pytest.raises(Crash):
+        w.until(a, lambda: False, max_ticks=20)
+    monkeypatch.setattr(w.outputs, "put_outputs", real)
+    slot = w.pool.slot_of("j1-a1")
+    del a
+    w.pool.lose(slot)  # the only other copy is gone
+
+    b = w.coordinator("coord-b")
+    job = w.final(b, "j1", max_ticks=80)
+
+    assert job.state == JobState.SUCCEEDED
+    assert (Path(job.outputs_ref["location"]) / "model.bin").read_bytes() == b"weights"
+    assert w.pool.fetches == ["j1-a1"]
+    assert len(w.pool.starts) == 1
+    assert not (w.cfg.state_dir / "queue" / "work" / "j1").exists()  # cleaned once settled
+
+
+def test_a_delivering_job_keeps_its_machine_s_deadline_ahead(world):
+    w = world(defaults={"deadline_margin": "1m"})
+    w.pool.script("j1", FakeRun(polls=20))
+    w.pool.fetch_failures["j1-a1"] = 4
+    w.submit("j1", timeout="1m")
+    coord = w.coordinator()
+
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    first = w.pool.deadlines[0][1]
+    assert len(w.pool.deadlines) >= 2
+    assert w.pool.deadlines[-1][1] > first
+    assert job.limits["deadline_at"] > first
+
+
+def test_a_machine_that_keeps_refusing_dispatches_is_retired(world):
+    w = world(max_machines=2)
+    w.pool.dispatch_failures["s1"] = 3
+    w.submit("j1")
+    coord = w.coordinator()
+
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    assert job.attempts[0].outcome == Outcome.UNHEALTHY
+    assert "dispatch failed 3 times" in job.attempts[0].detail
+    assert [(s, b) for s, _, b in w.pool.retired] == [("s1", True)]
+    assert [r.slot for r in w.pool.starts] == ["s2"]
+
+
+def test_outputs_that_cannot_be_fetched_are_pulled_by_retiring_the_machine(world):
+    w = world()
+    w.pool.script("j1", FakeRun(outputs={"out.txt": b"result"}))
+    w.pool.fetch_failures["j1-a1"] = 99
+    w.submit("j1")
+    coord = w.coordinator()
+
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    assert len(w.events(ev.QUEUE_OUTPUTS_DELIVERY_FAILED)) == 5
+    assert [s for s, _, _ in w.pool.retired] == ["s1"]
+    assert (Path(job.outputs_ref["location"]) / "out.txt").read_bytes() == b"result"
+    assert len(w.pool.starts) == 1
+
+
+def test_outputs_lost_for_good_end_the_attempt_and_it_is_retried(world):
+    w = world()
+    w.pool.fetch_failures["j1-a1"] = 99
+    w.pool.retire_loses.add("s1")
+    w.submit("j1")
+    coord = w.coordinator()
+
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    assert [a.outcome for a in job.attempts] == [Outcome.DELIVERY_FAILED, Outcome.SUCCEEDED]
+    assert "could not be saved" in job.attempts[0].detail
+    assert w.events(ev.QUEUE_OUTPUTS_LOST)
+
+
+def test_a_job_id_too_long_for_a_machine_fails_with_the_reason(world):
+    w = world()
+    job_id = "j" * 62
+    w.submit(job_id)
+    coord = w.coordinator()
+
+    job = w.final(coord, job_id)
+
+    assert job.state == JobState.FAILED
+    assert "64" in job.result["reason"]
+    assert w.pool.starts == []
+
+
+def test_a_paused_queue_still_lets_a_new_coordinator_re_adopt_its_runs(world):
+    w = world(max_machines=1)
+    w.pool.script("j1", FakeRun(polls=60))
+    w.submit("j1")
+    a = w.coordinator("coord-a")
+    w.until_state(a, "j1", JobState.RUNNING)
+    del a
+    w.backend.set_paused(True, "tester")
+    w.submit("j2")
+
+    b = w.coordinator("coord-b")
+    job = w.final(b, "j1", max_ticks=80)
+
+    assert job.state == JobState.SUCCEEDED
+    assert w.job("j2").state == JobState.QUEUED
+    assert [r.id for r in w.pool.starts] == ["j1-a1"]
+
+
+def test_cancelling_a_job_whose_dispatch_may_have_started_cancels_on_the_machine(world):
+    w = world()
+    w.pool.dispatch_failures["s1"] = 1
+    w.submit("j1")
+    coord = w.coordinator()
+    w.until(coord, lambda: ("s1", "j1-a1", "error") in w.pool.dispatches)
+
+    w.backend.request_cancel("j1", "tester")
+    job = w.final(coord, "j1", max_ticks=5)
+
+    assert job.state == JobState.CANCELLED
+    assert w.pool.cancels == ["j1-a1"]
+
+
+def test_a_preflight_that_raises_skips_placement_once_and_the_tick_goes_on(world):
+    from gpu4agents.queue.preflight import default_preflight
+
+    calls = {"n": 0}
+
+    def flaky(job, ctx):
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            raise RuntimeError("price feed down")
+        return default_preflight(job, ctx)
+
+    w = world()
+    w.submit("j1")
+    coord = w.coordinator(preflight=flaky)
+
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    errors = [e for e in w.events(ev.PROVIDER_ERROR) if e.get("operation") == "preflight"]
+    assert len(errors) == 1 and "price feed down" in errors[0]["error"]
+    assert calls["n"] == 4
+
+
+def test_a_health_check_that_raises_is_run_again(world, monkeypatch):
+    w = world()
+    w.submit("j1")
+    coord = w.coordinator()
+    real = w.pool.health_check
+    boom = {"n": 1}
+
+    def flaky(m):
+        if boom["n"]:
+            boom["n"] -= 1
+            raise RuntimeError("health job could not start")
+        return real(m)
+
+    monkeypatch.setattr(w.pool, "health_check", flaky)
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    assert len(w.pool.health_checks) == 1  # the one that raised did not count as done
+
+
+def test_run_s_heartbeat_thread_renews_while_a_tick_is_busy(world, monkeypatch):
+    import threading
+    import time as real_time
+
+    w = world(tick="0.01s")
+    coord = w.coordinator()
+    coord.heartbeat_s = 0.02
+    beats = []
+    real_renew = w.backend.renew_coordinator
+
+    def renew(owner, lease_s):
+        if threading.current_thread().name == "coordinator-heartbeat":
+            beats.append(owner)
+        return real_renew(owner, lease_s)
+
+    monkeypatch.setattr(w.backend, "renew_coordinator", renew)
+    real_poll = w.pool.poll
+    busy = threading.Event()
+
+    def slow_poll():
+        busy.set()
+        real_time.sleep(0.3)  # a tick stuck in slow work
+        return real_poll()
+
+    monkeypatch.setattr(w.pool, "poll", slow_poll)
+    stop = threading.Event()
+    t = threading.Thread(target=coord.run, args=(stop,))
+    t.start()
+    try:
+        assert busy.wait(5)
+        real_time.sleep(0.25)
+        assert len(beats) >= 3
+    finally:
+        stop.set()
+        t.join(5)
+    assert not t.is_alive()

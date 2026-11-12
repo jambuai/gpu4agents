@@ -148,8 +148,8 @@ class LocalBackend(QueueBackend):
 
     def claim(self, worker: str, lease_s: float, job_id: Optional[str] = None) -> Optional[Claim]:
         with self._tx() as c:
-            if self._meta(c, "paused") == "1":
-                return None
+            if not job_id and self._meta(c, "paused") == "1":
+                return None  # a named job stays claimable: a coordinator re-adopting its run
             rows = c.execute(
                 "SELECT * FROM jobs WHERE state=? " + ("AND id=? " if job_id else "") + "ORDER BY submitted_at, seq",
                 (JobState.QUEUED.value, *([job_id] if job_id else [])),

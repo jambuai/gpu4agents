@@ -11,6 +11,7 @@ A dispatched job is unpacked like the watchdog does (bundle into
 
 from __future__ import annotations
 
+import itertools
 import shutil
 import tarfile
 from dataclasses import dataclass
@@ -25,6 +26,7 @@ from gpu4agents.queue.pool import HealthResult, RetireResult
 from gpu4agents.queue.pool_types import MachineState, PoolMachine
 
 _LIVE = (MachineState.READY, MachineState.BUSY)
+_INSTANCE_IDS = itertools.count(1)  # unique across FakePools, like provider instance ids
 
 
 @dataclass
@@ -93,7 +95,7 @@ class FakePool:
 
         self._machines: dict[str, PoolMachine] = {}
         self._boot_left: dict[str, int] = {}
-        self.remotes: dict[str, FakeRemote] = {}
+        self.runs: list[FakeRemote] = []  # every remote job, on any machine
         self.unreachable: set[str] = set()
 
         self.last_open_at: Optional[float] = None
@@ -105,6 +107,15 @@ class FakePool:
         self.fetch_failures: dict[str, int] = {}  # remote id -> fetches that fail first
         self.health_failures: list[str] = []  # slots whose next health check fails
         self.retire_refused: set[str] = set()
+        self.retire_loses: set[str] = set()  # retire cannot pull anything from these slots
+        self.dispatch_failures: dict[str, int] = {}  # slot -> dispatches that fail before starting
+        # Slow calls: operation name -> seconds the call takes on the injected clock. The
+        # clock moves in steps of ``slow_step_s``; ``during()`` runs after each step (a
+        # heartbeat thread, or another coordinator acting meanwhile).
+        self.delays: dict[str, float] = {}
+        self.slow_step_s = 5.0
+        self.during: Optional[Callable[[], None]] = None
+        self.advance: Optional[Callable[[float], None]] = None  # how to move the clock
 
         # what happened
         self.opens = 0
@@ -132,8 +143,22 @@ class FakePool:
         self._machines[slot].state = MachineState.UNRESPONSIVE
         self.unreachable.add(slot)
 
+    @property
+    def remotes(self) -> dict[str, FakeRemote]:
+        """Remote id -> its latest run (a test convenience)."""
+        return {r.id: r for r in self.runs}
+
     def slot_of(self, remote_id: str) -> str:
         return self.remotes[remote_id].slot
+
+    def _slow(self, op: str) -> None:
+        left = self.delays.get(op, 0.0)
+        while left > 0 and self.advance is not None:
+            step = min(self.slow_step_s, left)
+            self.advance(step)
+            left -= step
+            if self.during is not None:
+                self.during()
 
     # ------------------------------------------------------------------ Pool interface
 
@@ -154,9 +179,10 @@ class FakePool:
         self.opens += 1
         slot = f"s{self.opens}"
         now = self.clock()
+        instance = f"i-{next(_INSTANCE_IDS)}"
         self.last_open_at = now
         m = PoolMachine(
-            slot=slot, instance_id=f"i-{slot}-{self.opens}", state=MachineState.PROVISIONING,
+            slot=slot, instance_id=instance, state=MachineState.PROVISIONING,
             hourly_usd=self.hourly_usd, stopped_hourly_usd=0.0, ready_at=None, deadline_at=None,
             opened_at=now + self.opens * 1e-6,
         )
@@ -166,6 +192,7 @@ class FakePool:
         return m
 
     def poll(self) -> list[PoolMachine]:
+        self._slow("poll")
         now = self.clock()
         for m in list(self._machines.values()):
             if m.state == MachineState.PROVISIONING:
@@ -210,7 +237,13 @@ class FakePool:
 
     def dispatch(self, m: PoolMachine, remote_id: str, bundle: Path, manifest: dict, env: dict) -> str:
         self._reach(m)
-        if remote_id in self.remotes:
+        self._slow("dispatch")
+        if self.dispatch_failures.get(m.slot, 0) > 0:
+            self.dispatch_failures[m.slot] -= 1
+            self.dispatches.append((m.slot, remote_id, "error"))
+            raise WatchdogUnavailable(f"upload to {m.slot} cut short (scripted)")
+        if any(r.id == remote_id and r.slot == m.slot for r in self.runs):
+            # like the job runner's 409: only this machine knows the id
             self.dispatches.append((m.slot, remote_id, "already_running"))
             return "already_running"
         runs = self.scripts.get(remote_id.rsplit("-a", 1)[0]) or []
@@ -225,25 +258,27 @@ class FakePool:
             id=remote_id, slot=m.slot, spec=spec, manifest=dict(manifest), env=dict(env),
             workdir=workdir, started_at=self.clock(), polls_left=max(1, spec.polls),
         )
-        self.remotes[remote_id] = r
+        self.runs.append(r)
         self.starts.append(r)
         self.dispatches.append((m.slot, remote_id, "started"))
         self._sync(m)
         return "started"
 
+    def _find(self, m: PoolMachine, remote_id: str) -> FakeRemote:
+        r = next((r for r in self.runs if r.id == remote_id and r.slot == m.slot), None)
+        if r is None:
+            raise StateError(f"no job {remote_id}")
+        return r
+
     def job_info(self, m: PoolMachine, remote_id: str) -> dict:
         self._reach(m)
-        r = self.remotes.get(remote_id)
-        if r is None or r.slot != m.slot:
-            raise StateError(f"no job {remote_id}")
-        return r.record()
+        return self._find(m, remote_id).record()
 
     def fetch_outputs(self, m: PoolMachine, remote_id: str, dest: Path) -> list[str]:
         self._reach(m)
+        self._slow("fetch_outputs")
         self.fetches.append(remote_id)
-        r = self.remotes.get(remote_id)
-        if r is None or r.slot != m.slot:
-            raise StateError(f"no job {remote_id}")
+        r = self._find(m, remote_id)
         if self.fetch_failures.get(remote_id, 0) > 0:
             self.fetch_failures[remote_id] -= 1
             raise WatchdogUnavailable(f"download of {remote_id} cut short (scripted)")
@@ -256,7 +291,7 @@ class FakePool:
     def cancel(self, m: PoolMachine, remote_id: str) -> None:
         self._reach(m)
         self.cancels.append(remote_id)
-        r = self.remotes.get(remote_id)
+        r = next((r for r in self.runs if r.id == remote_id and r.slot == m.slot), None)
         if r is not None and r.state == "running":
             r.state = "cancelled"
             r.returncode = -15
@@ -273,7 +308,7 @@ class FakePool:
         for r in self._on(m.slot):
             if not r.record()["outputs_unsaved"] and r.id not in m.jobs:
                 continue
-            if m.slot in self.unreachable:
+            if m.slot in self.unreachable or m.slot in self.retire_loses:
                 result.lost.append(r.id)
                 continue
             dest = self.root / "retired" / r.id
@@ -302,7 +337,7 @@ class FakePool:
     # ------------------------------------------------------------------ internals
 
     def _on(self, slot: str) -> list[FakeRemote]:
-        return [r for r in self.remotes.values() if r.slot == slot]
+        return [r for r in self.runs if r.slot == slot]
 
     def _reach(self, m: PoolMachine) -> None:
         if m.slot in self.unreachable or m.slot not in self._machines:

@@ -25,10 +25,11 @@ class QueueBackend(ABC):
 
     @abstractmethod
     def claim(self, worker: str, lease_s: float, job_id: Optional[str] = None) -> Optional[Claim]:
-        """Oldest QUEUED job (skips a paused queue and cancel_requested jobs).
+        """Oldest QUEUED job (None while the queue is paused; skips cancel_requested jobs).
 
         With ``job_id``, claim exactly that job if it is QUEUED (including one whose
-        lease just expired and was reaped), else None. A reaped claim whose job has
+        lease just expired and was reaped), else None. This works while the queue is
+        paused too: a coordinator re-adopting a run already on a machine is not new work. A reaped claim whose job has
         ``cancel_requested`` becomes CANCELLED instead of QUEUED.
         """
 

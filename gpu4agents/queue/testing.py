@@ -194,6 +194,16 @@ class QueueBackendContract:
         backend.set_paused(False, "me")
         assert backend.claim("w", 60) is not None
 
+    def test_paused_queue_still_allows_claiming_a_specific_job(self, backend, clock):
+        self._submit(backend, clock, 1)
+        self._submit(backend, clock, 2)
+        backend.set_paused(True, "me")
+        assert backend.claim("w", 60) is None
+        claim = backend.claim("w", 60, job_id="job-0002")
+        assert claim is not None and claim.job.id == "job-0002"
+        assert backend.claim("w", 60, job_id="job-0001") is not None
+        assert backend.claim("w", 60) is None  # nothing named: still paused
+
     def test_one_coordinator_lease_at_a_time(self, backend, clock):
         assert backend.acquire_coordinator("a", 30) is True
         assert backend.acquire_coordinator("b", 30) is False

@@ -106,8 +106,9 @@ return ret('OK', id)
 """,
     # ARGV: lease_s, token, job_id ('' = oldest)
     "claim": """
-if redis.call('GET', P .. ':paused') == '1' then return {'NONE'} end
 local lease_s, token, want = tonumber(ARGV[3]), ARGV[4], ARGV[5]
+-- a paused queue still lets a coordinator re-adopt one named job
+if want == '' and redis.call('GET', P .. ':paused') == '1' then return {'NONE'} end
 local pick = nil
 if want ~= '' then
   if redis.call('ZSCORE', stk('queued'), want) and redis.call('HGET', jk(want), 'cancel_requested') ~= '1' then
