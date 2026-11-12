@@ -129,6 +129,51 @@ def test_submit_rejects_bad_jobs_and_stores_nothing(env, monkeypatch):
     assert not list((env.cfg.state_dir / "queue" / "bundles").glob("*"))
 
 
+def test_two_submits_with_one_key_leave_one_job_and_one_bundle(env, monkeypatch):
+    d = env.job_dir()
+    barrier = threading.Barrier(4)
+    real = LocalOutputStore.put_bundle
+
+    def synced(self, job_id, path):
+        barrier.wait(10)  # every submit has passed the "known key" check by now
+        return real(self, job_id, path)
+
+    monkeypatch.setattr(LocalOutputStore, "put_bundle", synced)
+    ids, errors = [], []
+
+    def go():
+        try:
+            ids.append(api.submit(d, key="same", project=env.path))
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=go) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(30)
+    assert errors == [] and len(set(ids)) == 1 and len(env.backend.list()) == 1
+    assert [p.name for p in (env.cfg.state_dir / "queue" / "bundles").glob("*")] == [f"{ids[0]}.tar.gz"]
+
+
+def test_a_failed_submit_leaves_no_bundle(env, monkeypatch):
+    def boom(job):
+        raise RuntimeError("backend down")
+
+    monkeypatch.setattr(env.backend, "submit", boom)
+    assert env.cli("queue", "submit", str(env.job_dir()), expect=None).exit_code != 0
+    assert not list((env.cfg.state_dir / "queue" / "bundles").glob("*"))
+
+
+def test_env_values_never_appear_in_job_descriptions(env):
+    job_id = env.data("queue", "submit", str(env.job_dir()), "--env", "TOKEN=s3cr3t-value")["job_id"]
+    for out in (env.cli("queue", "status", job_id).stdout, env.cli("queue", "cancel", job_id).stdout):
+        assert "s3cr3t-value" not in out
+        assert json.loads(out)["manifest"]["env"] == {"TOKEN": "***"}
+    assert env.backend.get(job_id).manifest["env"] == {"TOKEN": "s3cr3t-value"}  # the job itself still gets it
+    assert "s3cr3t-value" not in json.dumps(api.status(job_id, env.path))
+
+
 def test_submit_while_paused_queues_and_says_so(env):
     env.cli("queue", "pause")
     out = env.data("queue", "submit", str(env.job_dir()))
@@ -200,6 +245,9 @@ def test_control_actions_are_audited_with_the_actor(env):
         ("pause", "alice"), ("resume", "alice"), ("cancel", "alice"), ("drain", "alice"), ("retry", "alice"),
     ]
     env.cli("queue", "retry", job_id, expect=3)  # cancelled, not failed
+    assert all(e["ok"] is True for e in env.events("queue_control")[:5])
+    failed = env.events("queue_control")[-1]
+    assert (failed["action"], failed["ok"], failed["error"]) == ("retry", False, "StateError")
 
 
 def test_drain_now_leaves_the_work_to_the_coordinator_that_holds_the_lease(env):
@@ -218,7 +266,7 @@ def test_drain_now_leaves_the_work_to_the_coordinator_that_holds_the_lease(env):
     env.step(coord)
     job = env.backend.get(job_id)
     assert job.state == JobState.QUEUED and job.cancel_requested is False
-    assert [a.outcome.value for a in job.attempts] == ["cancelled"]
+    assert [a.outcome.value for a in job.attempts] == ["drained"]
     assert env.pool.retired and all(m.state in ("retired", "gone") for m in env.pool.machines())
     env.step(coord)
     assert env.backend.drain_requested() is False
@@ -240,22 +288,86 @@ def test_drain_now_without_a_coordinator_does_it_directly(env):
     assert out["drain"] == "done" and out["performed"] is True
     job = env.backend.get(job_id)
     assert job.state == JobState.QUEUED
-    assert [a.outcome.value for a in job.attempts] == ["cancelled"]
+    assert [a.outcome.value for a in job.attempts] == ["drained"]
     assert all(m.state in ("retired", "gone") for m in env.pool.machines())
     assert env.backend.paused() is True and env.backend.drain_requested() is False
     assert env.backend.coordinator() is None  # the lease it took is given back
-    assert [e["action"] for e in env.events("queue_control")][:1] == ["drain_now"]
+    logged = env.events("queue_control")
+    assert [e["action"] for e in logged] == ["drain_now_done", "drain_now"]  # recorded once it happened
+    assert logged[-1]["ok"] is True and logged[-1]["actor"] == "alice"
 
 
 def test_drain_now_does_not_burn_the_last_attempt(env):
     env.cfg.queue.max_attempts = 1
     env.cli("queue", "submit", str(env.job_dir()))
     job_id = env.backend.list()[0].id
-    env.pool.script(job_id, FakeRun(polls=50))
+    env.pool.script(job_id, FakeRun(polls=50), FakeRun())
     coord = env.coordinator()
     env.until(coord, lambda: env.backend.get(job_id).state == JobState.RUNNING)
     coord.drain_now("alice")
     assert env.backend.get(job_id).state == JobState.QUEUED
+    env.cli("queue", "resume")
+    env.until(coord, lambda: env.backend.get(job_id).state == JobState.SUCCEEDED)  # the one real attempt is still its own
+
+
+def test_drain_now_keeps_a_run_whose_machine_will_not_retire(env):
+    env.cli("queue", "submit", str(env.job_dir()))
+    job_id = env.backend.list()[0].id
+    env.pool.script(job_id, FakeRun(polls=50), FakeRun())
+    coord = env.coordinator()
+    env.until(coord, lambda: env.backend.get(job_id).state == JobState.RUNNING)
+    slot = env.pool.slot_of(f"{job_id}-a1")
+    env.pool.retire_refused.add(slot)
+
+    env.data("queue", "drain", "--now")
+    env.step(coord, 3)
+    job = env.backend.get(job_id)
+    assert job.state == JobState.RUNNING and job.attempts == []  # not requeued while its machine lives
+    assert env.backend.drain_requested() is True
+
+    env.pool.retire_refused.clear()
+    env.step(coord, 3)
+    job = env.backend.get(job_id)
+    assert job.state == JobState.QUEUED and [a.outcome.value for a in job.attempts] == ["drained"]
+    assert env.backend.drain_requested() is False
+
+
+def test_direct_drain_now_waits_for_a_job_it_has_not_adopted(env):
+    env.cli("queue", "submit", str(env.job_dir()))
+    job_id = env.backend.list()[0].id
+    env.pool.script(job_id, FakeRun(polls=50))
+    coord = env.coordinator()
+    env.until(coord, lambda: env.backend.get(job_id).state == JobState.RUNNING)
+    coord.release()  # the coordinator went away but the job's lease is still alive
+
+    out = env.data("queue", "drain", "--now")
+
+    assert out["drain"] == "partial" and out["waiting_for"] == [job_id]
+    assert [m for m in env.pool.machines() if m.state not in ("retired", "gone")]  # its machine was left alone
+    assert env.backend.get(job_id).state == JobState.RUNNING
+    assert env.backend.drain_requested() is True  # the next coordinator finishes it
+
+
+def test_resume_drops_a_pending_drain_and_a_pending_drain_pauses_once(env):
+    env.backend.acquire_coordinator("someone", 600)
+    env.cli("queue", "drain", "--now")
+    assert env.backend.drain_requested() is True
+    assert [r["action"] for r in env.backend.audit()] == ["set_paused", "request_drain"]
+    out = env.data("queue", "resume")
+    assert out["drain_cleared"] is True
+    assert env.backend.drain_requested() is False and env.backend.paused() is False
+
+
+def test_a_paused_queue_keeps_no_warm_machine(write_config, tmp_path, monkeypatch):
+    cfg = write_config(runtime={"engine": "none"}, queue={"scale_up_after": "0s", "min_machines": 1, "tick": "5s"})
+    e = Env(tmp_path, cfg, monkeypatch)
+    e.backend.set_paused(True, "alice")
+    coord = e.coordinator()
+    e.step(coord, 3)
+    assert e.pool.opens == 0
+    e.backend.set_paused(False, "alice")
+    e.step(coord, 2)
+    assert e.pool.opens == 1
 
 
 # -- the coordinator from the CLI -------------------------------------------
@@ -292,6 +404,44 @@ def test_stats_reads_what_the_coordinator_wrote(env):
     assert out["queue"]["by_state"]
 
 
+def test_audit_exits_1_while_something_stays_unrepaired(env, monkeypatch):
+    from gpu4agents.queue.audit import Violation
+
+    monkeypatch.setattr("gpu4agents.queue.audit.audit", lambda *a, **k: [Violation("I7", None, None, "x", False)])
+    result = env.cli("queue", "audit", "--repair", expect=1)
+    assert json.loads(result.stdout)["violations"][0]["code"] == "I7"
+    monkeypatch.setattr("gpu4agents.queue.audit.audit", lambda *a, **k: [Violation("I4", None, "s1", "x", True)])
+    env.cli("queue", "audit", "--repair", expect=0)
+
+
+def test_an_unreachable_backend_is_one_clean_error(env, monkeypatch):
+    def down(*a, **k):
+        raise ConnectionError("Error 111 connecting to redis://u:hunter2@host:6379. Connection refused.")
+
+    monkeypatch.setattr(env.backend, "stats", down)
+    result = env.cli("queue", "status", expect=4)
+    assert "hunter2" not in result.output and "unreachable" in result.output and result.exception.__class__.__name__ == "SystemExit"
+
+
+def test_run_once_gives_the_lease_back_even_when_the_tick_fails_and_a_busy_port_is_a_config_error(env, monkeypatch):
+    def boom(self):
+        self.leader = True
+        self.backend.acquire_coordinator(self.worker_id, 60)
+        raise RuntimeError("tick failed")
+
+    monkeypatch.setattr(Coordinator, "tick", boom)
+    env.cli("queue", "run", "--once", expect=None)
+    assert env.backend.coordinator() is None
+    monkeypatch.undo()
+    import socket
+
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        port = busy.getsockname()[1]
+        env.cli("queue", "run", "--once", "--metrics-port", str(port), expect=2)
+
+
 def test_audit_reports_no_violations_on_a_clean_queue(env):
     out = env.data("queue", "audit")
     assert out["ok"] is True and out["violations"] == []
@@ -324,6 +474,7 @@ def test_pull_gets_verified_outputs_after_the_job_ran(env):
     env.until(coord, lambda: env.backend.get(job_id).state == JobState.SUCCEEDED)
     out = env.data("queue", "pull", job_id)
     assert (Path(out["path"]) / "model.bin").read_bytes() == b"weights"
+    assert out["files"] == ["model.bin"]
     dest = env.tmp / "elsewhere"
     out = env.data("queue", "pull", job_id, "--to", str(dest))
     assert (dest / "model.bin").read_bytes() == b"weights" and "model.bin" in out["files"]
@@ -419,6 +570,7 @@ def test_queue_tools_are_listed_with_the_right_annotations(tmp_path):
         assert name in tools
     assert tools["gpu_queue_status"]["annotations"]["readOnlyHint"] is True
     assert tools["gpu_queue_control"]["annotations"]["destructiveHint"] is True
+    assert tools["gpu_queue_submit"]["annotations"]["idempotentHint"] is False
     assert tools["gpu_queue_control"]["inputSchema"]["properties"]["action"]["enum"] == ["pause", "resume", "drain"]
 
 

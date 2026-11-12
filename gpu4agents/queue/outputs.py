@@ -80,6 +80,10 @@ class OutputStore(ABC):
     def get_bundle(self, ref: str, dest: Path) -> Path: ...
 
     @abstractmethod
+    def delete_bundle(self, ref: str) -> None:
+        """Remove a bundle ``put_bundle`` stored. Missing is fine."""
+
+    @abstractmethod
     def put_outputs(self, job_id: str, attempt: int, src_dir: Path, success: bool = True) -> OutputRef:
         """Store ``src_dir``. A successful attempt becomes the job's outputs; a failed one is kept under ``.attempt-<n>``."""
 
@@ -120,6 +124,12 @@ class LocalOutputStore(OutputStore):
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dest)
         return dest
+
+    def delete_bundle(self, ref: str) -> None:
+        src = Path(ref)
+        if not src.resolve().is_relative_to(self.bundles_dir.resolve()):
+            raise ValueError(f"bundle {ref!r} is not in this store")
+        src.unlink(missing_ok=True)
 
     @contextlib.contextmanager
     def _lock(self, job_id: str):
@@ -301,6 +311,9 @@ class S3OutputStore(OutputStore):
         dest.parent.mkdir(parents=True, exist_ok=True)
         self._s3.download_file(self.bucket, key, str(dest))
         return dest
+
+    def delete_bundle(self, ref: str) -> None:
+        self._s3.delete_object(Bucket=self.bucket, Key=self._split(ref))
 
     def put_outputs(self, job_id: str, attempt: int, src_dir: Path, success: bool = True) -> OutputRef:
         _check_job_id(job_id)

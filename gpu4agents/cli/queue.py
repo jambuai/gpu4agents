@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import re
 import signal
 import threading
 from dataclasses import asdict
@@ -27,6 +29,29 @@ queue_app = typer.Typer(
 )
 
 
+_URL_PASSWORD = re.compile(r"(://[^:/@\s]*):[^@\s]*@")
+
+
+def _guard(fn):
+    """A queue backend or output store that cannot be reached is one clean error line (exit 4),
+    never a traceback, and never a password."""
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            return fn(*args, **kwargs)
+        except JambuError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            root = type(exc).__module__.split(".")[0]
+            if not (isinstance(exc, (OSError, TimeoutError)) or root in ("redis", "botocore", "boto3", "urllib3")):
+                raise
+            text = _URL_PASSWORD.sub(r"\1:***@", str(exc))[:200]
+            _common.fail(f"the queue or its output store is unreachable ({type(exc).__name__}: {text})", 4)
+
+    return wrapper
+
+
 @queue_app.callback()
 def queue_callback(ctx: typer.Context) -> None:
     # The main callback leaves "queue" quiet; only `run` stays so.
@@ -46,6 +71,7 @@ def _emit(context: Context, payload, human) -> None:
 
 
 @queue_app.command("submit")
+@_guard
 def submit_command(
     ctx: typer.Context,
     directory: Path = typer.Argument(Path("."), help="Directory of code (gpujob.yaml with `run:`)."),
@@ -108,6 +134,7 @@ def _summary_human(s: dict) -> None:
 
 
 @queue_app.command("status")
+@_guard
 def status_command(
     ctx: typer.Context, job: Optional[str] = typer.Argument(None, help="Job id; omit for the whole queue."),
 ) -> None:
@@ -122,6 +149,7 @@ def status_command(
 
 
 @queue_app.command("ls")
+@_guard
 def ls_command(
     ctx: typer.Context,
     state: Optional[str] = typer.Option(None, "--state", help="Only jobs in this state."),
@@ -149,6 +177,7 @@ def ls_command(
 
 
 @queue_app.command("cancel")
+@_guard
 def cancel_command(ctx: typer.Context, job: str = typer.Argument(...)) -> None:
     """Cancel a job: at once when queued, otherwise the coordinator stops it on its machine."""
     context = get_context(ctx)
@@ -161,6 +190,7 @@ def cancel_command(ctx: typer.Context, job: str = typer.Argument(...)) -> None:
 
 
 @queue_app.command("retry")
+@_guard
 def retry_command(ctx: typer.Context, job: str = typer.Argument(...)) -> None:
     """Queue a FAILED job again (it keeps its attempts)."""
     context = get_context(ctx)
@@ -173,6 +203,7 @@ def retry_command(ctx: typer.Context, job: str = typer.Argument(...)) -> None:
 
 
 @queue_app.command("pull")
+@_guard
 def pull_command(
     ctx: typer.Context,
     job: str = typer.Argument(...),
@@ -185,7 +216,8 @@ def pull_command(
     except JambuError as exc:
         handle(exc)
         return
-    files = sorted(p.relative_to(path).as_posix() for p in path.rglob("*") if p.is_file()) if path.is_dir() else []
+    ref = api.status(job, _project(context)).get("outputs_ref") or {}
+    files = sorted(f["path"] for f in ref.get("files", []))
     _emit(
         context, {"job_id": job, "path": str(path), "files": files},
         lambda r: console.print(Text(f"+ {len(files)} files in {path}", style="green")),
@@ -193,6 +225,7 @@ def pull_command(
 
 
 @queue_app.command("pause")
+@_guard
 def pause_command(ctx: typer.Context) -> None:
     """Stop starting new jobs (running ones go on)."""
     context = get_context(ctx)
@@ -205,6 +238,7 @@ def pause_command(ctx: typer.Context) -> None:
 
 
 @queue_app.command("resume")
+@_guard
 def resume_command(ctx: typer.Context) -> None:
     """Start jobs again."""
     context = get_context(ctx)
@@ -217,6 +251,7 @@ def resume_command(ctx: typer.Context) -> None:
 
 
 @queue_app.command("drain")
+@_guard
 def drain_command(
     ctx: typer.Context,
     now: bool = typer.Option(
@@ -235,6 +270,7 @@ def drain_command(
 
 
 @queue_app.command("audit")
+@_guard
 def audit_command(
     ctx: typer.Context,
     repair: bool = typer.Option(False, "--repair", help="Fix what can be fixed safely."),
@@ -254,11 +290,12 @@ def audit_command(
             console.print(f"{v['code']}  {v['job_id'] or v['slot'] or ''}  {v['detail']}" + ("  (repaired)" if v["repaired"] else ""))
 
     _emit(context, result, human)
-    if not result["ok"] and not repair:
-        raise typer.Exit(1)
+    if any(not v["repaired"] for v in result["violations"]):
+        raise typer.Exit(1)  # something is still wrong
 
 
 @queue_app.command("stats")
+@_guard
 def stats_command(ctx: typer.Context) -> None:
     """The coordinator's metrics (as of its last tick) and the queue's counts."""
     context = get_context(ctx)
@@ -278,6 +315,7 @@ def stats_command(ctx: typer.Context) -> None:
 
 
 @queue_app.command("run")
+@_guard
 def run_command(
     ctx: typer.Context,
     once: bool = typer.Option(False, "--once", help="Run one tick and exit."),
@@ -300,9 +338,11 @@ def run_command(
             server = api.serve_metrics(rt.observer, metrics_port)
             context.echo(f"> metrics on http://127.0.0.1:{server.server_address[1]}/metrics")
         if once:
-            report = coordinator.tick()
-            leader = coordinator.leader
-            coordinator.release()
+            try:
+                report = coordinator.tick()
+                leader = coordinator.leader
+            finally:
+                coordinator.release()
             result = {**asdict(report), "leader": leader, "worker": coordinator.worker_id}
             _emit(context, result, lambda r: console.print(
                 f"tick: {r['dispatched']} dispatched, {r['settled']} settled, {r['requeued']} requeued, {r['opened']} opened"
@@ -332,6 +372,7 @@ def run_command(
 
 
 @queue_app.command("install-service")
+@_guard
 def install_service_command(
     ctx: typer.Context,
     uninstall: bool = typer.Option(False, "--uninstall", help="Remove the service files."),

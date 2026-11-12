@@ -256,7 +256,6 @@ class Coordinator:
         self._violations: set[str] = set()
         self._leftover: dict[str, tuple[int, float]] = {}  # "<job>/<n>" -> (failures, next try)
         self._renewed_at: Optional[float] = None
-        self._draining = False  # drain_now in progress: requeued attempts never give a job up
         self._ticks = 0
         self._last_decision: Optional[tuple] = None
         self._last_blocked: Optional[str] = None
@@ -908,29 +907,38 @@ class Coordinator:
         return True
 
     def drain_now(self, actor: str) -> dict:
-        """Pause the queue, send every job in hand back to the queue and retire every machine
-        (retire pulls the outputs). The requeued attempts are recorded as cancelled and do not
-        fail the job at ``max_attempts``. Takes the coordinator lease first when it does not
+        """Pause the queue, retire every machine (retire pulls the outputs) and send the jobs
+        that ran there back to the queue; attempts recorded as ``drained`` do not count toward
+        ``max_attempts``. A run whose machine was not destroyed stays in hand, and a job this
+        coordinator has not adopted yet (its old lease is still alive) leaves its machine alone,
+        so nothing is requeued while it may still run and its outputs are not thrown away: the
+        drain request stays and is retried. Takes the coordinator lease first when it does not
         hold it; ``performed`` is False when another coordinator does."""
         if not self.leader and not self._lead():
             return {"performed": False, "reason": "another coordinator holds the lease"}
-        self._draining = True
-        before = self._report.requeued
-        try:
-            with self._lock:
+        with self._lock:
+            if not self.backend.paused():  # a pending drain pauses once, under the real actor
                 self.backend.set_paused(True, actor)
-            for m in self.pool.machines():
-                if m.state not in _DEAD:
-                    self._retire(m, Outcome.CANCELLED, "drain now", False)
-            for run in self._snapshot():
-                if self._runs.get(run.job_id) is not run or run.fetched is not None or run.phase == "delivering":
-                    continue
-                try:
-                    self._fault(run, Outcome.CANCELLED, "drain now")
-                except _Dropped:
-                    pass
-        finally:
-            self._draining = False
+        before = self._report.requeued
+        self._retry_adoptions()
+        waiting = sorted(self._adopt)
+        if waiting:
+            remaining = [m.slot for m in self.pool.machines() if m.state not in _DEAD]
+            self.obs.emit(ev.QUEUE_CONTROL, action="drain_now_waiting", actor=actor, waiting_for=waiting, remaining=remaining)
+            return {"performed": True, "requeued": 0, "remaining": remaining, "waiting_for": waiting}
+        for m in self.pool.machines():
+            if m.state not in _DEAD:
+                self._retire(m, Outcome.DRAINED, "drain now", False)
+        live = {m.slot for m in self.pool.machines() if m.state not in _DEAD}
+        for run in self._snapshot():
+            if self._runs.get(run.job_id) is not run or run.fetched is not None or run.phase == "delivering":
+                continue
+            if run.slot is not None and run.slot in live:
+                continue  # its machine is still there: the next pass retires it first
+            try:
+                self._fault(run, Outcome.DRAINED, "drain now")
+            except _Dropped:
+                pass
         remaining = [m.slot for m in self.pool.machines() if m.state not in _DEAD]
         requeued = self._report.requeued - before
         self.obs.emit(ev.QUEUE_CONTROL, action="drain_now_done", actor=actor, requeued=requeued, remaining=remaining)
@@ -1282,7 +1290,8 @@ class Coordinator:
             self._store_attempt(run, Path(outputs_dir))
         attempt = self._attempt(run, outcome, detail)
         attempts = run.job.attempts + [attempt]
-        if len(attempts) >= self.queue.max_attempts and not self._draining:
+        # An attempt sent back by `drain --now` is nobody's fault: it does not count toward the cap.
+        if sum(1 for a in attempts if a.outcome != Outcome.DRAINED) >= self.queue.max_attempts:
             reasons = "; ".join(
                 f"attempt {a.number}: {a.outcome.value if a.outcome else '?'}" + (f" ({a.detail})" if a.detail else "")
                 for a in attempts
@@ -1624,8 +1633,9 @@ class Coordinator:
             queued += sum(1 for r in self._snapshot() if r.phase == "pending" and r.slot is None and not r.locate)
         views = [MachineView(m.slot, m.state, m.hourly_usd, self._occupied(m.slot)) for m in machines]
         counted = sum(1 for v in views if v.state in ("provisioning", "checking", "ready", "busy"))
+        min_machines = 0 if paused else q.min_machines  # a paused (or drained) queue keeps no warm machine
         offer = None
-        if queued > 0 or counted < q.min_machines:
+        if queued > 0 or counted < min_machines:
             try:
                 offer = self.pool.next_offer_usd()
                 self._ok("next_offer")
@@ -1637,7 +1647,7 @@ class Coordinator:
         inp = ScaleInput(
             now=now, queued=queued, oldest_queued_age_s=oldest, machines=views,
             pool_usd_per_hour=pool_usd_per_hour(machines), next_offer_usd=offer,
-            min_machines=q.min_machines, max_machines=q.max_machines, max_usd_per_hour=q.max_usd_per_hour,
+            min_machines=min_machines, max_machines=q.max_machines, max_usd_per_hour=q.max_usd_per_hour,
             scale_up_after_s=q.scale_up_after_s, jobs_per_machine=q.jobs_per_machine,
             last_open_at=self.pool.last_failed_at, open_backoff_s=self.pool.open_backoff_s,
         )

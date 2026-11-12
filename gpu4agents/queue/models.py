@@ -32,6 +32,7 @@ class Outcome(str, Enum):
     PREFLIGHT_REJECTED = "preflight_rejected"
     CANCELLED = "cancelled"
     DELIVERY_FAILED = "delivery_failed"
+    DRAINED = "drained"  # sent back to the queue by `drain --now`: not the job's or the machine's fault
 
 
 class LeaseLost(JambuError):

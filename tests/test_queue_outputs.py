@@ -66,6 +66,12 @@ def test_bundle_round_trip(tmp_path):
     bundle.write_bytes(b"tarball")
     ref = store.put_bundle("job1", bundle)
     assert (tmp_path / "bundles" / "job1.tar.gz").read_bytes() == b"tarball"
+    store.delete_bundle(ref)
+    store.delete_bundle(ref)
+    assert not (tmp_path / "bundles" / "job1.tar.gz").exists()
+    with pytest.raises(ValueError):
+        store.delete_bundle(str(tmp_path / "b.tar.gz"))
+    ref = store.put_bundle("job1", bundle)
     out = store.get_bundle(ref, tmp_path / "dl" / "x.tar.gz")
     assert out.read_bytes() == b"tarball"
 
@@ -111,6 +117,12 @@ def test_s3_store_round_trip(tmp_path, src, s3):
     b.write_bytes(b"tar")
     bref = store.put_bundle("job1", b)
     assert store.get_bundle(bref, tmp_path / "o.tgz").read_bytes() == b"tar"
+    store.delete_bundle(bref)
+    store.delete_bundle(bref)  # already gone: fine
+    with pytest.raises(Exception):
+        store.get_bundle(bref, tmp_path / "o2.tgz")
+    with pytest.raises(ValueError):
+        store.delete_bundle("s3://other/x.tar.gz")
 
 
 def test_load_output_store(tmp_path, monkeypatch):

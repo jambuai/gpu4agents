@@ -23,7 +23,7 @@ import time
 from dataclasses import asdict, dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..core import events as ev
 from ..core import job as jobmod
@@ -155,19 +155,32 @@ def submit_job(
         target = Path(tmp) / f"{job_id}.tar.gz"
         built = jobmod.build_bundle(directory, manifest.get("exclude") or [], target)
         ref = rt.outputs.put_bundle(job_id, target)
-    job = rt.backend.submit(
-        QueueJob(
-            id=job_id, key=key or job_id, bundle_ref=ref, manifest=manifest,
-            submitted_at=0.0, submitted_by=who,
+    try:
+        job = rt.backend.submit(
+            QueueJob(
+                id=job_id, key=key or job_id, bundle_ref=ref, manifest=manifest,
+                submitted_at=0.0, submitted_by=who,
+            )
         )
-    )
+    except BaseException:
+        _drop_bundle(rt, ref)  # nothing was queued: the bundle must not stay behind
+        raise
     existing = job.id != job_id
-    if not existing:
+    if existing:
+        _drop_bundle(rt, ref)  # another submit with this key won the race
+    else:
         rt.observer.emit(
             ev.QUEUE_JOB_SUBMITTED, job_id=job.id, key=job.key, submitted_by=who,
             files=built["files"], bytes=built["bytes"],
         )
     return _submitted(rt, job, existing=existing)
+
+
+def _drop_bundle(rt: Runtime, ref: str) -> None:
+    try:
+        rt.outputs.delete_bundle(ref)
+    except Exception:  # noqa: BLE001 - an orphan bundle is a leak, not a reason to fail the call
+        pass
 
 
 def _submitted(rt: Runtime, job: QueueJob, existing: bool) -> dict:
@@ -196,7 +209,12 @@ def _get(rt: Runtime, job_id: str) -> QueueJob:
 
 
 def describe(job: QueueJob) -> dict:
+    """The job as a dict, safe to print: env names stay, their values are hidden."""
     data = job.to_dict()
+    manifest = dict(data.get("manifest") or {})
+    if isinstance(manifest.get("env"), dict):
+        manifest["env"] = {k: "***" for k in manifest["env"]}
+    data["manifest"] = manifest
     data["final"] = job.state in FINAL_STATES
     return data
 
@@ -237,28 +255,40 @@ def listing(state: Optional[str] = None, project=None, limit: int = 100) -> list
     ]
 
 
-def _control(rt: Runtime, action: str, **fields: Any) -> str:
-    """Record a control action in the event log (the backend audits its own calls)."""
+def _audited(rt: Runtime, action: str, fn: Callable[[str], Any], **fields: Any) -> Any:
+    """Run ``fn(actor)``, then record ``queue_control`` in the event log: ``ok`` true after it
+    succeeded, ``ok`` false with the error type when it raised (the backend audits its own calls)."""
     who = submitter()
-    rt.observer.emit(ev.QUEUE_CONTROL, action=action, actor=who, **fields)
-    return who
+    try:
+        result = fn(who)
+    except Exception as exc:
+        rt.observer.emit(ev.QUEUE_CONTROL, action=action, actor=who, ok=False, error=type(exc).__name__, **fields)
+        raise
+    extra = result if isinstance(result, dict) and action.startswith("drain") else {}
+    rt.observer.emit(
+        ev.QUEUE_CONTROL, action=action, actor=who, ok=True,
+        **{k: v for k, v in extra.items() if k in ("drain", "performed_by", "requeued", "remaining")}, **fields,
+    )
+    return result
 
 
 def cancel(job_id: str, project=None) -> dict:
     rt = open_runtime(project)
     _get(rt, job_id)
-    who = _control(rt, "cancel", job_id=job_id)
-    return describe(rt.backend.request_cancel(job_id, who))
+    return describe(_audited(rt, "cancel", lambda who: rt.backend.request_cancel(job_id, who), job_id=job_id))
 
 
 def retry(job_id: str, project=None) -> dict:
     rt = open_runtime(project)
     _get(rt, job_id)
-    who = _control(rt, "retry", job_id=job_id)
-    try:
-        return describe(rt.backend.retry(job_id, who))
-    except ValueError as exc:
-        raise StateError(str(exc)) from exc
+
+    def do(who: str) -> QueueJob:
+        try:
+            return rt.backend.retry(job_id, who)
+        except ValueError as exc:
+            raise StateError(str(exc)) from exc
+
+    return describe(_audited(rt, "retry", do, job_id=job_id))
 
 
 def outputs(job_id: str, dest: Optional[Path] = None, project=None) -> Path:
@@ -298,7 +328,7 @@ def _pool_view(rt: Runtime) -> dict:
         pool = build_pool(rt.config, rt.observer)
         machines = pool.machines()
     except Exception as exc:  # noqa: BLE001 - no provider credentials here: report, do not fail
-        return {"machines": None, "usd_per_hour": None, "error": f"{type(exc).__name__}: {str(exc)[:200]}"}
+        return {"machines": None, "usd_per_hour": None, "error": type(exc).__name__}
     live = [m for m in machines if m.state not in (MachineState.GONE, MachineState.RETIRED)]
     spend = getattr(pool, "spend", None)
     return {
@@ -369,16 +399,27 @@ def stats(project=None) -> dict:
 
 def pause(project=None) -> dict:
     rt = open_runtime(project)
-    who = _control(rt, "pause")
-    rt.backend.set_paused(True, who)
-    return {"paused": True, "actor": who}
+
+    def do(who: str) -> dict:
+        rt.backend.set_paused(True, who)
+        return {"paused": True, "actor": who}
+
+    return _audited(rt, "pause", do)
 
 
 def resume(project=None) -> dict:
+    """Start jobs again. A drain request still waiting for its coordinator is dropped: it
+    would pause the queue again."""
     rt = open_runtime(project)
-    who = _control(rt, "resume")
-    rt.backend.set_paused(False, who)
-    return {"paused": False, "actor": who}
+
+    def do(who: str) -> dict:
+        cleared = rt.backend.drain_requested()
+        if cleared:
+            rt.backend.clear_drain()
+        rt.backend.set_paused(False, who)
+        return {"paused": False, "actor": who, "drain_cleared": cleared}
+
+    return _audited(rt, "resume", do)
 
 
 def drain(project=None, now: bool = False) -> dict:
@@ -387,27 +428,32 @@ def drain(project=None, now: bool = False) -> dict:
 
     ``now`` acts through the queue: the request is recorded in the backend and the running
     coordinator performs it on its next tick. With no coordinator holding the lease it is
-    done here, directly."""
+    done here, directly; what cannot be done yet (a machine that will not retire, a job
+    still leased to a vanished coordinator) stays requested for the next coordinator."""
     rt = open_runtime(project)
-    who = _control(rt, "drain_now" if now else "drain")
-    rt.backend.set_paused(True, who)
-    if not now:
-        return {"paused": True, "drain": "idle", "actor": who}
-    rt.backend.request_drain(who)
-    if rt.backend.coordinator() is not None:
-        return {"paused": True, "drain": "requested", "performed_by": "coordinator", "actor": who}
-    from .coordinator import Coordinator
 
-    coordinator = Coordinator(rt.config, rt.backend, rt.outputs, build_pool(rt.config, rt.observer), rt.observer)
-    try:
-        result = coordinator.drain_now(who)
-    finally:
-        coordinator.release()
-    if not result.get("performed"):
-        return {"paused": True, "drain": "requested", "performed_by": "coordinator", "actor": who}
-    if not result["remaining"]:
-        rt.backend.clear_drain()
-    return {"paused": True, "drain": "done" if not result["remaining"] else "partial", "actor": who, **result}
+    def do(who: str) -> dict:
+        rt.backend.set_paused(True, who)
+        if not now:
+            return {"paused": True, "drain": "idle", "actor": who}
+        rt.backend.request_drain(who)
+        if rt.backend.coordinator() is not None:
+            return {"paused": True, "drain": "requested", "performed_by": "coordinator", "actor": who}
+        from .coordinator import Coordinator
+
+        coordinator = Coordinator(rt.config, rt.backend, rt.outputs, build_pool(rt.config, rt.observer), rt.observer)
+        try:
+            result = coordinator.drain_now(who)
+        finally:
+            coordinator.release()
+        if not result.get("performed"):
+            return {"paused": True, "drain": "requested", "performed_by": "coordinator", "actor": who}
+        done = not result["remaining"]
+        if done:
+            rt.backend.clear_drain()
+        return {"paused": True, "drain": "done" if done else "partial", "actor": who, **result}
+
+    return _audited(rt, "drain_now" if now else "drain", do)
 
 
 def audit_queue(project=None, repair: bool = False) -> dict:
@@ -415,10 +461,13 @@ def audit_queue(project=None, repair: bool = False) -> dict:
     from .audit import audit
 
     rt = open_runtime(project)
-    _control(rt, "audit", repair=repair)
-    pool = build_pool(rt.config, rt.observer)
-    found = audit(rt.backend, pool, rt.outputs, rt.observer, repair=repair, config=rt.config)
-    return {"violations": [asdict(v) for v in found], "repair": repair, "ok": not found}
+
+    def do(who: str) -> dict:
+        pool = build_pool(rt.config, rt.observer)
+        found = audit(rt.backend, pool, rt.outputs, rt.observer, repair=repair, config=rt.config)
+        return {"violations": [asdict(v) for v in found], "repair": repair, "ok": not found}
+
+    return _audited(rt, "audit", do, repair=repair)
 
 
 # ---------------------------------------------------------------------------
@@ -445,7 +494,10 @@ def serve_metrics(observer: Observer, port: int) -> ThreadingHTTPServer:
         def log_message(self, *args: Any) -> None:  # silence the access log
             return
 
-    server = ThreadingHTTPServer(("127.0.0.1", int(port)), Handler)
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", int(port)), Handler)
+    except OSError as exc:
+        raise ConfigError(f"cannot serve metrics on 127.0.0.1:{port}: {exc.strerror or exc}") from exc
     threading.Thread(target=server.serve_forever, name="queue-metrics", daemon=True).start()
     return server
 

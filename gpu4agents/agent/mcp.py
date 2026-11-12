@@ -816,7 +816,7 @@ class Server:
                     }
                 ),
                 self.tool_queue_submit,
-                {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+                {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
             ),
             Tool(
                 "gpu_queue_status",
