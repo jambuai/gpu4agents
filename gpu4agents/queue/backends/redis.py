@@ -12,14 +12,15 @@ atomic, and every time comparison uses the server's ``TIME`` (never a client clo
     tokens        hash id -> fencing token of the live lease
     coord         hash owner / lease_until;  paused  string;  audit  stream of control actions
 
-Scripts address keys by prefix, so this targets a single Redis (or a primary with replicas),
-not a Redis Cluster.
+Needs Redis >= 5. Scripts address keys by prefix, so this targets a single Redis (or a primary
+with replicas), not a Redis Cluster.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
+import os
+import re
 import secrets
 from dataclasses import fields
 from typing import Any, Optional
@@ -37,6 +38,7 @@ _JSON_FIELDS = ("manifest", "limits", "outputs_ref", "result")
 _ALL_STATES = [s.value for s in JobState]
 
 _PRELUDE = """
+if redis.replicate_commands then redis.replicate_commands() end
 local P = ARGV[1]
 local OFF = tonumber(ARGV[2])
 local tm = redis.call('TIME')
@@ -58,17 +60,23 @@ local function release(id)
   redis.call('ZREM', P .. ':leased', id)
 end
 local function audit(actor, action, job_id, detail)
-  redis.call('XADD', P .. ':audit', '*', 'ts', f(NOW), 'actor', actor, 'action', action,
+  redis.call('XADD', P .. ':audit', 'MAXLEN', '~', '10000', '*', 'ts', f(NOW), 'actor', actor, 'action', action,
              'job_id', job_id, 'detail', detail)
 end
 local function reap()
   local ids = redis.call('ZRANGEBYSCORE', P .. ':leased', '-inf', f(NOW))
   for _, id in ipairs(ids) do
     release(id)
-    local nw = 'queued'
-    if redis.call('HGET', jk(id), 'cancel_requested') == '1' then nw = 'cancelled' end
-    redis.call('HDEL', jk(id), 'machine')
-    setstate(id, nw)
+    if redis.call('EXISTS', jk(id)) == 0 then
+      for _, s in ipairs({'queued','claimed','running','delivering','succeeded','failed','cancelled'}) do
+        redis.call('ZREM', stk(s), id)
+      end
+    else
+      local nw = 'queued'
+      if redis.call('HGET', jk(id), 'cancel_requested') == '1' then nw = 'cancelled' end
+      redis.call('HDEL', jk(id), 'machine')
+      setstate(id, nw)
+    end
   end
 end
 local function owned(id, token)
@@ -85,8 +93,11 @@ _SCRIPTS = {
 local key, id = ARGV[3], ARGV[4]
 local existing = redis.call('HGET', P .. ':keys', key)
 if existing then return ret('EXISTS', existing) end
+if redis.call('EXISTS', jk(id)) == 1 then return {'IDCONFLICT'} end
 redis.call('HSET', P .. ':keys', key, id)
-for i = 5, #ARGV, 2 do redis.call('HSET', jk(id), ARGV[i], ARGV[i + 1]) end
+local natt = tonumber(ARGV[5])
+for i = 6, 5 + natt do redis.call('RPUSH', P .. ':att:' .. id, ARGV[i]) end
+for i = 6 + natt, #ARGV, 2 do redis.call('HSET', jk(id), ARGV[i], ARGV[i + 1]) end
 redis.call('HSET', jk(id), 'submitted_at', f(NOW))
 local st = redis.call('HGET', jk(id), 'state')
 redis.call('HDEL', jk(id), 'state')
@@ -226,6 +237,27 @@ local lease = tonumber(redis.call('HGET', P .. ':coord', 'lease') or '0')
 if cur == ARGV[3] and lease > NOW then redis.call('DEL', P .. ':coord') end
 return 1
 """,
+    # ARGV: n, then state names (n = 0 means all), limit. A consistent snapshot of the matching jobs.
+    "list": """
+local n = tonumber(ARGV[3])
+local limit = tonumber(ARGV[4 + n])
+local names = {}
+if n == 0 then names = {'queued','claimed','running','delivering','succeeded','failed','cancelled'}
+else for i = 1, n do names[i] = ARGV[3 + i] end end
+local rows = {}
+for _, s in ipairs(names) do
+  local z = redis.call('ZRANGE', stk(s), 0, limit - 1, 'WITHSCORES')
+  for i = 1, #z, 2 do rows[#rows + 1] = {tonumber(z[i + 1]), z[i]} end
+end
+table.sort(rows, function(a, b) if a[1] ~= b[1] then return a[1] < b[1] end return a[2] < b[2] end)
+local out = {}
+for i = 1, math.min(limit, #rows) do out[#out + 1] = ret('OK', rows[i][2]) end
+return out
+""",
+    "get": """
+if redis.call('EXISTS', jk(ARGV[3])) == 0 then return {'NONE'} end
+return ret('OK', ARGV[3])
+""",
     "coord_get": """
 local cur = redis.call('HGET', P .. ':coord', 'owner')
 local lease = tonumber(redis.call('HGET', P .. ':coord', 'lease') or '0')
@@ -272,7 +304,7 @@ class RedisBackend(QueueBackend):
 
     def __init__(self, url: str, namespace: str, client: Any = None) -> None:
         self.namespace = namespace
-        self._offset = 0.0  # tests move the clock by shifting this; production leaves it 0
+        self._test_clock_offset = 0.0  # test-only: shifts the server clock; production leaves it 0
         self._r = client or _redis.Redis.from_url(url, decode_responses=True)
         self._scripts = {n: self._r.register_script(_PRELUDE + body) for n, body in _SCRIPTS.items()}
 
@@ -280,11 +312,11 @@ class RedisBackend(QueueBackend):
         return f"RedisBackend(namespace={self.namespace!r})"
 
     def _run(self, name: str, *args: Any) -> Any:
-        return self._scripts[name](keys=[], args=[self.namespace, repr(self._offset), *args])
+        return self._scripts[name](keys=[], args=[self.namespace, repr(self._test_clock_offset), *args])
 
     def now(self) -> float:
         sec, usec = self._r.time()
-        return float(sec) + float(usec) / 1_000_000 + self._offset
+        return float(sec) + float(usec) / 1_000_000 + self._test_clock_offset
 
     # -- contract ----------------------------------------------------------------
     def submit(self, job: QueueJob) -> QueueJob:
@@ -295,17 +327,11 @@ class RedisBackend(QueueBackend):
             enc = _encode(name, value)
             if enc is not None:
                 pairs += [name, enc]
-        res = self._run("submit", job.key, job.id, *pairs, "key", job.key)
-        created = res[0] == "OK"
-        out = _job(res[1:])
-        if created and job.attempts:
-            return self._replace_attempts_after_submit(out, job)
-        return out
-
-    def _replace_attempts_after_submit(self, out: QueueJob, job: QueueJob) -> QueueJob:
-        self._r.rpush(f"{self.namespace}:att:{job.id}", *[_attempt_json(a) for a in job.attempts])
-        out.attempts = list(job.attempts)
-        return out
+        atts = [_attempt_json(a) for a in job.attempts]
+        res = self._run("submit", job.key, job.id, str(len(atts)), *atts, *pairs, "key", job.key)
+        if res[0] == "IDCONFLICT":
+            raise ValueError(f"job id {job.id} already exists under a different key")
+        return _job(res[1:3])
 
     def claim(self, worker: str, lease_s: float, job_id: Optional[str] = None) -> Optional[Claim]:
         token = secrets.token_hex(16)
@@ -371,32 +397,16 @@ class RedisBackend(QueueBackend):
             raise ValueError(f"job {job_id} is {res[1]}, only failed jobs can be retried")
         return _job(res[1:3])
 
-    def _fetch(self, ids: list[str]) -> list[QueueJob]:
-        pipe = self._r.pipeline(transaction=False)
-        for i in ids:
-            pipe.hgetall(f"{self.namespace}:job:{i}")
-            pipe.lrange(f"{self.namespace}:att:{i}", 0, -1)
-        raw = pipe.execute()
-        jobs = []
-        for n in range(len(ids)):
-            h, att = raw[2 * n], raw[2 * n + 1]
-            if h:  # a job can vanish between the index read and here only if deleted by hand
-                jobs.append(_job([[x for kv in h.items() for x in kv], att]))
-        return jobs
-
     def get(self, job_id: str) -> Optional[QueueJob]:
-        self._run("reap")
-        found = self._fetch([job_id])
-        return found[0] if found else None
+        res = self._run("get", job_id)
+        return _job(res[1:3]) if res[0] == "OK" else None
 
     def list(self, states: Optional[set[JobState]] = None, limit: int = 100) -> list[QueueJob]:
-        self._run("reap")
-        wanted = [JobState(s).value for s in states] if states else _ALL_STATES
-        pipe = self._r.pipeline(transaction=False)
-        for s in wanted:
-            pipe.zrange(f"{self.namespace}:st:{s}", 0, max(limit, 1) - 1, withscores=True)
-        merged = sorted((score, i) for rows in pipe.execute() for i, score in rows)[:limit]
-        return self._fetch([i for _, i in merged])
+        wanted = [JobState(s).value for s in states] if states else []
+        if limit < 1:
+            return []
+        res = self._run("list", str(len(wanted)), *wanted, str(limit))
+        return [_job(r[1:3]) for r in res]
 
     def stats(self) -> QueueStats:
         res = self._run("stats")
@@ -432,14 +442,24 @@ class RedisBackend(QueueBackend):
         ]
 
 
+_NAMESPACE_RE = re.compile(r"[A-Za-z0-9_.-]{1,64}")
+
+
+def _namespace(config: Any, resolver: CredentialResolver) -> str:
+    queue = getattr(config, "queue", None)
+    name = getattr(queue, "namespace", None) or os.environ.get("GPU_QUEUE_NAMESPACE") or ""
+    if name and not _NAMESPACE_RE.fullmatch(name):
+        raise ConfigError("queue namespace must match [A-Za-z0-9_.-] and be 1-64 characters")
+    return "gpu4agents:" + (name or "fp-" + config.fingerprint()[:12])
+
+
 def create(config: Any) -> RedisBackend:
-    project_dir = getattr(config, "project_dir", None)
-    url = CredentialResolver(project_dir).get("GPU_QUEUE_URL")
+    provider = getattr(getattr(config, "provider", None), "profile", "default")
+    resolver = CredentialResolver(getattr(config, "project_dir", None), profile=provider)
+    url = resolver.get("GPU_QUEUE_URL")
     if not url:
         raise ConfigError(
             "queue backend redis needs GPU_QUEUE_URL (a redis:// or rediss:// address) in the "
             "environment or ~/.gpu/credentials; it is never read from gpu.yaml"
         )
-    name = project_dir.name if project_dir is not None else "default"
-    namespace = "gpu4agents:" + hashlib.sha256(name.encode()).hexdigest()[:12]
-    return RedisBackend(url, namespace)
+    return RedisBackend(url, _namespace(config, resolver))

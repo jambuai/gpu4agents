@@ -317,6 +317,7 @@ class QueueConfig(_Base):
 
     backend: str = "local"  # "local" | "redis" | "module:factory"
     outputs: str = "local"  # "local" | "s3" | "module:factory"
+    namespace: Optional[str] = None  # keyspace name on a shared backend; not a secret
     min_machines: int = 0
     max_machines: int = 1
     max_usd_per_hour: Optional[float] = None
@@ -344,6 +345,15 @@ class QueueConfig(_Base):
                 "GPU_OUTPUTS_URL for outputs), never in gpu.yaml; use a name here "
                 "(local, redis, s3 or module:factory)"
             )
+        return v
+
+    @field_validator("namespace")
+    @classmethod
+    def _namespace_ok(cls, v: Optional[str]) -> Optional[str]:
+        import re
+
+        if v is not None and not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", v):
+            raise ValueError("namespace must match [A-Za-z0-9_.-] and be 1-64 characters")
         return v
 
     @field_validator("min_machines")

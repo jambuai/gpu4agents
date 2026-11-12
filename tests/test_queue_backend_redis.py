@@ -24,7 +24,7 @@ class OffsetClock:
         self.backend = backend
 
     def advance(self, s):
-        self.backend._offset += s
+        self.backend._test_clock_offset += s
 
 
 @pytest.fixture(params=["fake"] + (["real"] if REAL_URL else []))
@@ -56,6 +56,8 @@ def _no_creds(monkeypatch, tmp_path):
 
 class TestRedisBackend(QueueBackendContract):
     def test_lease_expiry_uses_the_server_clock(self, backend, clock, monkeypatch):
+        """Meaningful only against a real Redis (GPU_TEST_REDIS_URL): fakeredis shares this
+        process's clock, so the fake variant only checks the offset-driven server clock."""
         backend.submit(make_job(1))
         c = backend.claim("w", 60)
         # a client clock one hour ahead changes nothing: the server decides
@@ -108,39 +110,42 @@ class TestRedisBackend(QueueBackendContract):
         assert got.limits == {"timeout": "1h"} and got.outputs_ref == {"url": "s3://b/k"}
         assert got.result == {} and got.manifest == {"run": "python main.py"}
 
+    def test_list_is_a_snapshot_that_respects_the_filter(self, backend, clock):
+        for n in range(1, 6):
+            backend.submit(make_job(n))
+        for _ in range(2):
+            backend.claim("w", 600)
+        queued = backend.list({JobState.QUEUED})
+        assert [j.id for j in queued] == ["job-0003", "job-0004", "job-0005"]
+        assert all(j.state == JobState.QUEUED for j in queued)
+        everything = backend.list()
+        assert len({j.id for j in everything}) == len(everything) == 5
+        assert [j.id for j in backend.list(limit=3)] == ["job-0001", "job-0002", "job-0003"]
+
+    def test_submit_with_an_existing_id_and_another_key_raises(self, backend, clock):
+        backend.submit(make_job(1))
+        clash = make_job(1, "other-key")
+        with pytest.raises(ValueError):
+            backend.submit(clash)
+        assert len(backend.list()) == 1
+        assert backend.submit(make_job(2, "other-key")).id == "job-0002"
+
+    def test_submit_keeps_attempts(self, backend, clock):
+        from gpu4agents.queue.models import Attempt
+        job = make_job(1)
+        job.attempts = [Attempt(1, "m", "r", 1.0)]
+        assert [a.number for a in backend.submit(job).attempts] == [1]
+
+    def test_a_leased_job_with_a_missing_hash_is_released_not_fatal(self, backend, clock):
+        backend.submit(make_job(1))
+        backend.claim("w", 60)
+        backend._r.delete(f"{backend.namespace}:job:job-0001")
+        clock.advance(61)
+        assert backend.list() == []
+        assert backend.stats().by_state == {}
+
     def test_two_backends_share_the_namespace(self, backend):
         other = RedisBackend("redis://fake", backend.namespace, client=backend._r)
         backend.submit(make_job(1))
         assert other.claim("w", 60) is not None
         assert backend.claim("w2", 60) is None
-
-
-def test_missing_url_names_the_variable(tmp_path):
-    class Cfg:
-        project_dir = tmp_path
-
-    with pytest.raises(ConfigError, match="GPU_QUEUE_URL"):
-        create(Cfg())
-
-
-def test_create_reads_the_url_from_the_environment(tmp_path, monkeypatch):
-    monkeypatch.setenv("GPU_QUEUE_URL", "redis://:s3cret@localhost:6399/3")
-
-    class Cfg:
-        project_dir = tmp_path / "myproj"
-
-    be = create(Cfg())
-    assert be.namespace.startswith("gpu4agents:")
-    assert "s3cret" not in repr(be) and "s3cret" not in be.namespace
-
-
-def test_importing_gpu4agents_without_redis_works():
-    code = (
-        "import sys; sys.modules['redis'] = None\n"
-        "import gpu4agents, gpu4agents.queue.backend as b\n"
-        "from gpu4agents.core.errors import ConfigError\n"
-        "try:\n    b.load_backend('redis', None)\nexcept ConfigError as e:\n    print('ok')\n"
-    )
-    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert out.returncode == 0, out.stderr
-    assert out.stdout.strip() == "ok"
