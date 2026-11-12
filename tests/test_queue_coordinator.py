@@ -451,8 +451,11 @@ def test_a_store_that_does_not_verify_keeps_the_job_delivering(world, monkeypatc
     job = w.final(coord, "j1")
 
     assert job.state == JobState.SUCCEEDED
+    assert bad["n"] == 0  # both bad verifications happened, then it was stored
     failed = w.events(ev.QUEUE_OUTPUTS_DELIVERY_FAILED)
-    assert len(failed) == 2 and "sha256 mismatch" in failed[0]["problems"][0]
+    # the same problem twice is reported once
+    assert len(failed) == 1 and "sha256 mismatch" in failed[0]["problems"][0]
+    assert w.pool.retired == []
 
 
 def test_a_standby_coordinator_takes_over_after_the_lease_expires(world):
@@ -737,10 +740,14 @@ def test_fetched_outputs_survive_a_crash_and_are_delivered(world, monkeypatch):
     del a
     w.pool.lose(slot)  # the only other copy is gone
 
-    b = w.coordinator("coord-b")
+    pool_b = w.new_pool("machines-b")
+    pool_b.open()
+    pool_b.poll()  # pool B has its own warm s1: a namesake, not the machine j1 ran on
+    b = w.coordinator("coord-b", pool=pool_b)
     job = w.final(b, "j1", max_ticks=80)
 
     assert job.state == JobState.SUCCEEDED
+    assert pool_b.health_checks == [] and pool_b.deadlines == [] and pool_b.fetches == []
     assert (Path(job.outputs_ref["location"]) / "model.bin").read_bytes() == b"weights"
     assert w.pool.fetches == ["j1-a1"]
     assert len(w.pool.starts) == 1
@@ -933,3 +940,149 @@ def test_run_s_heartbeat_thread_renews_while_a_tick_is_busy(world, monkeypatch):
         stop.set()
         t.join(5)
     assert not t.is_alive()
+
+
+# ---------------------------------------------------------------------------
+# fix round 2
+# ---------------------------------------------------------------------------
+
+
+def test_a_store_outage_does_not_blame_the_machine(world, monkeypatch):
+    w = world(max_machines=1, jobs_per_machine=2)
+    w.pool.script("j1", FakeRun(polls=1, outputs={"a.txt": b"first"}))
+    w.pool.script("j2", FakeRun(polls=30))
+    w.submit("j1")
+    w.submit("j2")
+    coord = w.coordinator()
+    real = w.outputs.put_outputs
+    down = {"on": True}
+
+    def store(job_id, *args, **kwargs):
+        if down["on"] and job_id == "j1":
+            raise OSError("the store is down")
+        return real(job_id, *args, **kwargs)
+
+    monkeypatch.setattr(w.outputs, "put_outputs", store)
+    w.until_state(coord, "j1", JobState.DELIVERING)
+    w.step(coord, 10)
+
+    assert w.job("j1").state == JobState.DELIVERING
+    assert w.pool.retired == []
+    assert w.job("j2").state == JobState.RUNNING and w.job("j2").attempts == []
+    failed = w.events(ev.QUEUE_OUTPUTS_DELIVERY_FAILED)
+    assert len(failed) == 1 and failed[0]["stage"] == "store"
+    assert w.obs.snapshot()["gpu_queue_outputs_pending"] == 1
+    local = w.cfg.state_dir / "queue" / "work" / "j1" / "out-a1" / "a.txt"
+    assert local.read_bytes() == b"first"
+
+    down["on"] = False
+    job = w.final(coord, "j1", max_ticks=80)
+    assert job.state == JobState.SUCCEEDED
+    assert [a.outcome for a in job.attempts] == [Outcome.SUCCEEDED]
+    assert (Path(job.outputs_ref["location"]) / "a.txt").read_bytes() == b"first"
+    assert w.final(coord, "j2").state == JobState.SUCCEEDED
+    assert w.pool.retired == [] and len(w.pool.starts) == 2
+
+
+def test_a_health_check_that_keeps_raising_counts_toward_retiring_the_machine(world, monkeypatch):
+    w = world()
+    w.pool.script("j1", FakeRun(outputs={"out.txt": b"result"}))
+    w.submit("j1")
+    coord = w.coordinator()
+
+    def broken(m):
+        raise RuntimeError("health job cannot start")
+
+    monkeypatch.setattr(w.pool, "health_check", broken)
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    assert [s for s, _, _ in w.pool.retired] == ["s1"]
+    stages = [e["stage"] for e in w.events(ev.QUEUE_OUTPUTS_DELIVERY_FAILED)]
+    assert stages == ["health_check"] * 5
+
+
+def _ghost_in_flight(w: World, job_id: str, limits: dict) -> None:
+    """Leave a job as a dead coordinator on another host would: claimed, an in-flight
+    record, its lease about to run out."""
+    claim = w.backend.claim("ghost", 30, job_id=job_id)
+    assert claim is not None
+    w.backend.update(claim, limits=limits, state=JobState.RUNNING, machine=limits.get("slot"))
+
+
+def test_a_record_without_deadline_at_falls_back_to_started_plus_timeout(world):
+    w = world()
+    w.submit("j1")
+    started = w.clock()
+    _ghost_in_flight(w, "j1", {
+        "attempt": 1, "remote_id": "j1-a1", "slot": "s1", "instance_id": "i-elsewhere",
+        "started_at": started, "timeout_s": 600.0, "deadline_margin_s": 300.0,
+    })
+    coord = w.coordinator("coord-b")
+    w.step(coord, 40)
+    assert w.job("j1").attempts == [] and w.pool.starts == []
+
+    w.clock.now = started + 600 + 300 + DEADLINE_GRACE_S + 1
+    job = w.final(coord, "j1")
+    assert job.state == JobState.SUCCEEDED
+    assert job.attempts[0].outcome == Outcome.MACHINE_LOST
+    assert not w.events(ev.QUEUE_INVARIANT_VIOLATED)
+
+
+def test_a_record_without_any_deadline_is_a_violation_and_waits_for_the_hard_cap(world):
+    from gpu4agents.queue.coordinator import NO_DEADLINE_CAP_S
+
+    w = world()
+    w.submit("j1")
+    _ghost_in_flight(w, "j1", {"attempt": 1, "remote_id": "j1-a1", "slot": "s1", "instance_id": "i-elsewhere"})
+    coord = w.coordinator("coord-b")
+    w.step(coord, 40)
+
+    violations = w.events(ev.QUEUE_INVARIANT_VIOLATED)
+    assert [(v["code"], v["job_id"]) for v in violations] == [("inflight_without_deadline", "j1")]
+    assert w.job("j1").attempts == []
+
+    w.clock.advance(NO_DEADLINE_CAP_S)
+    job = w.final(coord, "j1")
+    assert job.state == JobState.SUCCEEDED
+    assert job.attempts[0].outcome == Outcome.MACHINE_LOST
+    assert len(w.events(ev.QUEUE_INVARIANT_VIOLATED)) == 1
+
+
+def test_a_backend_error_on_renewal_demotes_only_after_the_lease_window(world, monkeypatch):
+    w = world()
+    coord = w.coordinator()
+    w.step(coord)
+    assert coord.leader
+
+    def down(owner, lease_s):
+        raise ConnectionError("redis timed out")
+
+    monkeypatch.setattr(w.backend, "renew_coordinator", down)
+    w.clock.advance(coord.coordinator_lease_s / 2)
+    coord.beat()
+    assert coord.leader  # inside the window: maybe a blip
+
+    w.clock.advance(coord.coordinator_lease_s)
+    coord.beat()
+    assert not coord.leader
+    assert w.events(ev.COORDINATOR_LEASE_LOST)
+
+
+def test_outputs_that_could_not_be_stored_are_kept_after_the_job_ends(world, monkeypatch):
+    w = world(max_attempts=1)
+    w.pool.script("j1", FakeRun(exit_code=1, outputs={"ckpt.pt": b"step 9"}))
+    w.submit("j1")
+    coord = w.coordinator()
+    w.until_state(coord, "j1", JobState.RUNNING)
+    w.pool.health_failures.append(w.pool.slot_of("j1-a1"))
+
+    def down(*args, **kwargs):
+        raise OSError("the store is down")
+
+    monkeypatch.setattr(w.outputs, "put_outputs", down)
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.FAILED  # a machine fault with no attempts left
+    local = w.cfg.state_dir / "queue" / "work" / "j1" / "out-a1" / "ckpt.pt"
+    assert local.read_bytes() == b"step 9"  # never deleted unstored

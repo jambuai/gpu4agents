@@ -73,7 +73,10 @@ DEADLINE_GRACE_S = 300.0
 # A machine that answers without the remote id may still be receiving its upload.
 UPLOAD_SLACK_S = 60.0
 MAX_DISPATCH_FAILURES = 3
-MAX_DELIVERY_FAILURES = 5
+MAX_FETCH_FAILURES = 5  # machine-side delivery failures (fetch, health check) before retiring it
+STORE_BACKOFF_MAX_S = 300.0
+# An in-flight record with no deadline at all (should not happen): the longest it may wait.
+NO_DEADLINE_CAP_S = 24 * 3600.0
 REMOTE_ID_MAX = 64  # the watchdog's job runner: [A-Za-z0-9][A-Za-z0-9_.-]{0,63}
 PREVIOUS_DIR = ".jambu-previous"
 # The watchdog's job runner default (JAMBU_JOBS_DIR); the command also exports the
@@ -130,7 +133,11 @@ class _Run:
     checked: bool = False  # the health check after the run is done
     delivering_since: Optional[float] = None
     dispatch_failures: int = 0
-    delivery_failures: int = 0
+    fetch_failures: int = 0  # machine-side: fetch, health check
+    store_failures: int = 0  # store-side: never the machine's fault
+    next_store_at: Optional[float] = None
+    last_store_problem: Optional[str] = None
+    unstored: bool = False  # local outputs exist that are not stored and verified yet
 
     @property
     def job(self) -> QueueJob:
@@ -190,6 +197,8 @@ class Coordinator:
         self._runs: dict[str, _Run] = {}
         self._adopt: set[str] = set()  # in-flight jobs whose old lease has not run out yet
         self._retired_instances: set[str] = set()
+        self._first_seen: dict[str, float] = {}  # job id -> when a deadline-less record was first met
+        self._violations: set[str] = set()
         self._renewed_at: Optional[float] = None
         self._ticks = 0
         self._last_decision: Optional[tuple] = None
@@ -278,6 +287,22 @@ class Coordinator:
         self._metrics()
         return report
 
+    def _snapshot(self) -> list[_Run]:
+        """The runs in hand, copied under the lock (the heartbeat thread may drop one)."""
+        with self._lock:
+            return list(self._runs.values())
+
+    def _renew_coordinator(self) -> bool:
+        """Renew the coordinator lease. A backend error counts as a refusal once the
+        lease window since the last renewal has passed (someone else may hold it now);
+        before that it is raised (the tick fails) or reported (the heartbeat)."""
+        try:
+            return bool(self.backend.renew_coordinator(self.worker_id, self.coordinator_lease_s))
+        except Exception:
+            if self._renewed_at is None or self.clock() - self._renewed_at >= self.coordinator_lease_s:
+                return False
+            raise
+
     def _error_once(self, operation: str, exc: BaseException, **fields: Any) -> None:
         """provider_error once per change of what went wrong, not every tick."""
         message = f"{type(exc).__name__}: {str(exc)[:400]}"
@@ -296,7 +321,7 @@ class Coordinator:
     def _lead(self) -> bool:
         with self._lock:
             if self.leader:
-                if self.backend.renew_coordinator(self.worker_id, self.coordinator_lease_s):
+                if self._renew_coordinator():
                     self._renewed_at = self.clock()
                     return True
                 self._demote()
@@ -328,9 +353,15 @@ class Coordinator:
         with self._lock:
             if not self.leader:
                 return
-            if not self.backend.renew_coordinator(self.worker_id, self.coordinator_lease_s):
+            try:
+                renewed = self._renew_coordinator()
+            except Exception as exc:  # noqa: BLE001 - still inside the lease window
+                self._error_once("renew_coordinator", exc)
+                return
+            if not renewed:
                 self._demote()
                 return
+            self._ok("renew_coordinator")
             self._renewed_at = self.clock()
             self._renew_jobs()
 
@@ -369,6 +400,9 @@ class Coordinator:
                 self._runs.pop(run.job_id, None)
 
     def _cleanup(self, run: _Run) -> None:
+        """Remove the job's work dir, except outputs fetched here and not stored yet."""
+        if run.unstored:
+            return
         shutil.rmtree(self.workdir / run.job_id, ignore_errors=True)
 
     def _w(self, run: _Run, operation: str, fn: Callable, *args: Any, **kwargs: Any) -> Any:
@@ -421,13 +455,17 @@ class Coordinator:
     def _retry_adoptions(self) -> None:
         """Claim each remembered in-flight job by id (allowed while paused: re-adoption
         is not new work)."""
-        for job_id in sorted(self._adopt):
+        with self._lock:
+            ids = sorted(self._adopt)
+        for job_id in ids:
             if not self.leader:
                 return
             if job_id in self._runs:
                 self._adopt.discard(job_id)
                 continue
             with self._lock:
+                if not self.leader:
+                    return
                 claim = self.backend.claim(self.worker_id, self.job_lease_s, job_id=job_id)
                 job = self.backend.get(job_id) if claim is None else None
             if claim is None:
@@ -500,7 +538,13 @@ class Coordinator:
         out = self.workdir / run.job_id / f"out-a{run.number}"
         if data.get("remote_id") != run.remote_id or not out.is_dir():
             return False
+        # The machine is the one with the recorded instance id, never a slot that merely
+        # has the same name (another pool's s1, or a reused slot).
+        instance = (run.job.limits or {}).get("instance_id")
+        home = next((m for m in self.pool.machines() if instance and m.instance_id == instance), None)
+        run.slot = home.slot if home is not None else None
         run.fetched = out
+        run.unstored = True
         run.exit_code = data.get("exit_code")
         run.remote_state = data.get("remote_state")
         run.checked = bool(data.get("checked"))
@@ -542,9 +586,10 @@ class Coordinator:
         if home == "unknown":
             return
         if home is None:
-            deadline = lim.get("deadline_at")
-            if deadline is None or now < float(deadline) + DEADLINE_GRACE_S:
-                return  # another host's machine: its watchdog ends it by its deadline
+            # Another host's machine: its watchdog ends the run by its deadline.
+            wait_until = self._no_later_than(run, lim, now)
+            if now < wait_until:
+                return
             run.locate = False
             self._fault(run, Outcome.MACHINE_LOST, "previous coordinator's machine unreachable; waited for its deadline")
             return
@@ -552,6 +597,34 @@ class Coordinator:
             return  # the upload may still be on its way
         run.locate = False
         self._fault(run, Outcome.MACHINE_LOST, "not found on any machine after the coordinator changed")
+
+    def _no_later_than(self, run: _Run, lim: dict, now: float) -> float:
+        """When a run on a machine this coordinator cannot see has surely ended: its
+        deadline plus a grace; else started_at + timeout + margin plus the grace; else
+        (a record that breaks the contract) a hard cap from when it was first met."""
+        def num(key: str) -> Optional[float]:
+            try:
+                value = lim.get(key)
+                return None if value is None else float(value)
+            except (TypeError, ValueError):
+                return None
+
+        deadline = num("deadline_at")
+        if deadline is not None:
+            return deadline + DEADLINE_GRACE_S
+        started, timeout = num("started_at"), num("timeout_s")
+        if started is not None and timeout is not None:
+            return started + timeout + (num("deadline_margin_s") or 0.0) + DEADLINE_GRACE_S
+        if run.job_id not in self._violations:
+            self._violations.add(run.job_id)
+            self.obs.inc("gpu_queue_invariant_violations_total", code="inflight_without_deadline")
+            self.obs.emit(
+                ev.QUEUE_INVARIANT_VIOLATED, code="inflight_without_deadline", job_id=run.job_id,
+                slot=lim.get("slot"), detail="an in-flight record carries no deadline; waiting for the hard cap",
+            )
+        cap = self.queue.max_machine_lifetime_s or NO_DEADLINE_CAP_S
+        since = started if started is not None else self._first_seen.setdefault(run.job_id, now)
+        return since + cap
 
     def _adopt_run(self, run: _Run, m: PoolMachine, rec: dict) -> None:
         run.locate = False
@@ -584,8 +657,8 @@ class Coordinator:
                 outcome, reason, mark_bad = _FAULTS[m.state]
                 self._retire(m, outcome, reason, mark_bad)
         tracked = {m.slot: m for m in self.pool.machines()}
-        for run in list(self._runs.values()):
-            if run.slot is None or run.locate or (run.phase == "delivering" and run.fetched is not None):
+        for run in self._snapshot():
+            if run.slot is None or run.locate or run.fetched is not None:
                 continue
             m = tracked.get(run.slot)
             why = None
@@ -608,10 +681,8 @@ class Coordinator:
         machine may still exist: destroying it is the only proof the job stopped.
         ``details`` gives one run its own outcome and reason."""
         details = details or {}
-        on = [
-            r for r in self._runs.values()
-            if r.slot == m.slot and (r.job_id in details or not (r.phase == "delivering" and r.fetched is not None))
-        ]
+        # A run whose outputs are already here does not need the machine any more.
+        on = [r for r in self._snapshot() if r.slot == m.slot and r.fetched is None]
         try:
             result = self.pool.retire(m, reason, mark_bad=mark_bad)
         except Exception as exc:  # noqa: BLE001 - e.g. still booting; next tick
@@ -630,8 +701,9 @@ class Coordinator:
                 if run.phase == "delivering" and pulled is not None and (run.exit_code == 0 or run.checked):
                     # It finished; deliver from what retire saved.
                     run.fetched = pulled
+                    run.unstored = True
                     run.checked = True
-                    run.delivery_failures = 0
+                    run.fetch_failures = 0
                     continue
                 if run.remote_id in result.lost:
                     detail += "; its outputs could not be saved"
@@ -646,7 +718,7 @@ class Coordinator:
     def _watch(self) -> None:
         tracked = {m.slot: m for m in self.pool.machines()}
         listings: dict[str, Optional[dict[str, dict]]] = {}
-        for run in list(self._runs.values()):
+        for run in self._snapshot():
             if self._runs.get(run.job_id) is not run or run.phase == "pending":
                 continue
             m = tracked.get(run.slot or "")
@@ -730,7 +802,8 @@ class Coordinator:
             try:
                 shutil.rmtree(dest, ignore_errors=True)
                 self.pool.fetch_outputs(m, run.remote_id, dest)
-                self._store_attempt(run, dest)
+                run.unstored = True
+                run.unstored = not self._store_attempt(run, dest)
             except _Dropped:
                 raise
             except Exception:  # noqa: BLE001 - a cancelled job's outputs are best effort
@@ -749,9 +822,10 @@ class Coordinator:
                 shutil.rmtree(dest, ignore_errors=True)
                 self.pool.fetch_outputs(m, run.remote_id, dest)
             except Exception as exc:  # noqa: BLE001
-                self._delivery_failed(run, m, "fetch", [f"{type(exc).__name__}: {str(exc)[:300]}"])
+                self._fetch_failed(run, m, "fetch", [f"{type(exc).__name__}: {str(exc)[:300]}"])
                 return
             run.fetched = dest
+            run.unstored = True
             self._write_marker(run)
             self._heartbeat()
 
@@ -759,7 +833,11 @@ class Coordinator:
         if not run.checked:
             health = None
             if m is not None and m.state in _ANSWERING and (not ok_exit or self.queue.health_check.between_jobs):
-                health = self.pool.health_check(m)
+                try:
+                    health = self.pool.health_check(m)
+                except Exception as exc:  # noqa: BLE001 - machine-side: counts like a failed fetch
+                    self._fetch_failed(run, m, "health_check", [f"{type(exc).__name__}: {str(exc)[:300]}"])
+                    return
                 self._heartbeat()
             run.checked = True  # only once the check has returned
             self._write_marker(run)
@@ -782,14 +860,19 @@ class Coordinator:
                 )
                 return
 
+        now = self.clock()
+        if run.next_store_at is not None and now < run.next_store_at:
+            return  # backing off from a store that failed
         try:
             ref = self.outputs.put_outputs(run.job_id, run.number, run.fetched, success=ok_exit)
             problems = self.outputs.verify(ref)
         except Exception as exc:  # noqa: BLE001
             ref, problems = None, [f"{type(exc).__name__}: {str(exc)[:300]}"]
         if problems or ref is None:
-            self._delivery_failed(run, m, "store", problems)
+            self._store_failed(run, problems)
             return
+        run.unstored = False
+        run.store_failures, run.next_store_at, run.last_store_problem = 0, None, None
         self._stored(run, ref)
 
         if ok_exit:
@@ -808,18 +891,32 @@ class Coordinator:
         }
         self._settle(run, state, result, attempt, outputs_ref=asdict(ref))
 
-    def _delivery_failed(self, run: _Run, m: Optional[PoolMachine], stage: str, problems: list[str]) -> None:
-        run.delivery_failures += 1
+    def _store_failed(self, run: _Run, problems: list[str]) -> None:
+        """The store is the problem, not the machine: keep the local copy, back off and
+        try again; never retire anything for it."""
+        run.store_failures += 1
+        run.next_store_at = self.clock() + min(self.tick_s * 2 ** (run.store_failures - 1), STORE_BACKOFF_MAX_S)
+        summary = "; ".join(problems)[:500]
+        if summary != run.last_store_problem:
+            run.last_store_problem = summary
+            self.obs.emit(
+                ev.QUEUE_OUTPUTS_DELIVERY_FAILED, job_id=run.job_id, attempt=run.number,
+                stage="store", problems=list(problems)[:10], failures=run.store_failures,
+                retry_in_s=round(run.next_store_at - self.clock(), 1),
+            )
+
+    def _fetch_failed(self, run: _Run, m: Optional[PoolMachine], stage: str, problems: list[str]) -> None:
+        run.fetch_failures += 1
         self.obs.emit(
             ev.QUEUE_OUTPUTS_DELIVERY_FAILED, job_id=run.job_id, attempt=run.number,
-            stage=stage, problems=list(problems)[:10], failures=run.delivery_failures,
+            stage=stage, problems=list(problems)[:10], failures=run.fetch_failures,
         )
-        if run.delivery_failures < MAX_DELIVERY_FAILURES or m is None or m.state not in _ANSWERING:
+        if run.fetch_failures < MAX_FETCH_FAILURES or m is None or m.state not in _ANSWERING:
             return
         # The machine leaves; it pulls what it can. Pulled -> delivered from there,
         # otherwise the attempt ends with the loss recorded.
         run.checked = True  # leaving for delivery reasons says nothing against the job's exit
-        detail = f"outputs could not be delivered after {run.delivery_failures} tries ({stage}: {'; '.join(problems)[:200]})"
+        detail = f"outputs could not be delivered after {run.fetch_failures} tries ({stage}: {'; '.join(problems)[:200]})"
         self._retire(
             m, Outcome.UNHEALTHY, "outputs could not be delivered", True,
             details={run.job_id: (Outcome.DELIVERY_FAILED, detail)},
@@ -850,6 +947,8 @@ class Coordinator:
                 stage="store_attempt", problems=list(problems)[:10],
             )
             return False
+        if run.fetched is not None and Path(src) == Path(run.fetched):
+            run.unstored = False
         self._stored(run, ref)
         self._update(run, outputs_ref=asdict(ref))
         return True
@@ -970,7 +1069,7 @@ class Coordinator:
 
     def _occupied(self, slot: str) -> int:
         return sum(
-            1 for r in self._runs.values()
+            1 for r in self._snapshot()
             if r.slot == slot and (
                 r.phase in ("pending", "running", "cancelling") or (r.phase == "delivering" and not r.checked)
             )
@@ -997,7 +1096,7 @@ class Coordinator:
             self._check_lead()
             self._retry_adoptions()
         for run in sorted(
-            (r for r in self._runs.values() if r.phase == "pending"),
+            (r for r in self._snapshot() if r.phase == "pending"),
             key=lambda r: r.job.submitted_at,
         ):
             if self._runs.get(run.job_id) is not run:
@@ -1024,6 +1123,8 @@ class Coordinator:
             while self._free(m) > 0:
                 self._check_lead()
                 with self._lock:
+                    if not self.leader:
+                        raise _Demoted()
                     claim = self.backend.claim(self.worker_id, self.job_lease_s)
                 if claim is None:
                     return
@@ -1191,7 +1292,9 @@ class Coordinator:
     def _queued_in_flight(self) -> int:
         """Queued jobs that are runs waiting to be re-adopted, not new work."""
         n = 0
-        for job_id in list(self._adopt):
+        with self._lock:
+            ids = list(self._adopt)
+        for job_id in ids:
             with self._lock:
                 job = self.backend.get(job_id)
             if job is not None and job.state == JobState.QUEUED:
@@ -1208,7 +1311,7 @@ class Coordinator:
         queued = 0
         if not paused:
             queued = max(0, int(stats.by_state.get(JobState.QUEUED.value, 0)) - self._queued_in_flight())
-            queued += sum(1 for r in self._runs.values() if r.phase == "pending" and r.slot is None and not r.locate)
+            queued += sum(1 for r in self._snapshot() if r.phase == "pending" and r.slot is None and not r.locate)
         views = [MachineView(m.slot, m.state, m.hourly_usd, self._occupied(m.slot)) for m in machines]
         counted = sum(1 for v in views if v.state in ("provisioning", "checking", "ready", "busy"))
         offer = None
@@ -1281,7 +1384,7 @@ class Coordinator:
                     stats = self._stats or self.backend.stats()
                 self.obs.gauge("gpu_queue_depth", float(stats.by_state.get(JobState.QUEUED.value, 0)))
                 self.obs.gauge("gpu_queue_oldest_queued_seconds", float(stats.oldest_queued_age_s or 0.0))
-                pending = [r for r in self._runs.values() if r.phase == "delivering"]
+                pending = [r for r in self._snapshot() if r.phase == "delivering"]
                 self.obs.gauge("gpu_queue_outputs_pending", float(len(pending)))
                 oldest = max((now - (r.delivering_since or now) for r in pending), default=0.0)
                 self.obs.gauge("gpu_queue_outputs_oldest_pending_seconds", oldest)

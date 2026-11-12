@@ -58,3 +58,23 @@ def test_importing_gpu4agents_without_redis_works():
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "ok"
+
+
+def test_the_client_times_out_instead_of_hanging(tmp_path, monkeypatch):
+    pytest.importorskip("redis")
+    import redis
+
+    from gpu4agents.queue.backends import redis as backend_mod
+
+    seen = {}
+    real = redis.Redis.from_url
+
+    def capture(url, **kwargs):
+        seen.update(kwargs)
+        return real(url, **kwargs)
+
+    monkeypatch.setattr(backend_mod._redis.Redis, "from_url", capture)
+    monkeypatch.setenv("GPU_QUEUE_URL", "redis://localhost:6399/3")
+    backend_mod.create(_cfg(tmp_path))
+    assert seen["socket_timeout"] == backend_mod.SOCKET_TIMEOUT_S == 10.0
+    assert seen["socket_connect_timeout"] == backend_mod.SOCKET_CONNECT_TIMEOUT_S == 10.0

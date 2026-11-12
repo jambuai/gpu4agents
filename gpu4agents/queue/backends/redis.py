@@ -27,6 +27,10 @@ from typing import Any, Optional
 
 import redis as _redis
 
+# A hung Redis must fail a call, not freeze the coordinator (and its heartbeat) forever.
+SOCKET_TIMEOUT_S = 10.0
+SOCKET_CONNECT_TIMEOUT_S = 10.0
+
 from ...core.credentials import CredentialResolver
 from ...core.errors import ConfigError
 from ..backend import QueueBackend
@@ -306,7 +310,10 @@ class RedisBackend(QueueBackend):
     def __init__(self, url: str, namespace: str, client: Any = None) -> None:
         self.namespace = namespace
         self._test_clock_offset = 0.0  # test-only: shifts the server clock; production leaves it 0
-        self._r = client or _redis.Redis.from_url(url, decode_responses=True)
+        self._r = client or _redis.Redis.from_url(
+            url, decode_responses=True,
+            socket_timeout=SOCKET_TIMEOUT_S, socket_connect_timeout=SOCKET_CONNECT_TIMEOUT_S,
+        )
         self._scripts = {n: self._r.register_script(_PRELUDE + body) for n, body in _SCRIPTS.items()}
 
     def __repr__(self) -> str:
