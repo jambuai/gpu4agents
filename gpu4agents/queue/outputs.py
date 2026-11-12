@@ -115,8 +115,32 @@ class LocalOutputStore(OutputStore):
         shutil.copyfile(src, dest)
         return dest
 
+    def recover(self, job_id: str) -> None:
+        """Finish or undo a swap that crashed: the previous result comes back, earlier attempts are kept."""
+        _check_job_id(job_id)
+        if not self.root.is_dir():
+            return
+        pat = re.compile(rf"\.{re.escape(job_id)}\.old-\d+")
+        target = self._inside(self.root, job_id)
+        for aside in sorted(p for p in self.root.iterdir() if pat.fullmatch(p.name)):
+            if not target.exists():
+                os.replace(aside, target)
+                continue
+            for child in aside.iterdir():
+                if child.name.startswith(".attempt-") and not (target / child.name).exists():
+                    os.replace(child, target / child.name)
+            shutil.rmtree(aside)
+
+    def _recover_ref(self, ref: OutputRef) -> None:
+        loc = Path(ref.location)
+        for cand in (loc, loc.parent):
+            if cand.parent.resolve() == self.root.resolve() and _JOB_ID.match(cand.name):
+                self.recover(cand.name)
+                return
+
     def put_outputs(self, job_id: str, attempt: int, src_dir: Path, success: bool = True) -> OutputRef:
         _check_job_id(job_id)
+        self.recover(job_id)
         job_dir = self._inside(self.root, job_id)
         target = job_dir if success else self._inside(self.root, job_id, f".attempt-{int(attempt)}")
         files = _scan(Path(src_dir))
@@ -145,6 +169,7 @@ class LocalOutputStore(OutputStore):
         return OutputRef(location=str(target), files=files)
 
     def verify(self, ref: OutputRef) -> list[str]:
+        self._recover_ref(ref)
         base = Path(ref.location)
         problems = []
         try:

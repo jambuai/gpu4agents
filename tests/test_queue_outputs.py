@@ -162,8 +162,41 @@ def test_local_replace_crash_never_leaves_manifest_beside_incomplete_files(tmp_p
         store.put_outputs("job1", 2, src)
     monkeypatch.setattr(o.os, "replace", real)
     job = tmp_path / "gpu-outputs" / "job1"
-    assert not (job / "MANIFEST.json").exists() or store.verify(old) == []
-    assert store.verify(old)  # old result is no longer presented as intact
+    assert not (job / "MANIFEST.json").exists()  # no manifest beside an incomplete set
+    assert store.verify(old) == []  # recovery brings the previous result back
+    assert [p.name for p in (tmp_path / "gpu-outputs").iterdir()] == ["job1"] or not any(
+        ".old-" in p.name for p in (tmp_path / "gpu-outputs").iterdir()
+    )
+    new = store.put_outputs("job1", 3, src)
+    assert store.verify(new) == []
+    assert not any(".old-" in p.name for p in (tmp_path / "gpu-outputs").iterdir())
+
+
+def test_crash_after_staging_replace_keeps_attempt_dirs(tmp_path, src, monkeypatch):
+    import os
+
+    import gpu4agents.queue.outputs as o
+
+    store = LocalOutputStore(tmp_path / "gpu-outputs")
+    store.put_outputs("job1", 1, src)
+    failed = store.put_outputs("job1", 2, src, success=False)
+    (src / "a.txt").write_text("v3")
+    real, n = os.replace, []
+
+    def flaky(a, b):
+        n.append(b)
+        if len(n) == 3:  # moving .attempt-2 back
+            raise OSError("crash")
+        return real(a, b)
+
+    monkeypatch.setattr(o.os, "replace", flaky)
+    with pytest.raises(OSError):
+        store.put_outputs("job1", 3, src)
+    monkeypatch.setattr(o.os, "replace", real)
+    store.recover("job1")
+    assert store.verify(failed) == []
+    assert (tmp_path / "gpu-outputs" / "job1" / "a.txt").read_text() == "v3"
+    assert not any(".old-" in p.name for p in (tmp_path / "gpu-outputs").iterdir())
 
 
 def test_local_failed_attempt_leaves_success_untouched_and_attempt_dirs_survive(tmp_path, src):
