@@ -39,7 +39,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0", "respx>=0.21.0"]
+dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0", "respx>=0.21.0", "fakeredis[lua]>=2.23"]
+queue-redis = ["redis>=5"]
 
 [project.urls]
 Homepage = "https://gpu4agents.jambu.ai"
