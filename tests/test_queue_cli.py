@@ -165,6 +165,74 @@ def test_a_failed_submit_leaves_no_bundle(env, monkeypatch):
     assert not list((env.cfg.state_dir / "queue" / "bundles").glob("*"))
 
 
+def test_a_submit_that_landed_before_the_error_keeps_its_bundle_and_runs(env, monkeypatch):
+    real = env.backend.submit
+    state = {"fail": True}
+
+    def lands_then_times_out(job):
+        got = real(job)
+        if state["fail"]:
+            raise TimeoutError("timed out after the write")
+        return got
+
+    monkeypatch.setattr(env.backend, "submit", lands_then_times_out)
+    env.cli("queue", "submit", str(env.job_dir()), expect=4)
+    state["fail"] = False
+    (job,) = env.backend.list()
+    assert Path(job.bundle_ref).is_file()
+    coord = env.coordinator()
+    env.until(coord, lambda: env.backend.get(job.id).state == JobState.SUCCEEDED)
+
+
+def test_a_submit_error_keeps_the_bundle_when_absence_cannot_be_confirmed(env, monkeypatch):
+    def boom(job):
+        raise TimeoutError("down")
+
+    monkeypatch.setattr(env.backend, "submit", boom)
+    monkeypatch.setattr(env.backend, "get", boom)
+    env.cli("queue", "submit", str(env.job_dir()), expect=4)
+    assert len(list((env.cfg.state_dir / "queue" / "bundles").glob("*"))) == 1
+
+
+def test_direct_drain_is_not_done_while_a_job_is_still_unadopted(env):
+    env.cli("queue", "submit", str(env.job_dir()))
+    job_id = env.backend.list()[0].id
+    env.pool.script(job_id, FakeRun(polls=50))
+    coord = env.coordinator()
+    env.until(coord, lambda: env.backend.get(job_id).state == JobState.RUNNING)
+    env.pool.lose(env.pool.slot_of(f"{job_id}-a1"))  # no live machine is left, but the job is still leased
+    coord.release()
+    out = env.data("queue", "drain", "--now")
+    assert out["remaining"] == [] and out["waiting_for"] == [job_id] and out["drain"] == "partial"
+    assert env.backend.drain_requested() is True
+    # a coordinator's tick does not clear the request either
+    env2 = env.coordinator("w2")
+    env.step(env2)
+    assert env.backend.drain_requested() is True
+    env.clock.advance(1000)  # the old lease runs out: the job is adopted and ends DRAINED
+    env.step(env2, 3)
+    assert env.backend.drain_requested() is False
+    assert [a.outcome.value for a in env.backend.get(job_id).attempts][-1] in ("drained", "machine_lost")
+
+
+def test_local_file_errors_are_not_called_unreachable(env, monkeypatch):
+    def denied(*a, **k):
+        raise PermissionError(13, "Permission denied", "/x/queue.db")
+
+    monkeypatch.setattr(env.backend, "stats", denied)
+    result = env.cli("queue", "status", expect=1)
+    assert "local files" in result.output and "Permission denied" in result.output and "unreachable" not in result.output
+
+
+def test_env_values_never_reach_the_audit_trail_or_events(env):
+    job_id = env.data("queue", "submit", str(env.job_dir()), "--env", "TOKEN=s3cr3t-value")["job_id"]
+    env.cli("queue", "pause")
+    env.cli("queue", "cancel", job_id)
+    env.cli("queue", "drain", "--now")
+    assert "s3cr3t-value" not in json.dumps(env.backend.audit())
+    assert "s3cr3t-value" not in (env.cfg.state_dir / "logs" / "events.jsonl").read_text()
+
+
 def test_env_values_never_appear_in_job_descriptions(env):
     job_id = env.data("queue", "submit", str(env.job_dir()), "--env", "TOKEN=s3cr3t-value")["job_id"]
     for out in (env.cli("queue", "status", job_id).stdout, env.cli("queue", "cancel", job_id).stdout):

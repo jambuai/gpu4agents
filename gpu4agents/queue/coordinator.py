@@ -897,7 +897,7 @@ class Coordinator:
         if not wanted:
             return False
         result = self.drain_now("drain-request")
-        if result.get("performed") and not result["remaining"] and not self._runs:
+        if result.get("performed") and not result["remaining"] and not result.get("waiting_for") and not self._runs:
             try:
                 with self._lock:
                     self.backend.clear_drain()

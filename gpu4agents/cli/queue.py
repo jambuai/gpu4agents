@@ -5,6 +5,7 @@ from __future__ import annotations
 import functools
 import re
 import signal
+import socket
 import threading
 from dataclasses import asdict
 from pathlib import Path
@@ -44,10 +45,17 @@ def _guard(fn):
             raise
         except Exception as exc:  # noqa: BLE001
             root = type(exc).__module__.split(".")[0]
-            if not (isinstance(exc, (OSError, TimeoutError)) or root in ("redis", "botocore", "boto3", "urllib3")):
-                raise
+            network = (
+                isinstance(exc, (ConnectionError, TimeoutError, socket.gaierror, socket.herror))
+                or root in ("redis", "botocore", "boto3", "urllib3")
+            )
             text = _URL_PASSWORD.sub(r"\1:***@", str(exc))[:200]
-            _common.fail(f"the queue or its output store is unreachable ({type(exc).__name__}: {text})", 4)
+            if network:
+                _common.fail(f"the queue or its output store is unreachable ({type(exc).__name__}: {text})", 4)
+            if isinstance(exc, OSError):  # permission, disk full, missing path: not the network's fault
+                where = f" ({exc.filename})" if getattr(exc, "filename", None) else ""
+                _common.fail(f"cannot read or write the queue's local files: {exc.strerror or type(exc).__name__}{where}", 1)
+            raise
 
     return wrapper
 

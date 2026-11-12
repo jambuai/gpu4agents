@@ -163,7 +163,10 @@ def submit_job(
             )
         )
     except BaseException:
-        _drop_bundle(rt, ref)  # nothing was queued: the bundle must not stay behind
+        # The write may have landed before the error (a timeout after the command ran): the
+        # bundle goes only when the job is known to be absent. Unsure keeps it (a leak, not a loss).
+        if _known_absent(rt, job_id, key or job_id):
+            _drop_bundle(rt, ref)
         raise
     existing = job.id != job_id
     if existing:
@@ -174,6 +177,15 @@ def submit_job(
             files=built["files"], bytes=built["bytes"],
         )
     return _submitted(rt, job, existing=existing)
+
+
+def _known_absent(rt: Runtime, job_id: str, key: str) -> bool:
+    try:
+        if rt.backend.get(job_id) is not None:
+            return False
+        return all(j.key != key for j in rt.backend.list(limit=100_000))
+    except Exception:  # noqa: BLE001 - cannot tell: assume it exists
+        return False
 
 
 def _drop_bundle(rt: Runtime, ref: str) -> None:
@@ -448,7 +460,7 @@ def drain(project=None, now: bool = False) -> dict:
             coordinator.release()
         if not result.get("performed"):
             return {"paused": True, "drain": "requested", "performed_by": "coordinator", "actor": who}
-        done = not result["remaining"]
+        done = not result["remaining"] and not result.get("waiting_for")
         if done:
             rt.backend.clear_drain()
         return {"paused": True, "drain": "done" if done else "partial", "actor": who, **result}
