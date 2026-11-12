@@ -360,3 +360,40 @@ def test_the_default_jobs_image_is_never_placed_on_a_gpu_too_old_for_it(write_co
     assert runtime.required_compute_cap() == 7.5
     config.compute.image = "nvidia/cuda:12.8.0-runtime-ubuntu24.04"
     assert runtime_registry.get(config).required_compute_cap() is None
+
+
+class _FakeUpload:
+    def __init__(self, body: bytes, declared: int, on_eof=None):
+        self.headers = {"Content-Length": str(declared)}
+        self._body = io.BytesIO(body)
+        self._on_eof = on_eof
+        self.rfile = self
+
+    def read(self, n):
+        data = self._body.read(n)
+        if not data and self._on_eof:
+            self._on_eof()
+        return data
+
+
+def test_a_refuse_during_a_short_upload_does_not_break_the_handler(tmp_path, monkeypatch):
+    from gpu4agents.watchdog import jobs_ext
+
+    monkeypatch.setattr(jobs_ext, "JOBS_DIR", str(tmp_path))
+    request = _FakeUpload(b"abc", 10, on_eof=lambda: jobs_ext.job_refuse("j1"))
+    status, body = jobs_ext.job_upload(request, "j1")
+    assert status == 400 and "cut short" in body["error"]
+
+
+def test_a_failed_bundle_move_is_a_server_error_not_a_conflict(tmp_path, monkeypatch):
+    from gpu4agents.watchdog import jobs_ext
+
+    monkeypatch.setattr(jobs_ext, "JOBS_DIR", str(tmp_path))
+
+    def broken_replace(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(jobs_ext.os, "replace", broken_replace)
+    status, body = jobs_ext.job_upload(_FakeUpload(b"abc", 3), "j2")
+    assert status == 500 and "disk full" in body["error"]
+    assert not (tmp_path / "j2" / "bundle.tar.gz.part").exists()

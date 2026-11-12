@@ -254,7 +254,7 @@ def job_upload(request, job_id):
             handle.write(chunk)
             remaining -= len(chunk)
     if remaining:
-        os.remove(path + ".part")
+        _remove(path + ".part")
         return 400, {"error": "upload cut short (%d bytes missing)" % remaining}
     with _JOB_LOCK:
         if job_read(job_id) is not None:
@@ -264,7 +264,8 @@ def job_upload(request, job_id):
         try:
             os.replace(path + ".part", path)
         except OSError as exc:
-            return 409, {"error": "upload of job %s was cut off: %s" % (job_id, exc)}
+            _remove(path + ".part")
+            return 500, {"error": "could not store the bundle of job %s: %s" % (job_id, exc)}
     touch("job_upload")
     return 200, {"ok": True, "bytes": length}
 
