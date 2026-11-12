@@ -185,9 +185,13 @@ class ProjectGuard:
     instance_id: Optional[str] = None
     decision: Optional[dict] = None
     error: Optional[str] = None
+    slot: Optional[str] = None  # set for a queue-mode pool machine
+    mode: Optional[str] = None  # pool machines: guard | report_only | past_due_only
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "slot": self.slot,
+            "mode": self.mode,
             "config": str(self.config_path),
             "provider": self.provider,
             "instance_id": self.instance_id,
@@ -205,9 +209,89 @@ def _state_beside(config_path: Path) -> Optional[RuntimeState]:
         return None
 
 
+POOL_GUARD = "guard"
+POOL_REPORT_ONLY = "report_only"  # a live coordinator owns the actions
+POOL_PAST_DUE_ONLY = "past_due_only"  # the queue is unreachable: only what is already overdue
+
+
+def pool_slot_dirs(state_dir: Path) -> list[Path]:
+    root = Path(state_dir) / "pool"
+    if not root.is_dir():
+        return []
+    return [d for d in sorted(root.iterdir()) if d.is_dir() and not d.name.startswith(".")]
+
+
+def _pool_meta(slot_dir: Path) -> dict:
+    try:
+        data = json.loads((slot_dir / "pool.json").read_text())
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def coordinator_status(config) -> str:
+    """``live`` (a coordinator holds the lease), ``none`` or ``unreachable``."""
+    try:
+        from ..queue.backend import load_backend
+
+        backend = load_backend(config.queue.backend, config)
+        try:
+            return "live" if backend.coordinator() is not None else "none"
+        finally:
+            close = getattr(backend, "close", None)
+            if callable(close):
+                close()
+    except Exception:  # noqa: BLE001 - an unreachable queue must not stop the safety net
+        return "unreachable"
+
+
+def _past_due(state: RuntimeState, meta: dict, stopped_ttl_s: Optional[float], now: float) -> bool:
+    deadline = meta.get("deadline_at")
+    if isinstance(deadline, (int, float)) and deadline < now:
+        return True
+    if state.state == InstanceState.STOPPED.value and state.stopped_since and stopped_ttl_s:
+        return now - state.stopped_since > stopped_ttl_s
+    return False
+
+
+def _guard_pool(config, path, make_engine, apply, say, results, tracked) -> None:
+    slots = pool_slot_dirs(config.state_dir)
+    if not slots:
+        return
+    status = coordinator_status(config)
+    now = utc_now()
+    for slot_dir in slots:
+        slot = slot_dir.name
+        guard = ProjectGuard(config_path=path, slot=slot)
+        try:
+            engine = make_engine(config, state_dir=slot_dir, slot=slot)
+            guard.provider = engine.provider.name
+            before = engine.store.load()
+            if before.instance_id:
+                guard.instance_id = before.instance_id
+                tracked.add((guard.provider, before.instance_id))
+            slot_apply = apply
+            guard.mode = POOL_GUARD
+            if status == "live":
+                slot_apply, guard.mode = False, POOL_REPORT_ONLY
+            elif status == "unreachable":
+                guard.mode = POOL_PAST_DUE_ONLY
+                slot_apply = apply and _past_due(
+                    before, _pool_meta(slot_dir), config.stopped_ttl_s, now
+                )
+            guard.decision = engine.guard_tick(apply=slot_apply)
+        except JambuError as exc:
+            guard.error = str(exc)
+            say(f"! {path} [{slot}]: guard failed: {exc}")
+            results.append(guard)
+            continue
+        results.append(guard)
+        _describe_guard(guard, slot_apply, say)
+
+
 def guard_projects(
     paths: list[Path],
-    make_engine: Callable[[Any], Any],
+    make_engine: Callable[..., Any],
     *,
     apply: bool,
     echo=None,
@@ -251,12 +335,19 @@ def guard_projects(
             say(f"! {path}: guard failed: {exc}")
             continue
         _describe_guard(guard, apply, say)
+        if getattr(config, "queue", None) is not None:
+            _guard_pool(config, path, make_engine, apply, say, results, tracked)
     return results, tracked
 
 
 def _describe_guard(guard: ProjectGuard, apply: bool, say) -> None:
     decision = guard.decision or {}
     action, reason = decision.get("action", policy.ACTION_NONE), decision.get("reason")
+    if guard.slot:
+        guard = ProjectGuard(
+            config_path=Path(f"{guard.config_path} [pool {guard.slot}]"),
+            instance_id=guard.instance_id,
+        )
     if reason == "no_instance":
         say(f"= {guard.config_path}: no instance")
     elif action == policy.ACTION_NONE:
@@ -445,6 +536,22 @@ def _emit(sink: EventLog, planned: SweepAction) -> None:
     sink.emit(name, instance_id=planned.instance.id, reason=planned.reason, source="sweep")
 
 
+def _guarded_states(paths: list[Path]) -> Iterator[tuple[Path, Optional[str], Optional[RuntimeState]]]:
+    """Each project's own state, then the state of each of its pool slots (files only)."""
+    for path in paths:
+        yield path, None, _state_beside(path)
+        slots_root = project_state_dir(Path(path).parent) / "pool"
+        if not slots_root.is_dir():
+            continue
+        for slot_dir in pool_slot_dirs(slots_root.parent):
+            store = StateStore(slot_dir)
+            try:
+                state = store.load() if store.exists() else None
+            except JambuError:
+                state = None
+            yield path, slot_dir.name, state
+
+
 def stopped_and_billing(now: Optional[float] = None) -> list[dict[str, Any]]:
     """Registered projects whose machine is stopped where a stopped machine still bills.
 
@@ -460,8 +567,7 @@ def stopped_and_billing(now: Optional[float] = None) -> list[dict[str, Any]]:
     except Exception:  # noqa: BLE001 - a warning must never break a command
         return []
     found = []
-    for path in paths:
-        state = _state_beside(path)
+    for path, slot, state in _guarded_states(paths):
         if state is None or not state.instance_id or state.state != InstanceState.STOPPED.value:
             continue
         hourly = state.instance.stopped_hourly_cost_usd if state.instance else None
@@ -480,6 +586,7 @@ def stopped_and_billing(now: Optional[float] = None) -> list[dict[str, Any]]:
         found.append(
             {
                 "config": str(path),
+                "slot": slot,
                 "provider": state.provider,
                 "instance_id": state.instance_id,
                 "stopped_seconds": round(stopped_for, 1) if stopped_for is not None else None,

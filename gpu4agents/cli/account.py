@@ -82,11 +82,13 @@ def make_provider(config: RuntimeConfig, credentials: CredentialResolver, name: 
     return load_builtin_providers().get(config, credentials, name=name)
 
 
-def make_engine(config: RuntimeConfig, echo=None) -> Engine:
+def make_engine(config: RuntimeConfig, echo=None, *, state_dir=None, slot=None) -> Engine:
     """A project's own engine: its config, its credentials, its state."""
     credentials = CredentialResolver(config.project_dir, profile=config.provider.profile)
     provider = make_provider(config, credentials, config.provider.name)
-    return Engine(config, provider=provider, echo=echo, credentials=credentials)
+    return Engine(
+        config, provider=provider, echo=echo, credentials=credentials, state_dir=state_dir, slot=slot
+    )
 
 
 def ls_command(
@@ -282,7 +284,10 @@ def _sweep(
     if not context.json and paths:
         context.echo(f"> guarding {len(paths)} project(s)" + ("" if apply else " (dry run)"))
     guards, owned = sweep_mod.guard_projects(
-        paths, lambda cfg: make_engine(cfg, echo=context.echo), apply=apply, echo=context.echo
+        paths,
+        lambda cfg, **kw: make_engine(cfg, echo=context.echo, **kw),
+        apply=apply,
+        echo=context.echo,
     )
     name = account.provider.name
     tracked = {iid for (pname, iid) in owned if pname == name}
