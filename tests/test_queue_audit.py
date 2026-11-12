@@ -16,7 +16,7 @@ from gpu4agents.core import events as ev
 from gpu4agents.core.models import Instance
 from gpu4agents.queue.audit import AuditMemory, Violation, audit
 from gpu4agents.queue.coordinator import DEADLINE_GRACE_S
-from gpu4agents.queue.models import JobState, Outcome
+from gpu4agents.queue.models import Attempt, JobState, Outcome
 from gpu4agents.queue.outputs import OutputRef
 
 from queue_fakes import FakeRun
@@ -172,6 +172,28 @@ def test_i2_the_run_a_job_records_as_in_flight_is_not_a_duplicate(world):
     assert w.pool.cancels == []
 
 
+def test_i2_an_earlier_attempt_still_running_is_cancelled_not_the_one_in_flight(world):
+    w = world()
+    m = ready_machine(w)
+    w.submit("j1")
+    now = w.clock()
+    claim = w.backend.claim("ghost", 30, job_id="j1")
+    w.backend.update(
+        claim, state=JobState.RUNNING, machine=m.slot,
+        attempts=[Attempt(1, m.slot, "j1-a1", now - 100, now - 50, Outcome.MACHINE_LOST)],
+        limits={"attempt": 2, "remote_id": "j1-a2", "slot": m.slot, "instance_id": m.instance_id,
+                "started_at": now, "timeout_s": 600.0, "deadline_at": now + 1200},
+    )
+    w.pool.dispatch(m, "j1-a1", w.tmp / "none.tar.gz", {}, {})
+    w.pool.dispatch(m, "j1-a2", w.tmp / "none.tar.gz", {}, {})
+
+    found = [v for v in run_audit(w) if v.code == "I2_duplicate_execution"]
+
+    assert len(found) == 1 and found[0].repaired and "j1-a1" in found[0].detail
+    assert w.pool.cancels == ["j1-a1"]
+    assert w.pool.remotes["j1-a2"].state == "running"
+
+
 def test_machine_repairs_wait_while_another_coordinator_holds_the_lease(world):
     w = world()
     m = ready_machine(w)
@@ -270,6 +292,28 @@ def test_i4_an_orphan_that_is_a_job_s_machine_before_its_deadline_is_only_report
     assert [i for i, _ in w.pool.retired_instances] == ["x9"]
 
 
+def test_the_recover_audit_reports_but_does_not_repair_jobs_it_has_not_adopted(world):
+    w = world()
+    m = ready_machine(w)
+    w.submit("j1")
+    now = w.clock()
+    _ghost_in_flight(w, "j1", {
+        "attempt": 1, "remote_id": "j1-a1", "slot": m.slot, "instance_id": m.instance_id,
+        "started_at": now, "timeout_s": 600.0, "deadline_margin_s": 600.0, "deadline_at": now + 1200,
+    })
+    w.pool.lose(m.slot)
+    coord = w.coordinator("coord-b")
+
+    w.step(coord)  # lease acquired: recover() audits
+
+    [event] = reported(w, "I1_running_without_machine")
+    assert event["job_id"] == "j1" and event["repaired"] is False
+    assert w.job("j1").attempts == []  # still the ghost's: no claim token here
+    job = w.final(coord, "j1")  # adopted once the ghost's lease runs out
+    assert job.state == JobState.SUCCEEDED
+    assert [a.outcome for a in job.attempts] == [Outcome.MACHINE_LOST, Outcome.SUCCEEDED]
+
+
 def test_the_coordinator_audits_every_twelve_ticks_and_repairs_machines(world):
     w = world()
     coord = w.coordinator()
@@ -323,6 +367,23 @@ def test_i6_a_job_running_past_its_deadline_is_cancelled_and_requeued_timeout(wo
     assert count(w, "I6_job_past_deadline") == 1
 
 
+def test_i6_a_finished_run_past_its_deadline_is_left_to_delivery(world):
+    w = world(defaults={"deadline_margin": "1m"})
+    w.pool.script("j1", FakeRun(polls=1))
+    w.submit("j1", timeout="1m")
+    coord = w.coordinator()
+    job = running(w, coord, "j1")
+    w.pool.poll()  # it finishes; the coordinator has not looked yet
+    assert w.pool.remotes["j1-a1"].state == "succeeded"
+    keep_leases(w, coord, job.limits["deadline_at"] - w.clock() + 5)
+
+    assert run_audit(w, coord) == []
+    assert w.pool.cancels == []
+    job = w.final(coord, "j1")
+    assert job.state == JobState.SUCCEEDED
+    assert [a.outcome for a in job.attempts] == [Outcome.SUCCEEDED]
+
+
 def test_i6_without_a_coordinator_is_only_reported(world):
     w = world(defaults={"deadline_margin": "1m"})
     w.pool.script("j1", FakeRun(polls=10_000))
@@ -351,16 +412,37 @@ def test_i7_no_live_coordinator_while_jobs_wait(world):
     assert count(w, "I7_stale_coordinator") == 1
 
 
-def test_i7_a_lease_holder_whose_heartbeat_is_older_than_three_ticks(world):
+def test_i7_a_lease_that_ran_out_while_jobs_wait(world):
     w = world(tick="1s")
+    w.submit("j1")
     assert w.backend.acquire_coordinator("slow-one", 15)
-    w.clock.advance(2)
-    assert run_audit(w) == []
+    w.clock.advance(16)  # no renewal for longer than the lease
 
-    w.clock.advance(2)  # 4 s since its last renewal, 3 ticks are 3 s
     found = run_audit(w)
+
     assert codes(found) == ["I7_stale_coordinator"]
-    assert "slow-one" in found[0].detail
+    assert "no coordinator holds the lease" in found[0].detail
+
+
+def test_i7_a_healthy_coordinator_on_a_one_second_tick_is_not_stale(world):
+    w = world(tick="1s")
+    w.submit("j1")
+    assert w.backend.acquire_coordinator("steady-one", 15)
+    for _ in range(4):
+        w.clock.advance(4)  # under its heartbeat period (lease/3 = 5 s), but over 3 ticks
+        assert run_audit(w) == []
+        w.clock.advance(1)
+        assert w.backend.renew_coordinator("steady-one", 15)
+
+
+def test_a_coordinator_never_reports_itself_stale(world):
+    w = world(tick="1s")
+    w.submit("j1")
+    coord = w.coordinator()
+    w.step(coord)
+    w.clock.advance(14)  # its own lease is about to run out
+
+    assert "I7_stale_coordinator" not in codes(run_audit(w, coord))
 
 
 # ---------------------------------------------------------------------- I8

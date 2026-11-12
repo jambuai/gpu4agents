@@ -13,19 +13,26 @@ Codes (each found violation emits ``queue_invariant_violated`` and counts in
   Repair: a settle that never landed goes back to DELIVERING; a settled job is reported.
 - ``I4_orphan_machine``: a provider instance labeled as this pool's (prefix and
   fingerprint) that no slot tracks. Repair: retire it, unless it is the machine of a
-  job not final whose deadline plus the grace has not passed.
+  job not final whose deadline plus the grace has not passed. Another host's pool for
+  the same project (same label prefix and fingerprint) looks the same: its machines
+  are orphans to this pool, protected only while a job here records them in flight
+  (until that deadline plus the grace).
 - ``I5_spend_over_cap``: the pool costs more per hour than ``max_usd_per_hour``. Alert.
-- ``I6_job_past_deadline``: a RUNNING job past its deadline. Repair: cancel it on the
-  machine and requeue TIMEOUT.
-- ``I7_stale_coordinator``: the lease holder's last heartbeat is older than three
-  ticks, or no coordinator holds the lease while jobs are not final. Alert.
+- ``I6_job_past_deadline``: a RUNNING job past its deadline whose machine still lists
+  its run as running (a finished run is left to delivery; one that cannot be seen is
+  reported). Repair: cancel it on the machine and requeue TIMEOUT.
+- ``I7_stale_coordinator``: the lease holder's last heartbeat is older than
+  max(3 ticks, 3 heartbeat periods), or no coordinator holds the lease while jobs are
+  not final. Never raised by a coordinator about itself. Alert.
 - ``I8_outputs_not_stored``: outputs fetched to ``<state_dir>/queue/work/<job>/out-a<n>``
-  more than an hour ago and not marked stored. Alert.
+  more than an hour ago and not marked stored (not while the coordinator auditing
+  holds the job delivering). Alert.
 
 Who may repair what. Changing a job needs its claim token, which only the coordinator
 holds, so job repairs (I1, I3, I6) go through the coordinator passed in; without one
 they are reported with ``repaired=False``. Machine repairs (I2, I4) run inside the
-coordinator, or standalone only while no coordinator holds the lease.
+coordinator, or standalone only while no coordinator holds the lease; that is checked
+again right before each cancel or retire.
 
 The same (code, job, slot) is reported once per change (it appears, or its repaired
 flag changes) across the audits that share an ``AuditMemory``; the metric counts every
@@ -47,7 +54,9 @@ from .coordinator import (
     _ANSWERING,
     COORDINATOR_LEASE_TICKS,
     DEADLINE_GRACE_S,
+    JOB_LEASE_TICKS,
     MIN_COORDINATOR_LEASE_S,
+    MIN_JOB_LEASE_S,
     Coordinator,
     find_run,
     lost_detail,
@@ -80,7 +89,7 @@ class AuditMemory:
     """What one auditor remembers between audits."""
 
     reported: dict[tuple, bool] = field(default_factory=dict)  # key -> repaired, last audit
-    verified: dict[str, tuple[str, list[str]]] = field(default_factory=dict)  # job -> (location, problems)
+    verified: dict[str, str] = field(default_factory=dict)  # job -> outputs location found intact
 
 
 def audit(
@@ -201,6 +210,20 @@ class _Audit:
             raise RuntimeError(f"machine {m.slot} does not list its jobs")
         return listed
 
+    def _may_touch_machines(self) -> bool:
+        """Checked right before each cancel or retire: the auditing coordinator still
+        leads, or (standalone) still nobody holds the lease."""
+        if not self.fix_machines:
+            return False
+        try:
+            with self.lock:
+                lease = self.backend.coordinator()
+        except Exception:  # noqa: BLE001
+            return False
+        if self.coord is not None:
+            return self.coord.leader and lease is not None and lease.get("owner") == self.coord.worker_id
+        return lease is None
+
     def _changed(self) -> None:
         self._listings.clear()
 
@@ -211,7 +234,11 @@ class _Audit:
     # ------------------------------------------------------------------ I7
 
     def _i7(self, lease: Optional[dict], active: list[QueueJob]) -> None:
-        stale_s = STALE_AFTER_TICKS * self.tick_s
+        lease_s = max(COORDINATOR_LEASE_TICKS * self.tick_s, MIN_COORDINATOR_LEASE_S)
+        heartbeat_s = min(lease_s, max(JOB_LEASE_TICKS * self.tick_s, MIN_JOB_LEASE_S)) / 3
+        stale_s = max(STALE_AFTER_TICKS * self.tick_s, STALE_AFTER_TICKS * heartbeat_s)
+        if self.coord is not None and (lease is None or lease.get("owner") == self.coord.worker_id):
+            return  # the auditing coordinator is the holder; its own heartbeat is not audited
         if lease is None:
             if active:
                 self._add(
@@ -219,7 +246,6 @@ class _Audit:
                     f"no coordinator holds the lease while {len(active)} job(s) are not final", False,
                 )
             return
-        lease_s = max(COORDINATOR_LEASE_TICKS * self.tick_s, MIN_COORDINATOR_LEASE_S)
         try:
             age = self.backend.now() - (float(lease["lease_until"]) - lease_s)
         except (KeyError, TypeError, ValueError):
@@ -270,7 +296,7 @@ class _Audit:
                         f" with {where} in flight on {lim.get('slot')}" if where else " with nothing in flight"
                     )
                 repaired = False
-                if self.fix_machines:
+                if self._may_touch_machines():
                     try:
                         self.pool.cancel(m, rid)
                         repaired = True
@@ -284,14 +310,17 @@ class _Audit:
 
     # ------------------------------------------------------------------ I1, I6
 
-    def _lost(self, job: QueueJob, now: float) -> Optional[str]:
+    def _where(self, job: QueueJob, now: float) -> tuple[Optional[str], Optional[dict]]:
+        """(why it surely runs nowhere, None) or (None, the machine's record of the run,
+        None while it cannot be seen). Each machine is listed once per audit."""
         if self.coord is not None:
-            return self.coord.lost(job)
+            detail, _, rec = self.coord.whereabouts(job, self._list_jobs)
+            return detail, rec
         lim = job.limits or {}
-        home, m, _ = find_run(self.pool.machines(), lim, str(lim.get("remote_id") or ""), self._list_jobs)
+        home, m, rec = find_run(self.pool.machines(), lim, str(lim.get("remote_id") or ""), self._list_jobs)
         if m is not None:
-            return None
-        return lost_detail(home, _num(lim, "started_at"), now, lambda: _ended_by(lim, self.default_margin_s))
+            return None, rec
+        return lost_detail(home, _num(lim, "started_at"), now, lambda: _ended_by(lim, self.default_margin_s)), None
 
     def _running(self, active: list[QueueJob], now: float) -> None:
         for job in active:
@@ -299,22 +328,28 @@ class _Audit:
                 continue
             lim = job.limits or {}
             slot = lim.get("slot") or job.machine
-            detail = self._lost(job, now)
+            detail, rec = self._where(job, now)
             if detail is not None:
-                repaired = self.fix_jobs and self.coord.requeue_lost(job.id)
+                repaired = self.fix_jobs and self.coord.requeue_lost(job.id, self._list_jobs)
                 if repaired:
                     self._changed()
                 self._add("I1_running_without_machine", job.id, slot, f"{lim.get('remote_id')}: {detail}", repaired)
                 continue
             deadline = _num(lim, "deadline_at")
-            if deadline is not None and now > deadline:
-                repaired = self.fix_jobs and self.coord.cancel_overdue(job.id)
+            if deadline is None or now <= deadline:
+                continue
+            if rec is not None and rec.get("state") != "running":
+                continue  # it finished: delivery takes it from here
+            repaired = False
+            if rec is not None and self.fix_jobs:
+                repaired = self.coord.cancel_overdue(job.id, self._list_jobs)
                 if repaired:
                     self._changed()
-                self._add(
-                    "I6_job_past_deadline", job.id, slot,
-                    f"{lim.get('remote_id')} still running {now - deadline:.0f}s past its deadline", repaired,
-                )
+            seen = "still running" if rec is not None else "not seen on any machine yet"
+            self._add(
+                "I6_job_past_deadline", job.id, slot,
+                f"{lim.get('remote_id')} {seen} {now - deadline:.0f}s past its deadline", repaired,
+            )
 
     # ------------------------------------------------------------------ I3
 
@@ -344,25 +379,28 @@ class _Audit:
             )
         with self.lock:
             done = self.backend.list({JobState.SUCCEEDED}, limit=100_000)
+        ids = {job.id for job in done}
+        self.memory.verified = {k: v for k, v in self.memory.verified.items() if k in ids}
         budget = MAX_VERIFY_PER_AUDIT
         for job in done:
             location = str((job.outputs_ref or {}).get("location") or "")
-            seen = self.memory.verified.get(job.id)
-            if seen is None or seen[0] != location:
-                if budget <= 0:
-                    continue
-                budget -= 1
-                problems = self._problems(job.outputs_ref)
-                if problems is None:
-                    continue
-                seen = self.memory.verified[job.id] = (location, problems)
-            if seen[1]:
-                self._add(
-                    "I3_outputs_unverified", job.id, job.machine,
-                    "settled as succeeded but its outputs fail verification (a final job is not reopened): "
-                    + "; ".join(seen[1]),
-                    False,
-                )
+            if location and self.memory.verified.get(job.id) == location:
+                continue  # found intact before; only problems are checked again
+            if budget <= 0:
+                continue
+            budget -= 1
+            problems = self._problems(job.outputs_ref)
+            if problems is None:
+                continue
+            if not problems:
+                self.memory.verified[job.id] = location
+                continue
+            self._add(
+                "I3_outputs_unverified", job.id, job.machine,
+                "settled as succeeded but its outputs fail verification (a final job is not reopened): "
+                + "; ".join(problems),
+                False,
+            )
 
     # ------------------------------------------------------------------ I4
 
@@ -398,7 +436,7 @@ class _Audit:
                 continue
             detail = f"instance {inst.id} ({label}) is labeled as this pool's but no slot tracks it"
             repaired = False
-            if self.fix_machines:
+            if self._may_touch_machines():
                 try:
                     self.pool.retire_instance(inst, "orphan: no slot tracks it (auditor)")
                     repaired = True
@@ -424,7 +462,12 @@ class _Audit:
     def _i8(self, now: float) -> None:
         if self.workdir is None or not self.workdir.is_dir():
             return
+        delivering: set[str] = set()
+        if self.coord is not None:
+            delivering = {r.job_id for r in self.coord._snapshot() if r.phase == "delivering"}
         for base in sorted(p for p in self.workdir.iterdir() if p.is_dir()):
+            if base.name in delivering:
+                continue  # in hand: its own delivery stores it and reports its failures
             old = []
             for child in base.iterdir():
                 match = _OUT.fullmatch(child.name)

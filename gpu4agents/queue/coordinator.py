@@ -794,20 +794,29 @@ class Coordinator:
     # repairs the auditor asks for (only the claim holder can change a job)
     # ------------------------------------------------------------------
 
-    def lost(self, job: QueueJob) -> Optional[str]:
-        """Why an in-flight job surely runs on no machine, by the same rules as adoption
-        (``find_run``, ``lost_detail``); None while it may still run somewhere."""
+    def whereabouts(
+        self, job: QueueJob, list_jobs: Optional[Callable[[PoolMachine], list[dict]]] = None,
+    ) -> tuple[Optional[str], Optional[PoolMachine], Optional[dict]]:
+        """Where an in-flight job's run is: (None, machine, record) when a machine lists
+        it; else (why it surely runs nowhere, None, None) by the same rules as adoption
+        (``find_run``, ``lost_detail``), or (None, None, None) while it may still run.
+        ``list_jobs`` lets a caller list each machine once (default ``pool.remote_jobs``)."""
         lim = job.limits or {}
         now = self.clock()
-        home, m, _ = find_run(
-            self.pool.machines(), lim, str(lim.get("remote_id") or ""), self.pool.remote_jobs,
+        home, m, rec = find_run(
+            self.pool.machines(), lim, str(lim.get("remote_id") or ""), list_jobs or self.pool.remote_jobs,
             self._retired_instances,
         )
         if m is not None:
-            return None
-        return lost_detail(home, lim.get("started_at"), now, lambda: self._no_later_than(job.id, lim, now))
+            return None, m, rec
+        detail = lost_detail(home, lim.get("started_at"), now, lambda: self._no_later_than(job.id, lim, now))
+        return detail, None, None
 
-    def requeue_lost(self, job_id: str) -> bool:
+    def lost(self, job: QueueJob, list_jobs: Optional[Callable[[PoolMachine], list[dict]]] = None) -> Optional[str]:
+        """Why an in-flight job surely runs on no machine; None while it may still run."""
+        return self.whereabouts(job, list_jobs)[0]
+
+    def requeue_lost(self, job_id: str, list_jobs: Optional[Callable[[PoolMachine], list[dict]]] = None) -> bool:
         """Requeue MACHINE_LOST a running job in hand that surely runs nowhere. False when
         the job is not in hand (held elsewhere, or waiting to be adopted, where the same
         rules apply) or may still run."""
@@ -815,7 +824,7 @@ class Coordinator:
             run = self._runs.get(job_id)
         if run is None or not self.leader or run.locate or run.phase not in ("running", "cancelling"):
             return False
-        detail = self.lost(run.job)
+        detail = self.lost(run.job, list_jobs)
         if detail is None:
             return False
         try:
@@ -824,15 +833,20 @@ class Coordinator:
             return False
         return True
 
-    def cancel_overdue(self, job_id: str) -> bool:
+    def cancel_overdue(self, job_id: str, list_jobs: Optional[Callable[[PoolMachine], list[dict]]] = None) -> bool:
         """Cancel a job in hand still running past its deadline and requeue it TIMEOUT,
-        keeping what it wrote. Nothing is requeued unless the machine took the cancel."""
+        keeping what it wrote. Only a run its machine lists as running is touched (a
+        finished one is left to delivery); nothing is requeued unless the cancel is taken."""
         with self._lock:
             run = self._runs.get(job_id)
         if run is None or not self.leader or run.phase != "running":
             return False
-        m = next((x for x in self.pool.machines() if x.slot == run.slot and x.state in _ANSWERING), None)
-        if m is None:
+        _, m, rec = self.whereabouts(run.job, list_jobs)
+        if m is None or rec is None or rec.get("state") != "running" or m.slot != run.slot:
+            return False
+        try:
+            self._check_lead()
+        except _Demoted:
             return False
         try:
             self.pool.cancel(m, run.remote_id)
