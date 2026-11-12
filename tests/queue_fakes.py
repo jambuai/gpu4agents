@@ -21,6 +21,7 @@ from typing import Callable, Optional
 from gpu4agents.core import events as ev
 from gpu4agents.core.beacon import WatchdogUnavailable
 from gpu4agents.core.errors import StateError
+from gpu4agents.core.models import Instance
 from gpu4agents.queue.observe import Observer
 from gpu4agents.queue.pool import HealthResult, RetireResult
 from gpu4agents.queue.pool_types import MachineState, PoolMachine
@@ -97,6 +98,9 @@ class FakePool:
         self._boot_left: dict[str, int] = {}
         self.runs: list[FakeRemote] = []  # every remote job, on any machine
         self.unreachable: set[str] = set()
+        # Provider instances labeled as this pool's machines that no slot tracks.
+        self.orphan_instances: list[Instance] = []
+        self.retired_instances: list[tuple[str, str]] = []  # (instance id, reason)
 
         self.last_open_at: Optional[float] = None
         self.last_failed_at: Optional[float] = None
@@ -327,6 +331,14 @@ class FakePool:
         self._machines.pop(m.slot, None)
         self.obs.emit(ev.POOL_MACHINE_RETIRED, slot=m.slot, reason=reason, host_marked_bad=mark_bad)
         return result
+
+    def orphans(self) -> list[Instance]:
+        return list(self.orphan_instances)
+
+    def retire_instance(self, instance: Instance, reason: str) -> None:
+        self.orphan_instances = [i for i in self.orphan_instances if i.id != instance.id]
+        self.retired_instances.append((instance.id, reason))
+        self.obs.emit(ev.POOL_MACHINE_RETIRED, instance_id=instance.id, reason=reason, orphan=True)
 
     def next_offer_usd(self) -> Optional[float]:
         return self.hourly_usd

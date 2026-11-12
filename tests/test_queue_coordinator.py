@@ -572,7 +572,7 @@ def test_the_audit_hook_runs_every_twelve_ticks(world):
     calls = []
     coord._audit = lambda: calls.append(1) or ["v"]
     reports = w.step(coord, 24)
-    assert len(calls) == 2
+    assert len(calls) == 3  # once on recover() (lease acquired), then every twelve ticks
     assert sum(r.violations for r in reports) == 2
 
 

@@ -12,7 +12,7 @@ standby and takes over when the lease runs out. Each tick, in order:
 5. while a ready machine has a free slot and the queue is not paused: claim,
    preflight, push the machine's deadline, dispatch ``<job>-a<n>``;
 6. the scaling decision: open machines, keep ``min_machines`` warm;
-7. the audit hook every 12 ticks (Task 12);
+7. the auditor (``audit.py``) every 12 ticks, and once on ``recover()``;
 8. metrics.
 
 Leases do not depend on the tick: ``run()`` starts a heartbeat thread that renews
@@ -93,6 +93,59 @@ _FAULTS = {
     MachineState.UNRESPONSIVE: (Outcome.UNRESPONSIVE, "unresponsive", True),
     MachineState.UNHEALTHY: (Outcome.UNHEALTHY, "unhealthy", True),
 }
+
+
+def find_run(
+    machines: list[PoolMachine], lim: dict, remote_id: str, list_jobs: Callable[[PoolMachine], list[dict]],
+    retired: Any = (),
+) -> tuple[Optional[str], Optional[PoolMachine], Optional[dict]]:
+    """Look for ``remote_id`` on every machine. Returns (home, machine, record): the
+    machine and its record when found; else what is known of the machine the in-flight
+    record names: None (not one of these), "dead", "unknown" (cannot tell yet) or
+    "answering" (it lists its jobs)."""
+    instance, slot = lim.get("instance_id"), lim.get("slot")
+    home: Optional[str] = "dead" if instance and instance in retired else None
+    for m in machines:
+        ours = (m.instance_id == instance) if instance else (m.slot == slot)
+        if m.state in _DEAD:
+            if ours:
+                home = "dead"
+            continue
+        if m.state not in _ANSWERING:
+            if ours:
+                home = "unknown"
+            continue
+        try:
+            listed = list_jobs(m)
+        except Exception:  # noqa: BLE001
+            if ours:
+                home = "unknown"
+            continue
+        if ours:
+            home = "answering"
+        rec = next((j for j in listed if str(j.get("id")) == remote_id), None)
+        if rec is not None:
+            return home, m, rec
+    return home, None, None
+
+
+def lost_detail(
+    home: Optional[str], started_at: Optional[float], now: float, wait_until: Callable[[], Optional[float]],
+) -> Optional[str]:
+    """Why a run that ``find_run`` did not find surely runs nowhere, or None while that
+    is not certain: its machine cannot be told yet, a machine this pool cannot see has
+    not reached its deadline plus a grace, or an upload may still be on its way."""
+    if home == "unknown":
+        return None
+    if home is None:
+        # Another host's machine: its watchdog ends the run by its deadline.
+        until = wait_until()
+        if until is None or now < until:
+            return None
+        return "previous coordinator's machine unreachable; waited for its deadline"
+    if home == "answering" and now < float(started_at or now) + UPLOAD_TIMEOUT_S + UPLOAD_SLACK_S:
+        return None  # the upload may still be on its way
+    return "not found on any machine after the coordinator changed"
 
 
 @dataclass
@@ -209,8 +262,13 @@ class Coordinator:
         self._errors: dict[str, str] = {}
         self._stats = None
         self._report = TickReport(0, 0, 0, 0, 0, 0)
-        # Task 12 wires the auditor here: called every AUDIT_EVERY_TICKS ticks, returns violations.
-        self._audit: Optional[Callable[[], Any]] = None
+        # The auditor: called every AUDIT_EVERY_TICKS ticks and on recover(), returns violations.
+        from .audit import AuditMemory, audit
+
+        self.audit_memory = AuditMemory()
+        self._audit: Optional[Callable[[], Any]] = lambda: audit(
+            self.backend, self.pool, self.outputs, self.obs, repair=True, coordinator=self,
+        )
 
     # ------------------------------------------------------------------
     # the loop
@@ -513,6 +571,11 @@ class Coordinator:
         for job in jobs:
             if job.id not in self._runs and (self._unsettled(job) or self._in_flight(job)):
                 self._adopt.add(job.id)
+        if self._audit is not None:
+            try:
+                self._audit()
+            except Exception as exc:  # noqa: BLE001 - recovery goes on without it
+                self.obs.emit(ev.PROVIDER_ERROR, operation="audit", error=str(exc)[:500])
         self._retry_adoptions()
 
     @staticmethod
@@ -526,11 +589,11 @@ class Coordinator:
         settling = (job.limits or {}).get("settling")
         return bool(settling) and settling.get("id") != (job.result or {}).get("settle_id")
 
-    def _retry_adoptions(self) -> None:
+    def _retry_adoptions(self, only: Optional[str] = None) -> None:
         """Claim each remembered in-flight job by id (allowed while paused: re-adoption
         is not new work)."""
         with self._lock:
-            ids = sorted(self._adopt)
+            ids = sorted(self._adopt) if only is None else [only] if only in self._adopt else []
         for job_id in ids:
             if not self.leader:
                 return
@@ -562,8 +625,12 @@ class Coordinator:
         try:
             if self._unsettled(job):
                 s = job.limits["settling"]
-                self._finish_settle(run, JobState(s["state"]), dict(s["result"]))
-                return None
+                state = JobState(s["state"])
+                if state != JobState.SUCCEEDED or not self._outputs_bad(job):
+                    self._finish_settle(run, state, dict(s["result"]))
+                    return None
+                self._reopen(run)
+                job = run.job
             if self._in_flight(job):
                 lim = job.limits or {}
                 run.slot = lim.get("slot")
@@ -589,6 +656,37 @@ class Coordinator:
         except _Dropped:
             return None
         return run
+
+    def _outputs_bad(self, job: QueueJob) -> bool:
+        """The recorded outputs fail verification now. A store that cannot be reached says
+        nothing: they were verified before the settle was recorded."""
+        if not job.outputs_ref:
+            return True
+        try:
+            return bool(self.outputs.verify(OutputRef(**job.outputs_ref)))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _reopen(self, run: _Run) -> None:
+        """A settle toward success never landed and its outputs no longer verify: undo the
+        unfinished settle (the closed attempt and the outputs it recorded) and deliver the
+        attempt again, from this host's copy or from the machine; a run found nowhere is
+        requeued like any lost run."""
+        job = run.job
+        lim = dict(job.limits or {})
+        lim.pop("settling", None)
+        n = int(lim.get("attempt") or len(job.attempts) or 1)
+        attempts = [a for a in job.attempts if a.number != n]
+        self._update(run, state=JobState.DELIVERING, limits=lim, attempts=attempts, outputs_ref=None)
+        run.number, run.remote_id = n, f"{job.id}-a{n}"
+        try:
+            (self.workdir / job.id / f"out-a{n}.stored").unlink()
+        except OSError:
+            pass
+        self.obs.emit(
+            ev.QUEUE_OUTPUTS_DELIVERY_FAILED, job_id=job.id, attempt=n, stage="verify",
+            problems=["the recorded outputs fail verification; delivering again"],
+        )
 
     def _marker(self, run: _Run) -> Path:
         return self.workdir / run.job_id / f"out-a{run.number}.json"
@@ -629,49 +727,20 @@ class Coordinator:
         """Look for the run's remote id; adopt it, or requeue it once it is certain
         that it does not run anywhere."""
         lim = run.job.limits or {}
-        instance, slot = lim.get("instance_id"), lim.get("slot")
         now = self.clock()
-        # What we know of the machine the run was sent to: None (not one of ours),
-        # "dead", "unknown" (cannot tell yet) or "answering" (it lists its jobs).
-        home: Optional[str] = "dead" if instance and instance in self._retired_instances else None
-        for m in self.pool.machines():
-            ours = (m.instance_id == instance) if instance else (m.slot == slot)
-            if m.state in _DEAD:
-                if ours:
-                    home = "dead"
-                continue
-            if m.state not in _ANSWERING:
-                if ours:
-                    home = "unknown"
-                continue
-            try:
-                listed = self.pool.remote_jobs(m)
-            except Exception:  # noqa: BLE001
-                if ours:
-                    home = "unknown"
-                continue
-            if ours:
-                home = "answering"
-            rec = next((j for j in listed if str(j.get("id")) == run.remote_id), None)
-            if rec is not None:
-                self._adopt_run(run, m, rec)
-                return
-        if home == "unknown":
+        home, m, rec = find_run(
+            self.pool.machines(), lim, run.remote_id, self.pool.remote_jobs, self._retired_instances,
+        )
+        if m is not None:
+            self._adopt_run(run, m, rec)
             return
-        if home is None:
-            # Another host's machine: its watchdog ends the run by its deadline.
-            wait_until = self._no_later_than(run, lim, now)
-            if now < wait_until:
-                return
-            run.locate = False
-            self._fault(run, Outcome.MACHINE_LOST, "previous coordinator's machine unreachable; waited for its deadline")
+        detail = lost_detail(home, run.started_at, now, lambda: self._no_later_than(run.job_id, lim, now))
+        if detail is None:
             return
-        if home == "answering" and now < float(run.started_at or now) + UPLOAD_TIMEOUT_S + UPLOAD_SLACK_S:
-            return  # the upload may still be on its way
         run.locate = False
-        self._fault(run, Outcome.MACHINE_LOST, "not found on any machine after the coordinator changed")
+        self._fault(run, Outcome.MACHINE_LOST, detail)
 
-    def _no_later_than(self, run: _Run, lim: dict, now: float) -> float:
+    def _no_later_than(self, job_id: str, lim: dict, now: float) -> float:
         """When a run on a machine this coordinator cannot see has surely ended: its
         deadline plus a grace; else started_at + timeout + margin plus the grace; else
         (a record that breaks the contract) a hard cap from when it was first met."""
@@ -689,15 +758,15 @@ class Coordinator:
         if started is not None and timeout is not None:
             margin = num("deadline_margin_s")
             return started + timeout + (self.default_margin_s if margin is None else margin) + DEADLINE_GRACE_S
-        if run.job_id not in self._violations:
-            self._violations.add(run.job_id)
+        if job_id not in self._violations:
+            self._violations.add(job_id)
             self.obs.inc("gpu_queue_invariant_violations_total", code="inflight_without_deadline")
             self.obs.emit(
-                ev.QUEUE_INVARIANT_VIOLATED, code="inflight_without_deadline", job_id=run.job_id,
+                ev.QUEUE_INVARIANT_VIOLATED, code="inflight_without_deadline", job_id=job_id,
                 slot=lim.get("slot"), detail="an in-flight record carries no deadline; waiting for the hard cap",
             )
         cap = self.queue.max_machine_lifetime_s or NO_DEADLINE_CAP_S
-        since = started if started is not None else self._first_seen.setdefault(run.job_id, now)
+        since = started if started is not None else self._first_seen.setdefault(job_id, now)
         return since + cap
 
     def _adopt_run(self, run: _Run, m: PoolMachine, rec: dict) -> None:
@@ -720,6 +789,80 @@ class Coordinator:
             ev.QUEUE_JOB_STARTED, job_id=run.job_id, attempt=run.number, slot=m.slot,
             remote_id=run.remote_id, adopted=True, remote_state=rec.get("state"),
         )
+
+    # ------------------------------------------------------------------
+    # repairs the auditor asks for (only the claim holder can change a job)
+    # ------------------------------------------------------------------
+
+    def lost(self, job: QueueJob) -> Optional[str]:
+        """Why an in-flight job surely runs on no machine, by the same rules as adoption
+        (``find_run``, ``lost_detail``); None while it may still run somewhere."""
+        lim = job.limits or {}
+        now = self.clock()
+        home, m, _ = find_run(
+            self.pool.machines(), lim, str(lim.get("remote_id") or ""), self.pool.remote_jobs,
+            self._retired_instances,
+        )
+        if m is not None:
+            return None
+        return lost_detail(home, lim.get("started_at"), now, lambda: self._no_later_than(job.id, lim, now))
+
+    def requeue_lost(self, job_id: str) -> bool:
+        """Requeue MACHINE_LOST a running job in hand that surely runs nowhere. False when
+        the job is not in hand (held elsewhere, or waiting to be adopted, where the same
+        rules apply) or may still run."""
+        with self._lock:
+            run = self._runs.get(job_id)
+        if run is None or not self.leader or run.locate or run.phase not in ("running", "cancelling"):
+            return False
+        detail = self.lost(run.job)
+        if detail is None:
+            return False
+        try:
+            self._fault(run, Outcome.MACHINE_LOST, f"auditor: {detail}")
+        except _Dropped:
+            return False
+        return True
+
+    def cancel_overdue(self, job_id: str) -> bool:
+        """Cancel a job in hand still running past its deadline and requeue it TIMEOUT,
+        keeping what it wrote. Nothing is requeued unless the machine took the cancel."""
+        with self._lock:
+            run = self._runs.get(job_id)
+        if run is None or not self.leader or run.phase != "running":
+            return False
+        m = next((x for x in self.pool.machines() if x.slot == run.slot and x.state in _ANSWERING), None)
+        if m is None:
+            return False
+        try:
+            self.pool.cancel(m, run.remote_id)
+        except Exception as exc:  # noqa: BLE001 - the next audit asks again
+            self.obs.emit(ev.PROVIDER_ERROR, operation="cancel", job_id=job_id, error=str(exc)[:500])
+            return False
+        dest: Optional[Path] = self._dir(run) / f"out-a{run.number}"
+        try:
+            shutil.rmtree(dest, ignore_errors=True)
+            self.pool.fetch_outputs(m, run.remote_id, dest)
+        except Exception:  # noqa: BLE001 - a timed-out run's outputs are best effort
+            dest = None
+        try:
+            self._fault(run, Outcome.TIMEOUT, "auditor: still running past its deadline; cancelled", outputs_dir=dest)
+        except _Dropped:
+            return False
+        return True
+
+    def redeliver(self, job_id: str) -> bool:
+        """A job whose settle toward success never landed and whose outputs fail
+        verification: take it back and deliver it again (``_reopen``). True once it no
+        longer claims a success it cannot show."""
+        if not self.leader or job_id in self._runs:
+            return False
+        with self._lock:
+            self._adopt.add(job_id)
+        self._retry_adoptions(only=job_id)
+        with self._lock:
+            job = self.backend.get(job_id)
+        return job is not None and job.state != JobState.SUCCEEDED and not self._unsettled(job)
 
     # ------------------------------------------------------------------
     # step 4: machines that failed, then each running attempt
