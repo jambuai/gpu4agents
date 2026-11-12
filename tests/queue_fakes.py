@@ -113,6 +113,10 @@ class FakePool:
         self.retire_refused: set[str] = set()
         self.retire_loses: set[str] = set()  # retire cannot pull anything from these slots
         self.dispatch_failures: dict[str, int] = {}  # slot -> dispatches that fail before starting
+        # Code on a machine that never started: slot -> remote id -> {"state", "age_s"}.
+        self.uploads: dict[str, dict[str, dict]] = {}
+        self.old_runner = False  # a job runner from before 0.14.0: says nothing of uploads
+        self.jobs_dir_age_s: Optional[float] = None  # None -> since the machine opened
         # Slow calls: operation name -> seconds the call takes on the injected clock. The
         # clock moves in steps of ``slow_step_s``; ``during()`` runs after each step (a
         # heartbeat thread, or another coordinator acting meanwhile).
@@ -302,8 +306,20 @@ class FakePool:
         self._sync(m)
 
     def remote_jobs(self, m: PoolMachine) -> list[dict]:
+        return self.remote_view(m)["jobs"]
+
+    def remote_view(self, m: PoolMachine) -> dict:
         self._reach(m)
-        return [r.record() for r in self._on(m.slot)]
+        jobs = [r.record() for r in self._on(m.slot)]
+        if self.old_runner:
+            return {"jobs": jobs, "uploads": None, "jobs_dir_age_s": None}
+        started = {r.id for r in self._on(m.slot)}
+        uploads = {k: dict(v) for k, v in self.uploads.get(m.slot, {}).items() if k not in started}
+        # The runner was loaded by the first health check, right after the machine opened.
+        age = self.jobs_dir_age_s
+        if age is None:
+            age = max(0.0, self.clock() - float(m.opened_at or self.clock()))
+        return {"jobs": jobs, "uploads": uploads, "jobs_dir_age_s": age}
 
     def retire(self, m: PoolMachine, reason: str, mark_bad: bool = True) -> RetireResult:
         if m.state == MachineState.GONE:

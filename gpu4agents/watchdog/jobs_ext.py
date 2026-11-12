@@ -23,7 +23,8 @@ runtime pid (a server that dies while loading ends the startup wait) and its
 log becomes the runtime log (`gpu logs`).
 
 Routes (behind X-Jambu-Token, like every other control route):
-    GET  /jobs                    -> {jobs: [records]}
+    GET  /jobs                    -> {jobs: [records], uploads: {id: {state, age_s}},
+                                      jobs_dir_age_s}
     PUT  /jobs/<id>/bundle        <- tar.gz of the code (optional)
     POST /jobs/<id>/start         -> {command, setup, env, timeout_s, label,
                                       service, digest}
@@ -36,6 +37,15 @@ On disk, under JOBS_DIR/<id>/: bundle.tar.gz, src/ (the code, and the job's
 working directory), out/ (outputs), job.log, job.json (the record), and rc
 (the exit code, written by the job's own shell, so a respawned watchdog still
 learns how a job ended).
+
+``GET /jobs`` also names every job that has code on the machine but was never
+started (``uploads``: "uploading" while its bundle is still arriving, "uploaded"
+once it is complete, "empty" for a directory with neither; ``age_s`` is how long
+ago it last changed), and how old the jobs directory is (``jobs_dir_age_s``, from
+a marker written when the runner first finds it). A queue coordinator that takes
+over uses both to tell a run that never started from one still on its way: a
+directory older than the dispatch that holds nothing for the job means the job
+never reached this machine.
 """
 
 # Loaded with exec() into the watchdog's globals. Imported directly (tests,
@@ -82,6 +92,8 @@ _JOB_PROCS = globals().get("_JOB_PROCS") or {}
 _JOB_LOCK = globals().get("_JOB_LOCK") or threading.RLock()
 # A new version of this code retires the monitor threads of the old one.
 _JOB_GENERATION = int(globals().get("_JOB_GENERATION") or 0) + 1
+# When the runner first found this jobs directory (it goes with the directory).
+JOBS_DIR_MARKER = ".jambu-jobs-since"
 
 
 def _job_path(job_id, *parts):
@@ -532,6 +544,46 @@ def job_outputs(request, job_id):
         log_event("job_outputs_saved", job_id=job_id, files=signature[0] if signature else 0)
 
 
+def jobs_dir_age():
+    """Seconds since the runner first found the jobs directory (0 for a new one)."""
+    path = os.path.join(JOBS_DIR, JOBS_DIR_MARKER)
+    try:
+        with open(path) as handle:
+            since = float(handle.read().strip())
+    except (OSError, ValueError):
+        since = time.time()
+        try:
+            os.makedirs(JOBS_DIR, exist_ok=True)
+            _atomic_write(path, repr(since))
+        except OSError:
+            pass
+    return max(0.0, time.time() - since)
+
+
+def job_uploads():
+    """Jobs with a directory but no record: code on its way or waiting for a start."""
+    try:
+        names = sorted(os.listdir(JOBS_DIR))
+    except OSError:
+        return {}
+    now, found = time.time(), {}
+    for name in names:
+        if not JOB_ID_PATTERN.match(name) or os.path.exists(_job_path(name, "job.json")):
+            continue
+        for state, path in (
+            ("uploading", _job_path(name, "bundle.tar.gz.part")),
+            ("uploaded", _job_path(name, "bundle.tar.gz")),
+            ("empty", _job_path(name)),
+        ):
+            try:
+                changed = os.stat(path).st_mtime
+            except OSError:
+                continue
+            found[name] = {"state": state, "age_s": round(max(0.0, now - changed), 3)}
+            break
+    return found
+
+
 def job_list():
     try:
         names = sorted(os.listdir(JOBS_DIR))
@@ -548,10 +600,12 @@ def jobs_route(request, method, path, body):
     if len(parts) == 1:
         if method != "GET":
             return False
+        # Uploads first: a job that starts in between then shows up as a record.
+        uploads = job_uploads()
         records = job_list()
         for record in records:
             record["outputs_unsaved"] = outputs_unsaved(record)
-        request._reply(200, {"jobs": records})
+        request._reply(200, {"jobs": records, "uploads": uploads, "jobs_dir_age_s": jobs_dir_age()})
         return True
     job_id = parts[1]
     if not JOB_ID_PATTERN.match(job_id) or len(parts) > 3:
@@ -590,5 +644,6 @@ def jobs_resume():
 
 
 jobs_resume()
+jobs_dir_age()  # the marker, from the first time this runner is loaded
 EXT_ROUTES["jobs"] = jobs_route
 TERMINATE_HOOKS["jobs"] = outputs_guard

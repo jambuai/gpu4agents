@@ -187,6 +187,30 @@ def test_a_bundle_escaping_its_directory_is_refused(runner, tmp_path):
     assert not list(tmp_path.rglob("escaped.txt"))
 
 
+def test_the_job_list_says_which_uploads_never_started(runner, tmp_path):
+    agent, client = runner()
+    jobs_dir = agent.dir / "jobs"
+    view = client.view()
+    assert view["jobs"] == [] and view["uploads"] == {}
+    assert view["jobs_dir_age_s"] >= 0.0  # the directory's age: older than a dispatch means nothing was wiped
+
+    client.upload("u1", make_bundle(tmp_path, {"main.py": "print(1)\n"}))
+    (jobs_dir / "u2").mkdir()
+    (jobs_dir / "u2" / "bundle.tar.gz.part").write_bytes(b"half")
+    time.sleep(0.2)
+    view = client.view()
+    assert {k: v["state"] for k, v in view["uploads"].items()} == {"u1": "uploaded", "u2": "uploading"}
+    assert all(v["age_s"] >= 0.1 for v in view["uploads"].values())
+    assert view["jobs"] == [] and client.list() == []  # an upload is not a job
+
+    client.start("u1", {"command": "true"})
+    wait_done(client, "u1")
+    view = client.view()
+    assert [j["id"] for j in view["jobs"]] == ["u1"]
+    assert set(view["uploads"]) == {"u2"}  # started: listed as a job, no longer as an upload
+    assert view["jobs_dir_age_s"] >= 0.2
+
+
 def test_job_ids_are_unique_and_validated(runner, tmp_path):
     _, client = runner()
     client.start("once", {"command": "true"})

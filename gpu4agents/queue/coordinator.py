@@ -26,9 +26,14 @@ What is in flight is in the queue, not only in this process: before a dispatch t
 job's ``limits`` record the attempt number, remote id, slot, instance id, owner and
 the machine's deadline. A coordinator that finds such a job (after a crash, a
 takeover or an expired lease) looks for that remote id and adopts the run instead
-of starting it twice. A run on a machine this coordinator cannot see (another
-host's pool) is requeued only after that machine's deadline plus a grace, when its
-watchdog has ended it.
+of starting it twice. When the recorded machine answers and its job runner has no
+record, no upload and no code for the run (and its jobs directory is older than the
+attempt), the run never started: it goes back to the queue at once as NOT_STARTED,
+which does not count toward max_attempts. Code still arriving is waited for. A run
+on a machine this coordinator cannot see (another host's pool) is requeued only
+after that machine's deadline plus a grace, when its watchdog has ended it. While
+the decision is pending, the recorded machine gets a keepalive every tick, so its
+idle rule does not end it under the run.
 
 Writes are fenced by the claim token: a ``LeaseLost`` drops the job from memory, is
 reported as a stale write, and the write is never retried. Local files (fetched
@@ -88,6 +93,7 @@ REMOTE_JOBS_DIR = "/workspace/jobs"
 _LIVE = (MachineState.READY, MachineState.BUSY)
 _ANSWERING = (MachineState.READY, MachineState.BUSY, MachineState.DRAINING, MachineState.HELD)
 _DEAD = (MachineState.GONE, MachineState.RETIRED, MachineState.STOPPED)
+_UNCOUNTED = (Outcome.DRAINED, Outcome.NOT_STARTED)
 _FAULTS = {
     MachineState.GONE: (Outcome.MACHINE_LOST, "machine gone", False),
     MachineState.UNRESPONSIVE: (Outcome.UNRESPONSIVE, "unresponsive", True),
@@ -103,10 +109,10 @@ def find_run(
     machine and its record when found; else what is known of the machine the in-flight
     record names: None (not one of these), "dead", "unknown" (cannot tell yet) or
     "answering" (it lists its jobs)."""
-    instance, slot = lim.get("instance_id"), lim.get("slot")
+    instance = lim.get("instance_id")
     home: Optional[str] = "dead" if instance and instance in retired else None
     for m in machines:
-        ours = (m.instance_id == instance) if instance else (m.slot == slot)
+        ours = is_home(m, lim)
         if m.state in _DEAD:
             if ours:
                 home = "dead"
@@ -127,6 +133,43 @@ def find_run(
         if rec is not None:
             return home, m, rec
     return home, None, None
+
+
+def is_home(m: PoolMachine, lim: dict) -> bool:
+    """The machine the in-flight record names: by instance id, by slot without one."""
+    instance = lim.get("instance_id")
+    return (m.instance_id == instance) if instance else (m.slot == lim.get("slot"))
+
+
+def start_pending(view: Optional[dict], lim: dict, remote_id: str, now: float) -> tuple[str, Optional[str]]:
+    """What the home machine's job runner says of a run it does not list, as
+    ("never", why) when it surely never started there, ("wait", None) while its code is
+    still arriving or a start may still follow, or ("unknown", None) when the runner
+    cannot tell (too old to say, or a jobs directory newer than the attempt: the disk
+    may have been replaced with a run on it); then the timing rules of ``lost_detail``
+    apply."""
+    uploads = (view or {}).get("uploads")
+    dir_age = (view or {}).get("jobs_dir_age_s")
+    if uploads is None:
+        return "unknown", None
+    up = uploads.get(remote_id)
+    if up is not None:
+        age = float(up.get("age_s") or 0.0)
+        state = str(up.get("state") or "")
+        # A bundle still arriving may finish and start; a complete one is started at once.
+        if age < (UPLOAD_TIMEOUT_S + UPLOAD_SLACK_S if state == "uploading" else UPLOAD_SLACK_S):
+            return "wait", None
+    try:
+        since = now - float(lim["started_at"])
+    except (KeyError, TypeError, ValueError):
+        return "unknown", None
+    if since < UPLOAD_SLACK_S:
+        return "wait", None  # recorded a moment ago: the dispatch may be about to begin
+    if dir_age is None or float(dir_age) < since:
+        return "unknown", None
+    if up is not None:
+        return "never", f"never started: its code reached the machine but stopped there ({up.get('state')})"
+    return "never", "never started: the machine has no record, upload or code for it"
 
 
 def lost_detail(
@@ -726,21 +769,57 @@ class Coordinator:
         return True
 
     def _locate(self, run: _Run) -> None:
-        """Look for the run's remote id; adopt it, or requeue it once it is certain
-        that it does not run anywhere."""
+        """Look for the run's remote id; adopt it, requeue it NOT_STARTED as soon as its
+        machine shows it never started there, or MACHINE_LOST once it is certain that it
+        does not run anywhere. While that is not certain, its machine is kept awake."""
         lim = run.job.limits or {}
         now = self.clock()
-        home, m, rec = find_run(
-            self.pool.machines(), lim, run.remote_id, self.pool.remote_jobs, self._retired_instances,
-        )
+        machines = self.pool.machines()
+        views: dict[str, dict] = {}
+
+        def list_jobs(m: PoolMachine) -> list[dict]:
+            view = self._remote_view(m)
+            views[m.slot] = view
+            return view["jobs"]
+
+        home, m, rec = find_run(machines, lim, run.remote_id, list_jobs, self._retired_instances)
         if m is not None:
             self._adopt_run(run, m, rec)
             return
+        mine = next((x for x in machines if is_home(x, lim) and x.state not in _DEAD), None)
+        if home == "answering" and mine is not None:
+            verdict, why = start_pending(views.get(mine.slot), lim, run.remote_id, now)
+            if verdict == "never":
+                run.locate = False
+                self._fault(run, Outcome.NOT_STARTED, f"{why} (machine {mine.slot})")
+                return
+            if verdict == "wait":
+                self._keep_awake(mine)
+                return
         detail = lost_detail(home, run.started_at, now, lambda: self._no_later_than(run.job_id, lim, now))
         if detail is None:
+            if mine is not None:
+                self._keep_awake(mine)
             return
         run.locate = False
         self._fault(run, Outcome.MACHINE_LOST, detail)
+
+    def _remote_view(self, m: PoolMachine) -> dict:
+        """The machine's jobs plus what its runner knows of runs that never started
+        (``Pool.remote_view``); a pool without it says nothing of them."""
+        view = getattr(self.pool, "remote_view", None)
+        if view is None:
+            return {"jobs": self.pool.remote_jobs(m), "uploads": None, "jobs_dir_age_s": None}
+        return view(m)
+
+    def _keep_awake(self, m: PoolMachine) -> None:
+        """A machine that may hold a run nobody decided on yet does not idle out meanwhile."""
+        try:
+            self.pool.keepalive(m)
+        except Exception as exc:  # noqa: BLE001 - tried again next tick
+            self._error_once("keepalive", exc, slot=m.slot)
+            return
+        self._ok("keepalive")
 
     def _no_later_than(self, job_id: str, lim: dict, now: float) -> float:
         """When a run on a machine this coordinator cannot see has surely ended: its
@@ -1290,8 +1369,9 @@ class Coordinator:
             self._store_attempt(run, Path(outputs_dir))
         attempt = self._attempt(run, outcome, detail)
         attempts = run.job.attempts + [attempt]
-        # An attempt sent back by `drain --now` is nobody's fault: it does not count toward the cap.
-        if sum(1 for a in attempts if a.outcome != Outcome.DRAINED) >= self.queue.max_attempts:
+        # An attempt sent back by `drain --now`, or one that never started, is nobody's fault:
+        # it does not count toward the cap.
+        if sum(1 for a in attempts if a.outcome not in _UNCOUNTED) >= self.queue.max_attempts:
             reasons = "; ".join(
                 f"attempt {a.number}: {a.outcome.value if a.outcome else '?'}" + (f" ({a.detail})" if a.detail else "")
                 for a in attempts

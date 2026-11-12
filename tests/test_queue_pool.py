@@ -205,6 +205,9 @@ def test_dispatch_twice_returns_already_running(pool_parts, tmp_path):
     pool.poll()
     assert m.state == MachineState.BUSY and m.jobs == ["q1-a1"]
     assert [j["id"] for j in pool.remote_jobs(m)] == ["q1-a1"]  # health jobs are not queue jobs
+    view = pool.remote_view(m)
+    assert [j["id"] for j in view["jobs"]] == ["q1-a1"] and view["uploads"] == {}
+    assert view["jobs_dir_age_s"] is not None
 
     info = wait_remote(pool, m, "q1-a1")
     assert info["state"] == "succeeded"

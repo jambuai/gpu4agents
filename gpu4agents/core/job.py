@@ -323,6 +323,19 @@ class JobClient:
     def list(self) -> list[dict[str, Any]]:
         return list(self._request("GET", "/jobs").get("jobs") or [])
 
+    def view(self) -> dict[str, Any]:
+        """The job list in one request, with what the runner knows of jobs that never
+        started: ``uploads`` (id -> {state, age_s}) and ``jobs_dir_age_s``. Both are None
+        from a runner older than 0.14.0, which does not say."""
+        data = self._request("GET", "/jobs")
+        uploads = data.get("uploads")
+        age = data.get("jobs_dir_age_s")
+        return {
+            "jobs": list(data.get("jobs") or []),
+            "uploads": dict(uploads) if isinstance(uploads, dict) else None,
+            "jobs_dir_age_s": float(age) if isinstance(age, (int, float)) else None,
+        }
+
     def download_outputs(self, job_id: str, dest: Path) -> list[str]:
         with tempfile.TemporaryDirectory(prefix="gpu-job-") as tmp:
             archive = Path(tmp) / "outputs.tar.gz"

@@ -594,14 +594,23 @@ class Pool:
     def remote_jobs(self, m: PoolMachine) -> list[dict]:
         """The machine's queue jobs as its watchdog lists them (health checks and model
         servers left out); empty while the machine is still starting."""
+        return self.remote_view(m)["jobs"]
+
+    def remote_view(self, m: PoolMachine) -> dict:
+        """``remote_jobs`` plus, from the same request, the jobs whose code reached the
+        machine but never started (``uploads``: id -> {state, age_s}) and the age of its
+        jobs directory (``jobs_dir_age_s``). Both None when the machine cannot say (still
+        starting, or a runner from before 0.14.0)."""
         with self._lock:
             thread = self._threads.get(m.slot)
         if thread is not None and thread.is_alive() and thread is not threading.current_thread():
-            return []
-        return [
-            j for j in self._jobs(m).list()
+            return {"jobs": [], "uploads": None, "jobs_dir_age_s": None}
+        view = self._jobs(m).view()
+        view["jobs"] = [
+            j for j in view["jobs"]
             if not str(j.get("id", "")).startswith(HEALTH_JOB_PREFIX) and not j.get("service")
         ]
+        return view
 
     # ------------------------------------------------------------------
     # retire

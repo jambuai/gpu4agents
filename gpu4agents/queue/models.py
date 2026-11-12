@@ -33,6 +33,9 @@ class Outcome(str, Enum):
     CANCELLED = "cancelled"
     DELIVERY_FAILED = "delivery_failed"
     DRAINED = "drained"  # sent back to the queue by `drain --now`: not the job's or the machine's fault
+    # The attempt was recorded but its run never started (a coordinator died before the
+    # dispatch): sent back to the queue, and like DRAINED it does not count toward max_attempts.
+    NOT_STARTED = "not_started"
 
 
 class LeaseLost(JambuError):

@@ -728,17 +728,108 @@ def test_an_upload_that_may_still_be_on_its_way_is_waited_for(world, monkeypatch
     monkeypatch.setattr(w.pool, "dispatch", real)
     started = w.job("j1").limits["started_at"]
     del a
+    w.pool.old_runner = True  # its job runner cannot say whether an upload is on its way
 
     b = w.coordinator("coord-b")
     w.step(b, 40)  # leases gone; the machine answers without j1-a1, but uploads take time
     assert w.job("j1").attempts == []
     assert [r.id for r in w.pool.starts] == ["j0-a1"]
+    assert w.pool.keepalives.count(w.job("j1").limits["slot"]) >= 25  # not left to idle out meanwhile
 
     w.clock.now = started + 600 + 61
     job = w.final(b, "j1")
     assert job.state == JobState.SUCCEEDED
     assert [a.outcome for a in job.attempts] == [Outcome.MACHINE_LOST, Outcome.SUCCEEDED]
     assert [r.id for r in w.pool.starts] == ["j0-a1", "j1-a2"]
+
+
+def _crash_before_dispatch(w: World, monkeypatch) -> tuple[str, float]:
+    """A coordinator killed after it recorded j1's attempt and before the dispatch:
+    the machine never got anything. Returns (slot, started_at)."""
+    a = w.coordinator("coord-a")
+    w.submit("j0")
+    w.final(a, "j0")  # a warm machine
+    w.submit("j1")
+    real = w.pool.dispatch
+
+    def die(*args, **kwargs):
+        raise Crash()
+
+    monkeypatch.setattr(w.pool, "dispatch", die)
+    with pytest.raises(Crash):
+        w.step(a, 3)
+    monkeypatch.setattr(w.pool, "dispatch", real)
+    lim = w.job("j1").limits
+    assert lim["remote_id"] == "j1-a1" and w.job("j1").attempts == []
+    return lim["slot"], lim["started_at"]
+
+
+def test_a_run_that_never_reached_its_machine_goes_back_at_once_without_using_an_attempt(world, monkeypatch):
+    w = world(max_attempts=1)
+    _, started = _crash_before_dispatch(w, monkeypatch)
+
+    b = w.coordinator("coord-b")
+    job = w.final(b, "j1", max_ticks=30)  # well inside the upload window
+
+    assert w.clock() < started + 600
+    assert job.state == JobState.SUCCEEDED  # max_attempts=1, and the attempt that never started did not use it
+    assert [(a.remote_id, a.outcome) for a in job.attempts] == [
+        ("j1-a1", Outcome.NOT_STARTED), ("j1-a2", Outcome.SUCCEEDED)
+    ]
+    assert "never started" in job.attempts[0].detail
+    assert [r.id for r in w.pool.starts] == ["j0-a1", "j1-a2"]  # a fresh remote id, started once
+    retried = w.events(ev.QUEUE_JOB_RETRIED)
+    assert [(e["job_id"], e["cause"]) for e in retried] == [("j1", "not_started")]
+
+
+def test_an_upload_still_arriving_is_waited_for_with_its_machine_kept_awake(world, monkeypatch):
+    w = world()
+    slot, _ = _crash_before_dispatch(w, monkeypatch)
+    w.pool.uploads[slot] = {"j1-a1": {"state": "uploading", "age_s": 2.0}}
+
+    b = w.coordinator("coord-b")
+    w.step(b, 40)
+    assert w.job("j1").attempts == [] and [r.id for r in w.pool.starts] == ["j0-a1"]
+    assert w.pool.keepalives.count(slot) >= 25
+
+    # The upload lands and the old dispatch starts it: adopted, never started twice.
+    m = next(m for m in w.pool.machines() if m.slot == slot)
+    w.pool.dispatch(m, "j1-a1", w.tmp / "none.tar.gz", {"run": "true"}, {})
+    w.pool.uploads.clear()
+    job = w.final(b, "j1")
+    assert job.state == JobState.SUCCEEDED
+    assert [(a.remote_id, a.outcome) for a in job.attempts] == [("j1-a1", Outcome.SUCCEEDED)]
+    assert [r.id for r in w.pool.starts] == ["j0-a1", "j1-a1"]
+
+
+@pytest.mark.parametrize("state, stale_after", [("uploading", 600 + 60), ("uploaded", 60), ("empty", 60)])
+def test_code_that_stopped_arriving_or_was_never_started_ends_the_wait(world, monkeypatch, state, stale_after):
+    w = world()
+    slot, _ = _crash_before_dispatch(w, monkeypatch)
+    w.pool.uploads[slot] = {"j1-a1": {"state": state, "age_s": stale_after - 30}}
+
+    b = w.coordinator("coord-b")
+    w.step(b, 30)
+    assert w.job("j1").attempts == []  # it may still start
+
+    w.pool.uploads[slot]["j1-a1"]["age_s"] = stale_after + 1
+    job = w.final(b, "j1")
+    assert job.state == JobState.SUCCEEDED
+    assert [a.outcome for a in job.attempts] == [Outcome.NOT_STARTED, Outcome.SUCCEEDED]
+
+
+def test_a_jobs_directory_newer_than_the_attempt_proves_nothing(world, monkeypatch):
+    w = world()
+    _, started = _crash_before_dispatch(w, monkeypatch)
+    w.pool.jobs_dir_age_s = 1.0  # the disk was replaced since: a run may have been wiped with it
+
+    b = w.coordinator("coord-b")
+    w.step(b, 40)
+    assert w.job("j1").attempts == []
+
+    w.clock.now = started + 600 + 61
+    job = w.final(b, "j1")
+    assert [a.outcome for a in job.attempts] == [Outcome.MACHINE_LOST, Outcome.SUCCEEDED]
 
 
 def test_fetched_outputs_survive_a_crash_and_are_delivered(world, monkeypatch):
