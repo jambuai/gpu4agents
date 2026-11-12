@@ -256,6 +256,7 @@ class Coordinator:
         self._violations: set[str] = set()
         self._leftover: dict[str, tuple[int, float]] = {}  # "<job>/<n>" -> (failures, next try)
         self._renewed_at: Optional[float] = None
+        self._draining = False  # drain_now in progress: requeued attempts never give a job up
         self._ticks = 0
         self._last_decision: Optional[tuple] = None
         self._last_blocked: Optional[str] = None
@@ -332,11 +333,13 @@ class Coordinator:
             self._heartbeat()
             with self._lock:
                 self._renew_jobs()
+            draining = self._drain_requested()
             self._machine_faults()
             self._watch()
             self._store_leftovers()
             self._place()
-            self._scale()
+            if not draining:
+                self._scale()
         except _Demoted:
             pass
         self._ticks += 1
@@ -879,6 +882,71 @@ class Coordinator:
         return job is not None and job.state != JobState.SUCCEEDED and not self._unsettled(job)
 
     # ------------------------------------------------------------------
+    # drain now
+    # ------------------------------------------------------------------
+
+    def _drain_requested(self) -> bool:
+        """Act on a drain request left in the backend (``gpu queue drain --now``). The request
+        stays until no machine is left, so a machine still booting is retired on a later tick.
+        True while a drain is pending: nothing new is opened meanwhile."""
+        try:
+            with self._lock:
+                wanted = self.backend.drain_requested()
+        except Exception as exc:  # noqa: BLE001
+            self._error_once("drain_requested", exc)
+            return False
+        if not wanted:
+            return False
+        result = self.drain_now("drain-request")
+        if result.get("performed") and not result["remaining"] and not self._runs:
+            try:
+                with self._lock:
+                    self.backend.clear_drain()
+            except Exception as exc:  # noqa: BLE001 - tried again next tick
+                self._error_once("clear_drain", exc)
+            return False
+        return True
+
+    def drain_now(self, actor: str) -> dict:
+        """Pause the queue, send every job in hand back to the queue and retire every machine
+        (retire pulls the outputs). The requeued attempts are recorded as cancelled and do not
+        fail the job at ``max_attempts``. Takes the coordinator lease first when it does not
+        hold it; ``performed`` is False when another coordinator does."""
+        if not self.leader and not self._lead():
+            return {"performed": False, "reason": "another coordinator holds the lease"}
+        self._draining = True
+        before = self._report.requeued
+        try:
+            with self._lock:
+                self.backend.set_paused(True, actor)
+            for m in self.pool.machines():
+                if m.state not in _DEAD:
+                    self._retire(m, Outcome.CANCELLED, "drain now", False)
+            for run in self._snapshot():
+                if self._runs.get(run.job_id) is not run or run.fetched is not None or run.phase == "delivering":
+                    continue
+                try:
+                    self._fault(run, Outcome.CANCELLED, "drain now")
+                except _Dropped:
+                    pass
+        finally:
+            self._draining = False
+        remaining = [m.slot for m in self.pool.machines() if m.state not in _DEAD]
+        requeued = self._report.requeued - before
+        self.obs.emit(ev.QUEUE_CONTROL, action="drain_now_done", actor=actor, requeued=requeued, remaining=remaining)
+        return {"performed": True, "requeued": requeued, "remaining": remaining}
+
+    def release(self) -> None:
+        """Give up the coordinator lease (a one-shot caller that took it)."""
+        with self._lock:
+            if self.leader:
+                try:
+                    self.backend.release_coordinator(self.worker_id)
+                except Exception:  # noqa: BLE001 - the lease runs out by itself
+                    pass
+                self.leader = False
+
+    # ------------------------------------------------------------------
     # step 4: machines that failed, then each running attempt
     # ------------------------------------------------------------------
 
@@ -1214,7 +1282,7 @@ class Coordinator:
             self._store_attempt(run, Path(outputs_dir))
         attempt = self._attempt(run, outcome, detail)
         attempts = run.job.attempts + [attempt]
-        if len(attempts) >= self.queue.max_attempts:
+        if len(attempts) >= self.queue.max_attempts and not self._draining:
             reasons = "; ".join(
                 f"attempt {a.number}: {a.outcome.value if a.outcome else '?'}" + (f" ({a.detail})" if a.detail else "")
                 for a in attempts

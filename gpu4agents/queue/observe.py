@@ -98,6 +98,10 @@ class Observer:
             return "+Inf" if v > 0 else "-Inf"
         return repr(v)
 
+    def render(self) -> str:
+        with self._lock:
+            return "".join(f"{k} {self._fmt(v)}\n" for k, v in sorted(self._values.items()))
+
     def write(self) -> None:
         with self._lock:
             body = "".join(f"{k} {self._fmt(v)}\n" for k, v in sorted(self._values.items()))
