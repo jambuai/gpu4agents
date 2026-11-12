@@ -126,6 +126,20 @@ class TestRedisBackend(QueueBackendContract):
         assert len({j.id for j in everything}) == len(everything) == 5
         assert [j.id for j in backend.list(limit=3)] == ["job-0001", "job-0002", "job-0003"]
 
+    def test_list_skips_and_cleans_a_stale_index_entry(self, backend, clock):
+        for n in range(1, 4):
+            backend.submit(make_job(n))
+        ns, r = backend.namespace, backend._r
+        r.delete(f"{ns}:job:job-0002")  # the hash is gone, its index entry is not
+        r.zadd(f"{ns}:st:running", {"job-0003": 3.0})  # an id indexed under a state it is not in
+
+        assert [j.id for j in backend.list({JobState.QUEUED})] == ["job-0001", "job-0003"]
+        assert [(j.id, j.state) for j in backend.list()] == [
+            ("job-0001", JobState.QUEUED), ("job-0003", JobState.QUEUED)
+        ]
+        assert r.zscore(f"{ns}:st:queued", "job-0002") is None  # cleaned, not failing every call
+        assert r.zscore(f"{ns}:st:running", "job-0003") is None
+
     def test_submit_with_an_existing_id_and_another_key_raises(self, backend, clock):
         backend.submit(make_job(1))
         clash = make_job(1, "other-key")

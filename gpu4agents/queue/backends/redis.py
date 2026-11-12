@@ -253,6 +253,8 @@ if cur == ARGV[3] and lease > NOW then redis.call('DEL', P .. ':coord') end
 return 1
 """,
     # ARGV: n, then state names (n = 0 means all), limit. A consistent snapshot of the matching jobs.
+    # An index entry with no job behind it, or under a state the job is not in (a write cut
+    # short, a key deleted by hand), is dropped from the index instead of failing the list.
     "list": """
 local n = tonumber(ARGV[3])
 local limit = tonumber(ARGV[4 + n])
@@ -262,7 +264,13 @@ else for i = 1, n do names[i] = ARGV[3 + i] end end
 local rows = {}
 for _, s in ipairs(names) do
   local z = redis.call('ZRANGE', stk(s), 0, limit - 1, 'WITHSCORES')
-  for i = 1, #z, 2 do rows[#rows + 1] = {tonumber(z[i + 1]), z[i]} end
+  for i = 1, #z, 2 do
+    if redis.call('HGET', jk(z[i]), 'state') == s then
+      rows[#rows + 1] = {tonumber(z[i + 1]), z[i]}
+    else
+      redis.call('ZREM', stk(s), z[i])
+    end
+  end
 end
 table.sort(rows, function(a, b) if a[1] ~= b[1] then return a[1] < b[1] end return a[2] < b[2] end)
 local out = {}
