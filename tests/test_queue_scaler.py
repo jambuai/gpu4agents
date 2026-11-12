@@ -64,3 +64,23 @@ def test_no_offer_blocks_without_failing():
     d = decide(_inp(queued=2, oldest_queued_age_s=120, next_offer_usd=None))
     assert d.open == 0 and d.blocked_by == "no_offer"
     assert decide(_inp()).blocked_by is None
+
+
+def test_max_machines_is_reported_before_the_spend_cap():
+    d = decide(_inp(queued=5, oldest_queued_age_s=120, max_machines=1, machines=[_m("a")],
+                    max_usd_per_hour=0.5, pool_usd_per_hour=0.5))
+    assert d.open == 0 and d.blocked_by == "max_machines"
+
+
+def test_min_machines_refill_still_waits_out_the_backoff():
+    d = decide(_inp(min_machines=2, last_open_at=995.0))
+    assert d.open == 0 and d.blocked_by == "backoff"
+
+
+def test_jobs_per_machine_partial_capacity():
+    # one machine with 3 slots, 1 busy: 2 free; 5 queued needs 3 more slots -> 2 machines of 2
+    ms = [_m("a", "busy", 1)]
+    d = decide(_inp(queued=5, oldest_queued_age_s=120, jobs_per_machine=3, machines=ms))
+    assert d.open == 1  # ceil((5-2)/3)
+    d = decide(_inp(queued=2, oldest_queued_age_s=120, jobs_per_machine=3, machines=ms))
+    assert d.open == 0

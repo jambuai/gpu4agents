@@ -73,3 +73,36 @@ def test_a_crashing_custom_preflight_rejects_the_job():
     assert not r.ok and "bad rule" in r.reason
     r = load_preflight("tests.test_queue_preflight:_wrong")(_job(), _ctx())
     assert not r.ok and r.reason
+
+
+@pytest.mark.parametrize(
+    "manifest",
+    [
+        {"max_cost_usd": "lots"}, {"max_cost_usd": True}, {"min_vram_gb": "big"}, {"min_vram_gb": [1]},
+        {"timeout": "soon"}, {"timeout": True}, {"timeout": [1]}, {"timeout": -5}, {"max_cost_usd": float("nan")},
+    ],
+)
+def test_malformed_manifest_values_are_rejected_not_raised(manifest):
+    r = default_preflight(_job(**manifest), _ctx())
+    assert not r.ok and r.limits is None and r.reason
+
+
+def _ok_without_limits(job, ctx):
+    return PreflightResult(ok=True, limits=None)
+
+
+def _no_reason(job, ctx):
+    return PreflightResult(ok=False, limits=None, reason="")
+
+
+def test_bad_custom_results_are_rejected():
+    for name in ("_ok_without_limits", "_no_reason"):
+        r = load_preflight(f"tests.test_queue_preflight:{name}")(_job(), _ctx())
+        assert not r.ok and r.reason
+
+
+def test_unloadable_custom_preflights_are_config_errors():
+    with pytest.raises(ConfigError):
+        load_preflight("tests.test_queue_preflight:__doc__")
+    with pytest.raises(ConfigError):
+        load_preflight("tests.no_such_module_xyz:fn")

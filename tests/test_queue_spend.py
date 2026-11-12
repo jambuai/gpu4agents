@@ -35,3 +35,29 @@ def test_ledger_survives_restart(tmp_path):
     again = SpendLedger(p)
     assert again.total() == pytest.approx(1.0)
     assert again.by_job() == {"j1": pytest.approx(1.0)}
+
+
+def test_a_torn_last_line_does_not_swallow_the_next_row(tmp_path):
+    p = tmp_path / "spend.jsonl"
+    led = SpendLedger(p)
+    led.record("a", 0, 3600, 1.0, jobs=["j1"])
+    led.record("a", 0, 3600, 1.0, jobs=["j2"])
+    data = p.read_bytes()
+    p.write_bytes(data[:-10])  # crash mid-line
+    again = SpendLedger(p)
+    assert again.total() == pytest.approx(1.0)
+    again.record("a", 0, 3600, 2.0, jobs=["j3"])
+    fresh = SpendLedger(p)
+    assert fresh.total() == pytest.approx(3.0)
+    assert fresh.by_job() == {"j1": pytest.approx(1.0), "j3": pytest.approx(2.0)}
+
+
+def test_malformed_rows_are_skipped_and_totals_stay_in_memory(tmp_path):
+    p = tmp_path / "spend.jsonl"
+    p.write_text('[1]\n"x"\n{"usd": "a"}\n{}\n{"usd": 1.5, "jobs": ["j"]}\n')
+    led = SpendLedger(p)
+    assert led.total() == pytest.approx(1.5)
+    led.record("a", 0, 3600, 1.0, jobs=["j"])
+    p.unlink()
+    assert led.total() == pytest.approx(2.5)
+    assert led.by_job() == {"j": pytest.approx(2.5)}

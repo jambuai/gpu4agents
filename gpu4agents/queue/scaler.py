@@ -72,13 +72,14 @@ def decide(inp: ScaleInput) -> ScaleDecision:
     if inp.next_offer_usd is None:
         return ScaleDecision(0, keepalive, why, "no_offer")
 
-    n, blocked = needed, None
-    room = inp.max_machines - count
-    if room < n:
-        n, blocked = max(0, room), "max_machines"
-    if inp.max_usd_per_hour is not None:
+    room = max(0, inp.max_machines - count)
+    affordable = needed
+    if inp.max_usd_per_hour is not None and inp.next_offer_usd > 0:
         budget = inp.max_usd_per_hour - inp.pool_usd_per_hour
-        affordable = int(budget / inp.next_offer_usd + 1e-9) if inp.next_offer_usd > 0 else n
-        if affordable < n:
-            n, blocked = max(0, affordable), "max_usd_per_hour"
+        affordable = max(0, int(budget / inp.next_offer_usd + 1e-9))
+    n = min(needed, room, affordable)
+    blocked = None
+    if n < needed:
+        # the harder limit wins when both bind
+        blocked = "max_machines" if room <= affordable else "max_usd_per_hour"
     return ScaleDecision(n, keepalive, why, blocked)

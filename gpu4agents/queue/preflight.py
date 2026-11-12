@@ -41,25 +41,44 @@ def _reject(reason: str) -> PreflightResult:
     return PreflightResult(ok=False, limits=None, reason=reason)
 
 
+def _number(manifest: dict, key: str) -> Optional[float]:
+    """A finite number from the manifest, None when absent; ValueError when malformed."""
+    value = manifest.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{key} must be a number, got {value!r}")
+    if value != value or value in (float("inf"), float("-inf")):
+        raise ValueError(f"{key} must be a finite number, got {value!r}")
+    return float(value)
+
+
 def default_preflight(job: QueueJob, ctx: PreflightContext) -> PreflightResult:
     manifest = job.manifest or {}
     try:
-        timeout_s = parse_duration(manifest.get("timeout"))
+        raw_timeout = manifest.get("timeout")
+        if isinstance(raw_timeout, bool):
+            raise ValueError(f"timeout must be a duration, got {raw_timeout!r}")
+        timeout_s = parse_duration(raw_timeout)
         if timeout_s is None:
             timeout_s = parse_duration(ctx.defaults.timeout)
         margin_s = parse_duration(ctx.defaults.deadline_margin) or 0.0
-    except ValueError as exc:
-        return _reject(str(exc))
+        max_cost = _number(manifest, "max_cost_usd")
+        need = _number(manifest, "min_vram_gb")
+    except (TypeError, ValueError, AttributeError) as exc:
+        return _reject(f"malformed job value: {exc}")
     if timeout_s is None:
         return _reject("no timeout in the job or the queue defaults")
-
-    max_cost = manifest.get("max_cost_usd")
+    if timeout_s <= 0:
+        return _reject(f"timeout must be positive, got {timeout_s:g}s")
     if max_cost is None:
         max_cost = ctx.defaults.max_cost_usd
-    max_cost = float(max_cost) if max_cost is not None else None
+    if max_cost is not None and max_cost < 0:
+        return _reject(f"max_cost_usd must not be negative, got {max_cost:g}")
+    if need is not None and need < 0:
+        return _reject(f"min_vram_gb must not be negative, got {need:g}")
 
-    need = manifest.get("min_vram_gb")
-    if need is not None and ctx.card_vram_gb is not None and float(need) > ctx.card_vram_gb:
+    if need is not None and ctx.card_vram_gb is not None and need > ctx.card_vram_gb:
         return _reject(f"needs {need:g} GB, the pool's card has {ctx.card_vram_gb:g} GB")
 
     if max_cost is not None:
@@ -81,8 +100,10 @@ def load_preflight(spec: Optional[str]) -> Preflight:
     module_name, _, attr = spec.partition(":")
     try:
         fn = getattr(importlib.import_module(module_name), attr)
-    except (ImportError, AttributeError) as exc:
+    except Exception as exc:  # import-time errors in the project's module too
         raise ConfigError(f"cannot load preflight {spec!r}: {exc}") from exc
+    if not callable(fn):
+        raise ConfigError(f"preflight {spec!r} is not callable")
 
     def safe(job: QueueJob, ctx: PreflightContext) -> PreflightResult:
         try:
@@ -91,6 +112,10 @@ def load_preflight(spec: Optional[str]) -> Preflight:
             return _reject(f"preflight {spec} failed: {exc}")
         if not isinstance(result, PreflightResult):
             return _reject(f"preflight {spec} returned {type(result).__name__}, not PreflightResult")
+        if result.ok and not isinstance(result.limits, Limits):
+            return _reject(f"preflight {spec} accepted the job without Limits")
+        if not result.ok and not result.reason:
+            return _reject(f"preflight {spec} rejected the job without a reason")
         return result
 
     return safe

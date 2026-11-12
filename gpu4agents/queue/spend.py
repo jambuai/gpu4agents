@@ -33,10 +33,22 @@ def pool_usd_per_hour(machines: list[PoolMachine]) -> float:
 
 class SpendLedger:
     """Append-only JSONL. ``jobs`` are the jobs that ran on the machine during the interval;
-    each pays an equal share. An interval with no jobs counts in the total only."""
+    each pays an equal share. An interval with no jobs counts in the total only.
+
+    Loaded once on construction; totals are kept in memory and updated by record()."""
 
     def __init__(self, path: Path):
         self.path = Path(path)
+        self._total = 0.0
+        self._by_job: dict[str, float] = {}
+        for row in self._rows():
+            self._add(row)
+
+    def _add(self, row: dict) -> None:
+        self._total += row["usd"]
+        jobs = row["jobs"]
+        for j in jobs:
+            self._by_job[j] = self._by_job.get(j, 0.0) + row["usd"] / len(jobs)
 
     def record(
         self, slot: str, from_ts: float, to_ts: float, usd_per_hour: float, jobs: Optional[list[str]] = None
@@ -44,30 +56,39 @@ class SpendLedger:
         usd = max(0.0, to_ts - from_ts) * usd_per_hour / 3600
         row = {"slot": slot, "from": from_ts, "to": to_ts, "usd_per_hour": usd_per_hour, "usd": usd, "jobs": list(jobs or [])}
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(row) + "\n")
+        with open(self.path, "a+b") as f:
+            if f.tell() > 0:
+                f.seek(-1, os.SEEK_END)
+                torn = f.read(1) != b"\n"
+            else:
+                torn = False
+            f.seek(0, os.SEEK_END)
+            f.write((b"\n" if torn else b"") + (json.dumps(row) + "\n").encode("utf-8"))
             f.flush()
             os.fsync(f.fileno())
+        self._add(row)
         return usd
 
     def _rows(self) -> list[dict]:
         if not self.path.exists():
             return []
         rows = []
-        for line in self.path.read_text(encoding="utf-8").splitlines():
+        for line in self.path.read_text(encoding="utf-8", errors="replace").splitlines():
             try:
-                rows.append(json.loads(line))
-            except ValueError:
-                continue  # a torn last line from a crash
+                r = json.loads(line)
+                usd = r["usd"]
+                jobs = r.get("jobs") or []
+                if isinstance(usd, bool) or not isinstance(usd, (int, float)):
+                    continue
+                if not isinstance(jobs, list) or not all(isinstance(j, str) for j in jobs):
+                    continue
+            except (ValueError, KeyError, TypeError, AttributeError):
+                continue  # torn or malformed line
+            rows.append({"usd": float(usd), "jobs": jobs})
         return rows
 
     def total(self) -> float:
-        return sum(r["usd"] for r in self._rows())
+        return self._total
 
     def by_job(self) -> dict[str, float]:
-        out: dict[str, float] = {}
-        for r in self._rows():
-            jobs = r.get("jobs") or []
-            for j in jobs:
-                out[j] = out.get(j, 0.0) + r["usd"] / len(jobs)
-        return out
+        return dict(self._by_job)
