@@ -218,6 +218,7 @@
       <a href="#apps">Applications</a>
       <a href="#serving">Serving models</a>
       <a href="#jobs">Running jobs</a>
+      <a href="#queue">Queue mode</a>
       <div class="grp">Contracts</div>
       <a href="#cli-contract">CLI output</a>
       <a href="#exit-codes">Exit codes</a>
@@ -232,11 +233,11 @@
 
     <main id="top">
       <header class="hero">
-        <span class="eyebrow">Documentation · v0.13.0</span>
+        <span class="eyebrow">Documentation · v0.14.0</span>
         <h1>How GPU for Agents works</h1>
         <p class="lead">A coding agent can only read and write text. With its own GPU it can make images and voices, transcribe audio, run open models and test GPU code on real hardware. <b>GPU for Agents</b> gives it that machine with the controls built in: a budget it can't exceed, a log of every step, and a watchdog on the machine that stops it when the work stops.</p>
         <details class="mtoc"><summary>On this page</summary><div>
-          <a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#architecture">Architecture</a><a href="#setup-flow">Process flow</a><a href="#lifecycle">Lifecycle</a><a href="#watchdog">Watchdog</a><a href="#decision">Shutdown rule</a><a href="#data-flow">Data flow</a><a href="#audit">Audit and cost</a><a href="#agents">Coding agents</a><a href="#apps">Applications</a><a href="#serving">Serving</a><a href="#jobs">Jobs</a><a href="#cli-contract">CLI output</a><a href="#exit-codes">Exit codes</a><a href="#mcp-tools">MCP tools</a><a href="#watchdog-api">Watchdog API</a><a href="#providers">Providers</a><a href="#provider-contract">Adapters</a><a href="#config">Config</a><a href="#security">Security</a><a href="#reference">Reference</a>
+          <a href="#overview">Overview</a><a href="#quickstart">Quickstart</a><a href="#architecture">Architecture</a><a href="#setup-flow">Process flow</a><a href="#lifecycle">Lifecycle</a><a href="#watchdog">Watchdog</a><a href="#decision">Shutdown rule</a><a href="#data-flow">Data flow</a><a href="#audit">Audit and cost</a><a href="#agents">Coding agents</a><a href="#apps">Applications</a><a href="#serving">Serving</a><a href="#jobs">Jobs</a><a href="#queue">Queue</a><a href="#cli-contract">CLI output</a><a href="#exit-codes">Exit codes</a><a href="#mcp-tools">MCP tools</a><a href="#watchdog-api">Watchdog API</a><a href="#providers">Providers</a><a href="#provider-contract">Adapters</a><a href="#config">Config</a><a href="#security">Security</a><a href="#reference">Reference</a>
         </div></details>
       </header>
 
@@ -678,6 +679,9 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
           <tr><td>Work</td><td><code>workload_started</code> <code>workload_finished</code> <code>job_submitted</code> <code>job_finished</code> <code>job_outputs_pulled</code> <code>job_outputs_kept</code></td></tr>
           <tr><td>Lifecycle</td><td><code>instance_idle</code> <code>instance_locked</code> <code>instance_unlocked</code> <code>lifecycle_guard_triggered</code> <code>instance_stopped</code> <code>instance_started</code> <code>instance_destroyed</code> <code>instance_adopted</code> <code>state_reconciled</code></td></tr>
           <tr><td>Watchdog</td><td><code>watchdog_started</code> <code>watchdog_identified</code> <code>session_started</code> <code>runtime_exited</code> <code>guard_retry</code> <code>guard_reissue</code> <code>activity_probe_error</code></td></tr>
+          <tr><td>Queue: coordinator and pool</td><td><code>coordinator_started</code> <code>coordinator_lease_acquired</code> <code>coordinator_lease_lost</code> <code>coordinator_stopped</code> <code>pool_machine_requested</code> <code>pool_machine_ready</code> <code>pool_machine_unhealthy</code> <code>pool_machine_unresponsive</code> <code>pool_machine_gone</code> <code>pool_machine_retired</code> <code>pool_deadline_extended</code> <code>pool_scale_decision</code> <code>pool_cap_blocked</code></td></tr>
+          <tr><td>Queue: jobs</td><td><code>queue_job_submitted</code> <code>queue_job_claimed</code> <code>queue_job_started</code> <code>queue_job_succeeded</code> <code>queue_job_failed</code> <code>queue_job_retried</code> <code>queue_job_dead</code> <code>queue_lease_expired</code> <code>queue_stale_write_refused</code> <code>queue_preflight_rejected</code> <code>queue_control</code></td></tr>
+          <tr><td>Queue: outputs and audit</td><td><code>queue_outputs_stored</code> <code>queue_outputs_delivery_failed</code> <code>queue_outputs_lost</code> <code>queue_invariant_violated</code></td></tr>
           <tr><td>Errors and sweep</td><td><code>provider_error</code> <code>watchdog_error</code> <code>sweep_action</code> (in <code>~/.gpu/logs/events.jsonl</code>)</td></tr>
         </table></div>
       </section>
@@ -803,9 +807,69 @@ conn = ensure_gpu()
         <p><b>Results are kept until they reach your computer.</b> A job's outputs count as saved once they were downloaded after it ended. Until then, a shutdown that would delete them becomes a stop that keeps the disk; where no stop keeps the disk (Lambda, a RunPod pod without a volume), the idle machine waits up to 2 hours for the download. <code>gpu sweep</code> and <code>gpu guard</code> download finished jobs' results by themselves, starting a stopped machine if needed, and <code>gpu destroy</code> downloads first or refuses (<code>--discard-outputs</code> overrides). A job whose <code>timeout</code> exceeds <code>max_lifetime</code> is refused before anything runs.</p>
       </section>
 
+      <!-- ================= QUEUE MODE ================= -->
+      <section class="doc" id="queue">
+        <h2><span class="n">14</span>Queue mode</h2>
+        <p class="sub">For an application that sends jobs over the day. You submit a job directory; a coordinator opens and closes machines as the queue grows and empties, runs the job, runs it again elsewhere if its machine dies, and keeps the outputs. Any provider works. A project without <code>queue:</code> in <code>gpu.yaml</code> behaves as before. The full guide is <a href="/queue.md">queue.md</a>; to plug in your own queue or store, <a href="https://github.com/jambuai/gpu4agents/blob/main/docs/QUEUE_BACKENDS.md" rel="noopener">QUEUE_BACKENDS.md</a>.</p>
+        <div class="strip">
+          <div><b>Submit</b><code>gpu queue submit DIR</code> returns the id at once</div>
+          <div><b>Claim</b>a lease, so nobody else runs it</div>
+          <div><b>Preflight</b>time and cost limits, or a refusal with the reason</div>
+          <div><b>Run</b>on a healthy machine; its deadline moves with the work</div>
+          <div><b>Deliver</b>outputs stored and verified by sha256 before <code>succeeded</code></div>
+        </div>
+        <div class="grid2">
+          <div class="code" style="margin:0"><div class="hd"><span>gpu.yaml</span><button class="cp">copy</button></div><pre><span class="k">gpu_runtime</span>:
+  <span class="k">queue</span>:
+    <span class="k">backend</span>: redis      <span class="c"># or local</span>
+    <span class="k">outputs</span>: s3         <span class="c"># or local</span>
+    <span class="k">namespace</span>: orders   <span class="c"># stable keyspace</span>
+    <span class="k">max_machines</span>: 4
+    <span class="k">max_usd_per_hour</span>: 6.00
+    <span class="k">scale_up_after</span>: 30s
+    <span class="k">max_attempts</span>: 3</pre></div>
+          <div class="code" style="margin:0"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu queue submit ./job --key order-1234
+<span class="p">$ </span>gpu queue run          <span class="c"># the coordinator</span>
+<span class="p">$ </span>gpu queue status
+<span class="p">$ </span>gpu queue pull JOB_ID
+<span class="p">$ </span>gpu queue pause | resume | drain [--now]
+<span class="p">$ </span>gpu queue audit [--repair]</pre></div>
+        </div>
+        <p><b>The coordinator can die.</b> Every machine keeps its watchdog and a hard deadline that only the coordinator moves, so a pool with no coordinator drains to zero by itself. A machine with nothing to do for <code>idle_timeout</code> ends, as always. <code>gpu queue run</code> rents GPUs: start it only with the caps decided (<code>max_machines</code>, <code>max_usd_per_hour</code>, each job's <code>timeout</code> and <code>max_cost_usd</code>).</p>
+        <p><b>Retries.</b> A job whose machine vanished, stopped answering for <code>unresponsive_after</code> or failed its health check runs again, up to <code>max_attempts</code>; a job that simply exits non-zero is the job's failure. A retried attempt's <code>run</code> starts with <code>export JAMBU_PREVIOUS_OUTPUT_DIR=...</code>, where the earlier attempt's verified outputs are. <code>pause</code> stops new claims and lets idle machines (<code>min_machines</code> too) time out. <code>drain --now</code> sends running jobs back to the queue (requeued, not failed, and not counted toward <code>max_attempts</code>) and retires every machine after pulling its outputs.</p>
+        <p><b>Credentials</b> are never in <code>gpu.yaml</code>: <code>GPU_QUEUE_URL</code>, <code>GPU_OUTPUTS_URL</code> and the standard <code>AWS_*</code> come from the environment or <code>~/.gpu/credentials</code>. Redis must be version 5 or newer, one node (Cluster is not supported). Set <code>queue.namespace</code>: the default keyspace follows the config fingerprint and changes when the runtime part of <code>gpu.yaml</code> changes. Job ids are at most 60 characters, and <code>--env</code> values are redacted in status output.</p>
+
+        <h3>What is observed</h3>
+        <div class="tbl"><table>
+          <tr><th>Concern</th><th>Events</th><th>Metrics</th><th>Invariant or alert</th></tr>
+          <tr><td>Coordinator</td><td><code>coordinator_started</code> <code>coordinator_lease_acquired</code> <code>coordinator_lease_lost</code> <code>coordinator_stopped</code></td><td><code>gpu_queue_coordinator_heartbeat_age_seconds</code></td><td>I7 lease fresh</td></tr>
+          <tr><td>Machines</td><td><code>pool_machine_requested</code> <code>pool_machine_ready</code> <code>pool_machine_unhealthy</code> <code>pool_machine_unresponsive</code> <code>pool_machine_gone</code> <code>pool_machine_retired</code></td><td><code>gpu_pool_machines{state}</code> <code>gpu_pool_cold_start_seconds</code></td><td>I4 no orphan machine</td></tr>
+          <tr><td>Deadlines</td><td><code>pool_deadline_extended</code></td><td><code>gpu_pool_deadline_remaining_seconds{slot}</code></td><td>below 0 with a job running</td></tr>
+          <tr><td>Retries</td><td><code>queue_job_retried</code> <code>queue_job_dead</code></td><td><code>gpu_queue_attempts_total{outcome}</code> <code>gpu_queue_retries_total{cause}</code></td><td>retry rate</td></tr>
+          <tr><td>Ownership</td><td><code>queue_job_claimed</code> <code>queue_lease_expired</code> <code>queue_stale_write_refused</code></td><td><code>gpu_queue_stale_writes_total</code></td><td>I1 running job on a live machine; I2 no job on two machines</td></tr>
+          <tr><td>State</td><td><code>queue_invariant_violated</code></td><td><code>gpu_queue_invariant_violations_total{code}</code></td><td>any violation</td></tr>
+          <tr><td>Outputs</td><td><code>queue_outputs_stored</code> <code>queue_outputs_delivery_failed</code> <code>queue_outputs_lost</code></td><td><code>gpu_queue_outputs_pending</code> <code>gpu_queue_outputs_oldest_pending_seconds</code></td><td>I3 manifests verify; I8 outputs stored (those that could not be stored stay under <code>&lt;state_dir&gt;/queue/work/</code>)</td></tr>
+          <tr><td>Latency</td><td><code>queue_job_submitted</code> <code>queue_job_started</code> <code>queue_job_succeeded</code> <code>queue_job_failed</code></td><td><code>gpu_queue_depth</code> <code>gpu_queue_oldest_queued_seconds</code> <code>gpu_queue_job_wait_seconds</code> <code>gpu_queue_job_run_seconds</code></td><td>I6 no job past its deadline plus grace</td></tr>
+          <tr><td>Money</td><td><code>pool_scale_decision</code> <code>pool_cap_blocked</code> <code>queue_preflight_rejected</code></td><td><code>gpu_pool_usd_per_hour</code> <code>gpu_pool_spend_usd_total</code> <code>gpu_queue_job_cost_usd</code></td><td>I5 spend within <code>max_usd_per_hour</code></td></tr>
+          <tr><td>Who and what</td><td><code>queue_control</code> (action, actor)</td><td><code>gpu_queue_jobs_total{final_state}</code> <code>gpu_queue_paused</code></td><td>the audit trail is append-only</td></tr>
+        </table></div>
+
+        <h3>Alert thresholds</h3>
+        <div class="tbl"><table>
+          <tr><th>Alert when</th><th>Source</th></tr>
+          <tr><td>coordinator heartbeat age is more than 3 ticks</td><td><code>gpu_queue_coordinator_heartbeat_age_seconds</code>, I7</td></tr>
+          <tr><td>any invariant violation</td><td><code>gpu_queue_invariant_violations_total</code>, <code>gpu queue audit</code> exits 1</td></tr>
+          <tr><td>the oldest pending output delivery is older than 10 minutes</td><td><code>gpu_queue_outputs_oldest_pending_seconds</code></td></tr>
+          <tr><td>the retry rate is above 20% over 1 hour</td><td><code>gpu_queue_retries_total</code> against attempts</td></tr>
+          <tr><td>pool spend is at or above 90% of <code>max_usd_per_hour</code></td><td><code>gpu_pool_usd_per_hour</code>, I5</td></tr>
+          <tr><td>the oldest queued job is older than 2 × <code>scale_up_after</code> plus the cold start p50 while <code>blocked_by</code> is set</td><td><code>gpu_queue_oldest_queued_seconds</code>, <code>pool_scale_decision</code></td></tr>
+        </table></div>
+        <div class="note"><b>After a takeover</b> by a host with a different pool, a job on a machine the new coordinator cannot see waits until that attempt's deadline plus a grace before it runs again: destroying it is the only way to be sure the first run is over. A custom <code>health_check.command</code> must not write job outputs: they would count as activity and hold the idle shutdown.</div>
+      </section>
+
       <!-- ================= CLI CONTRACT ================= -->
       <section class="doc" id="cli-contract">
-        <h2><span class="n">14</span>Contract: CLI output</h2>
+        <h2><span class="n">15</span>Contract: CLI output</h2>
         <p class="sub">Pass <code>--json</code> before the command name. stdout then carries exactly one JSON document; errors go to stderr as one line, <code>error: &lt;message&gt;</code>, with a non-zero exit code.</p>
         <div class="tbl"><table>
           <tr><th>Command</th><th>Use it to</th><th>Blocks</th><th>Bills</th></tr>
@@ -829,7 +893,7 @@ conn = ensure_gpu()
       </section>
 
       <section class="doc" id="exit-codes">
-        <h2><span class="n">15</span>Contract: exit codes</h2>
+        <h2><span class="n">16</span>Contract: exit codes</h2>
         <div class="tbl"><table>
           <tr><th>Code</th><th>Meaning</th><th>What to do</th></tr>
           <tr><td class="num">0</td><td>success</td><td></td></tr>
@@ -849,7 +913,7 @@ conn = ensure_gpu()
       </section>
 
       <section class="doc" id="mcp-tools">
-        <h2><span class="n">16</span>Contract: MCP tools</h2>
+        <h2><span class="n">17</span>Contract: MCP tools</h2>
         <p class="sub">Each tool runs the CLI with <code>--json</code> in the project directory, so errors carry the same <code>exit_code</code>, plus <code>meaning</code> and <code>next</code> for the agent.</p>
         <div class="tbl"><table>
           <tr><th>Tool</th><th>Does</th><th>Costs money</th></tr>
@@ -866,12 +930,16 @@ conn = ensure_gpu()
           <tr><td><code>gpu_stop</code></td><td>stop now; restart takes about a minute; says when the disk keeps billing (<code>still_billing</code>)</td><td>ends GPU time</td></tr>
           <tr><td><code>gpu_destroy</code></td><td>delete; needs <code>confirm=true</code></td><td>ends all</td></tr>
           <tr><td><code>gpu_ls</code></td><td>every machine in the account, from any project</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_queue_submit</code></td><td>pack a job directory and queue it; returns <code>job_id</code> at once, rents nothing (a coordinator the user runs does)</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_queue_status</code></td><td>one job's state and attempts, or the queue, pool machines and their cost per hour</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_queue_cancel</code> · <code>gpu_queue_pull</code></td><td>cancel a job; download a finished job's verified outputs</td><td class="no">no</td></tr>
+          <tr><td><code>gpu_queue_control</code></td><td>pause, resume or drain; <code>drain</code> with <code>now=true</code> needs <code>confirm=true</code> and the user's yes</td><td>ends GPU time</td></tr>
           <tr><td><code>gpu_adopt</code></td><td>take over an orphan this account owns, so it can be reused or destroyed</td><td class="no">no</td></tr>
         </table></div>
       </section>
 
       <section class="doc" id="watchdog-api">
-        <h2><span class="n">17</span>Contract: the watchdog API</h2>
+        <h2><span class="n">18</span>Contract: the watchdog API</h2>
         <p class="sub">HTTP on port 8777 of the machine. Every route except <code>/health</code> needs the header <code>X-Jambu-Token</code>, compared in constant time. The token lives in <code>.gpu/state.json</code> and is never printed. The CLI is the usual caller; you rarely need these directly.</p>
         <div class="tbl"><table>
           <tr><th>Route</th><th>Purpose</th></tr>
@@ -890,7 +958,7 @@ conn = ensure_gpu()
       </section>
 
       <section class="doc" id="providers">
-        <h2><span class="n">18</span>Built-in providers</h2>
+        <h2><span class="n">19</span>Built-in providers</h2>
         <p class="sub">Three providers work without writing anything: pick one in <code>gpu login</code>, and <code>gpu init</code> uses it. The watchdog, budgets and commands behave the same on all three. What differs is the machine you get and what "stop" means.</p>
         <div class="tbl"><table>
           <tr><th></th><th>Vast.ai</th><th>RunPod</th><th>Lambda</th></tr>
@@ -906,7 +974,7 @@ conn = ensure_gpu()
       </section>
 
       <section class="doc" id="provider-contract">
-        <h2><span class="n">19</span>Contract: provider adapters</h2>
+        <h2><span class="n">20</span>Contract: provider adapters</h2>
         <p class="sub">Vast.ai, RunPod and Lambda ship built in. Any other provider is one Python class that implements <code>providers/base.py</code>. The core, the watchdog, the CLI and the MCP tools stay the same.</p>
         <div class="code"><div class="hd"><span>shell</span><button class="cp">copy</button></div><pre><span class="p">$ </span>gpu providers new acme --display-name "Acme GPU"   <span class="c"># writes gpu_providers/acme.py</span>
 <span class="p">$ </span>gpu init --provider acme --model Qwen/Qwen2.5-0.5B-Instruct
@@ -929,7 +997,7 @@ conn = ensure_gpu()
 
       <!-- ================= CONFIG ================= -->
       <section class="doc" id="config">
-        <h2><span class="n">20</span>Configuration</h2>
+        <h2><span class="n">21</span>Configuration</h2>
         <p class="sub"><code>gpu.yaml</code> is the desired state. <code>gpu</code> reads only its <code>gpu_runtime:</code> key. Unknown keys are a hard error, so a typo in <code>idle_timeout</code> can't silently switch off the protection.</p>
         <div class="grid2">
           <div class="code" style="margin:0"><div class="hd"><span>gpu.yaml</span><button class="cp">copy</button></div><pre><span class="k">gpu_runtime</span>:
@@ -964,7 +1032,7 @@ conn = ensure_gpu()
 
       <!-- ================= SECURITY ================= -->
       <section class="doc" id="security">
-        <h2><span class="n">21</span>Security</h2>
+        <h2><span class="n">22</span>Security</h2>
         <ul class="list">
           <li><b>The model endpoint needs a key.</b> Unless <code>runtime.api_key</code> is set, setup generates one per machine (43 random URL-safe characters). <code>/health</code> and <code>/metrics</code> stay open; they reveal no data.</li>
           <li><b>The endpoint is plain HTTP</b> on a public IP and port on Vast.ai and Lambda, so the key and prompts travel unencrypted. For sensitive data, use a private network or a tunnel, or put a TLS proxy in front. On RunPod it goes through RunPod's HTTPS proxy.</li>
@@ -978,7 +1046,7 @@ conn = ensure_gpu()
 
       <!-- ================= REFERENCE ================= -->
       <section class="doc" id="reference">
-        <h2><span class="n">22</span>Full reference</h2>
+        <h2><span class="n">23</span>Full reference</h2>
         <p class="sub">The pages agents read are served from this site as Markdown. The long-form references live in the repository.</p>
         <div class="grid3">
           <a class="card" href="/install.md" style="text-decoration:none"><div class="k">for agents</div><h4>install.md</h4><p>install, connect the account, learn the rules</p></a>

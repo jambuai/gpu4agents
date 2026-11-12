@@ -255,6 +255,35 @@ Override once with `gpu setup --allow-cost-override`.
 | `env` | `{}` | Extra environment variables for the workload. |
 | `workdir` | project dir | Working directory for the command. |
 
+## `queue`
+
+Present means queue mode: a coordinator runs jobs on a pool of machines rented from this same file. Absent, the project behaves exactly as before. The full guide is [QUEUE.md](../QUEUE.md). Nothing here holds an address or a key: `GPU_QUEUE_URL`, `GPU_OUTPUTS_URL` and the `AWS_*` variables come from the environment or `~/.gpu/credentials`, and a URL in this section is a config error.
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `backend` | `local` | `local` (SQLite in the project), `redis` (Redis 5 or newer, one node, not Cluster) or `module:factory` ([QUEUE_BACKENDS.md](QUEUE_BACKENDS.md)). |
+| `outputs` | `local` | Where bundles and results live: `local` (`gpu-outputs/`), `s3` or `module:factory`. |
+| `namespace` | none | Keyspace name on a shared backend (`[A-Za-z0-9_.-]`, up to 64). Set it for Redis: without it the keyspace follows the config fingerprint and changes when the runtime part of the file changes. `GPU_QUEUE_NAMESPACE` is the fallback. |
+| `min_machines` | `0` | Machines kept on with an empty queue. They still time out by `idle_timeout` while the queue is paused. |
+| `max_machines` | `1` | The most machines at once. Not below `min_machines`. |
+| `max_usd_per_hour` | none | Cap on the whole pool's bill per hour (running machines, stopped ones that still bill their disk, machines held for outputs). It blocks opening machines; it never stops one with a job on it. |
+| `scale_up_after` | `30s` | Open a machine when the oldest queued job has waited this long. |
+| `jobs_per_machine` | `1` | Jobs one machine runs at once. |
+| `max_attempts` | `3` | Runs per job before it is failed with every attempt's reason. Drained attempts do not count. |
+| `unresponsive_after` | `5m` | How long a silent machine is waited for before it is destroyed and its jobs requeued. |
+| `max_machine_lifetime` | none | Optional hard ceiling on a machine's age. Off: a warm machine is never replaced for being old. |
+| `tick` | `5s` | The coordinator's loop period. Leases are 3 ticks (at least 15 s) for the coordinator and 12 ticks (at least 60 s) for a job. |
+| `preflight` | built in | `module:function` that returns a `PreflightResult` with the job's limits, or a reason to refuse. |
+| `health_check.command` | built in | Replaces the built-in check (GPU visible, a small CUDA operation). It must not write job outputs: they would count as activity and hold the idle shutdown. |
+| `health_check.min_free_vram_gb` | none | Free memory threshold. Off by default: a machine serving a model holds most of it. |
+| `health_check.timeout` | `2m` | Time allowed for one check. |
+| `health_check.between_jobs` | `true` | Check again between jobs. |
+| `defaults.timeout` | `1h` | A job's timeout when its `gpujob.yaml` has none. |
+| `defaults.max_cost_usd` | none | A job's cost limit when it has none. |
+| `defaults.deadline_margin` | `10m` | Added to a job's timeout when the machine's deadline is moved. |
+
+A job's `gpujob.yaml` gains two optional fields: `max_cost_usd` and `min_vram_gb`.
+
 ## Safety invariant
 
 An instance may remain billable only while useful work is running, useful work is

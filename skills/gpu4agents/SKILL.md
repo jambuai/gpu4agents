@@ -19,7 +19,7 @@ Do these in order. Skip a step whose check already passes.
 
 ### 1. Install the `gpu` command
 
-Check: `gpu --version` prints 0.13.0 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
+Check: `gpu --version` prints 0.14.0 or later. First run `type gpu`: if it says `gpu` is an alias or a function (Oh My Zsh's git plugin makes it `git push upstream`), plain `gpu` runs that instead, so use `command gpu`, `~/.local/bin/gpu` or `gpu4agents` for every command in this session. In a git repository the alias would really push. If the command is missing or older, install it (Linux and macOS; on Windows, use WSL):
 
 ```bash
 curl -fsSL https://gpu4agents.jambu.ai/install.sh | sh -s -- --agent <runtime>
@@ -116,6 +116,14 @@ When the work is code that needs a GPU, not requests to a model (training or fin
 3. The code writes every result to `$JAMBU_OUTPUT_DIR` (checkpoints too, as it goes), prints progress, exits non-zero on failure and never prints secrets. `HF_HOME` is a cache on the machine.
 4. With the user's yes: `gpu job run` (uploads, runs, streams the log, downloads to `gpu-outputs/<job id>/`, exits with the job's code). Through MCP: `gpu_setup` until ready, `gpu_job_run`, `gpu_job_status` until the state is not `running`, `gpu_job_pull`.
 5. A running job keeps the machine up; `max_lifetime` and the budget still shut it down, so raise `max_lifetime` before a long job (`gpu job run` refuses a `timeout` longer than it). Results are kept until downloaded: the machine is stopped rather than destroyed while it holds results nobody pulled, `gpu job pull` works on a stopped machine, and `gpu destroy` downloads them first. If destroy refuses because it could not fetch them, tell the user; only their explicit yes justifies `--discard-outputs`.
+
+## A queue of jobs (queue mode)
+
+Use queue mode when the work is many jobs that arrive over time, or an application's jobs that must keep running after this conversation (a nightly batch, a service that sends a job per request), and the user wants machines opened and closed for them, a failed machine retried, and outputs kept. For one experiment in this conversation, use the sections above. The full guide is https://gpu4agents.jambu.ai/queue.md (copy in the repository: `QUEUE.md`).
+
+1. It needs a `queue:` section in `gpu.yaml` (`max_machines`, `max_usd_per_hour`, and `max_attempts` at least) and, for a queue shared between hosts, `GPU_QUEUE_URL` and `GPU_OUTPUTS_URL` in the user's environment or `~/.gpu/credentials`, never in `gpu.yaml`. Ask the user for the caps; do not pick them.
+2. `gpu_queue_submit(dir, key=...)` (CLI: `gpu queue submit DIR --key K`) queues a job directory (the same `gpujob.yaml` contract) and returns a `job_id` at once without renting anything. Follow it with `gpu_queue_status(job_id)` and get the outputs with `gpu_queue_pull(job_id)` once it is `succeeded`. `gpu_queue_cancel` stops it. `gpu_queue_control` pauses, resumes or drains; `drain` with `now=true` sends running jobs back to the queue and destroys every pool machine, so it needs the user's yes first.
+3. Never start `gpu queue run` (the coordinator) without the user's yes, and not before the caps are agreed: it rents GPUs for as long as jobs wait. Tell the user it must keep running, for example as a service (`gpu queue install-service`), and that if it stops the machines still end by their own deadlines.
 
 ## Serve any model (images, voice, transcription, embeddings)
 

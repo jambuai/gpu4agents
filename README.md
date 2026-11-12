@@ -108,6 +108,10 @@ Write this as a GPU for Agents job and run it. Fetch https://gpu4agents.jambu.ai
 
 [JOBS.md](JOBS.md) has the contract: the directory, `gpujob.yaml`, the environment a job gets, and the rules its code follows.
 
+## Queue mode
+
+For an application that sends jobs over the day, `gpu queue submit` puts a job directory in a queue and a coordinator (`gpu queue run`) opens and closes machines for it, retries a job on another machine when one dies, and keeps its verified outputs, within the machine and hourly-spend caps you set. It works with any provider, and the queue can be a local file or Redis. See [QUEUE.md](QUEUE.md).
+
 ## Serve any model
 
 Give `gpu` a Hugging Face model id and it serves it behind the OpenAI API shapes, whatever the model does. It reads the model card: chat and vision-language models run on vLLM; image, voice, transcription, embedding and other pipeline models run on gpu's own server. Any OpenAI client then works unchanged.
@@ -177,6 +181,7 @@ A full example is [`gpu.example.yaml`](gpu.example.yaml). `gpu ls` shows every m
 - [Letting a coding agent rent GPUs (Claude Code, Codex, Gemini CLI, Cursor, Claude Desktop)](docs/AGENTS.md)
 - [Integrating into an application (any language)](docs/INTEGRATION.md)
 - [Running your own code as a job](JOBS.md)
+- [Queue mode: jobs on a pool of GPUs](QUEUE.md)
 - [Commands, workloads, and agents](docs/USAGE.md)
 - [Every config field](docs/CONFIG.md)
 - [Choosing a model](docs/CHOOSING_A_MODEL.md)

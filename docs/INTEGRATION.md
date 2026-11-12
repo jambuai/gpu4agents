@@ -202,6 +202,21 @@ def ask(prompt):
             conn = ensure_gpu()   # stopped while idle: restart it, then retry
 ```
 
+### Python: queue mode
+
+For jobs that arrive over the day, not one machine per conversation, `gpu4agents.queue.api` submits to the queue and follows a job without shelling out. It needs `queue:` in `gpu.yaml`; a coordinator (`gpu queue run`, a service you run) does the renting. See [QUEUE.md](../QUEUE.md).
+
+```python
+from gpu4agents.queue import api
+
+job_id = api.submit("train/", key="order-1234")      # idempotent on the key
+info = api.wait(job_id, timeout_s=3600)               # a dict; "timed_out": true if still running
+if info["state"] == "succeeded":
+    path = api.outputs(job_id)                        # verified outputs, gpu-outputs/<job>/
+```
+
+`api.status`, `listing`, `cancel`, `retry`, `pause`, `resume`, `drain`, `audit_queue`, `stats` and `summary` match the `gpu queue` commands. Credentials (`GPU_QUEUE_URL`, `GPU_OUTPUTS_URL`, `AWS_*`) come from the environment or `~/.gpu/credentials`. An unreachable queue or store raises; handle it like exit code 4.
+
 ### Shell / curl
 
 ```bash
