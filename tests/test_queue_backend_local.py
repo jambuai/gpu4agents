@@ -42,3 +42,33 @@ class TestLocalBackend(QueueBackendContract):
         be.request_cancel("job-0001", "bob")
         rows = be.audit()
         assert [(r["actor"], r["action"]) for r in rows] == [("alice", "set_paused"), ("bob", "request_cancel")]
+
+    def test_update_state_only_among_leased_states(self, backend, clock):
+        backend.submit(make_job(1))
+        c = backend.claim("w", 60)
+        assert backend.update(c, state=JobState.DELIVERING).state == JobState.DELIVERING
+        for bad in (JobState.QUEUED, JobState.SUCCEEDED, JobState.FAILED, JobState.CANCELLED):
+            with pytest.raises(ValueError):
+                backend.update(c, state=bad)
+        with pytest.raises(ValueError):
+            backend.update(c, submitted_at=1.0)
+        assert backend.get("job-0001").state == JobState.DELIVERING
+
+    def test_submit_does_not_mutate_the_callers_job(self, backend, clock):
+        job = make_job(1)
+        backend.submit(job)
+        assert job.submitted_at == 1.0
+
+    def test_reads_do_not_block_on_a_held_write_lock(self, tmp_path, clock):
+        import sqlite3
+        be = LocalBackend(tmp_path / "q.db", clock=clock.now)
+        be.submit(make_job(1))
+        holder = sqlite3.connect(tmp_path / "q.db", isolation_level=None)
+        holder.execute("BEGIN IMMEDIATE")
+        try:
+            assert be.get("job-0001") is not None
+            assert be.stats().by_state == {"queued": 1}
+            assert be.paused() is False and be.coordinator() is None and be.audit() == []
+        finally:
+            holder.execute("ROLLBACK")
+            holder.close()

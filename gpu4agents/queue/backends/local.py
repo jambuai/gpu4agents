@@ -7,7 +7,7 @@ import secrets
 import sqlite3
 import time
 from contextlib import contextmanager
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS audit (
 """
 
 _LEASED = (JobState.CLAIMED.value, JobState.RUNNING.value, JobState.DELIVERING.value)
-_FIELDS = {f.name for f in fields(QueueJob)} - {"id", "key"}
+_FIELDS = {f.name for f in fields(QueueJob)} - {"id", "key", "submitted_at"}
+_LEASED_STATES = frozenset({JobState.CLAIMED, JobState.RUNNING, JobState.DELIVERING})
 
 
 class LocalBackend(QueueBackend):
@@ -66,6 +67,25 @@ class LocalBackend(QueueBackend):
             c.execute("BEGIN IMMEDIATE")
             try:
                 self._reap(c)
+                yield c
+            except BaseException:
+                c.execute("ROLLBACK")
+                raise
+            else:
+                c.execute("COMMIT")
+
+    @contextmanager
+    def _read(self, reap: bool = True) -> Iterator[sqlite3.Connection]:
+        """Deferred read transaction; upgrades to a write (reaping) one only if a lease expired."""
+        with self._conn() as c:
+            c.execute("BEGIN")
+            try:
+                if reap and c.execute(
+                    "SELECT 1 FROM jobs WHERE token IS NOT NULL AND lease_until <= ? LIMIT 1", (self.now(),)
+                ).fetchone():
+                    c.execute("ROLLBACK")
+                    c.execute("BEGIN IMMEDIATE")
+                    self._reap(c)
                 yield c
             except BaseException:
                 c.execute("ROLLBACK")
@@ -110,7 +130,7 @@ class LocalBackend(QueueBackend):
         )
 
     def audit(self) -> list[dict]:
-        with self._tx() as c:
+        with self._read(reap=False) as c:
             return [dict(r) for r in c.execute("SELECT ts, actor, action, job_id, detail FROM audit ORDER BY id")]
 
     # -- contract ----------------------------------------------------------------
@@ -119,7 +139,7 @@ class LocalBackend(QueueBackend):
             row = c.execute("SELECT * FROM jobs WHERE key=?", (job.key,)).fetchone()
             if row is not None:
                 return self._job(row)
-            job.submitted_at = self.now()
+            job = replace(job, submitted_at=self.now())
             c.execute(
                 "INSERT INTO jobs (id, key, state, payload, submitted_at) VALUES (?,?,?,?,?)",
                 (job.id, job.key, job.state.value, json.dumps(job.to_dict()), job.submitted_at),
@@ -133,7 +153,7 @@ class LocalBackend(QueueBackend):
             rows = c.execute(
                 "SELECT * FROM jobs WHERE state=? " + ("AND id=? " if job_id else "") + "ORDER BY submitted_at, seq",
                 (JobState.QUEUED.value, *([job_id] if job_id else [])),
-            ).fetchall()
+            )
             for row in rows:
                 job = self._job(row)
                 if job.cancel_requested:
@@ -153,13 +173,20 @@ class LocalBackend(QueueBackend):
             return Claim(job=job, token=claim.token, lease_until=until)
 
     def update(self, claim: Claim, **updates: Any) -> QueueJob:
+        """Update fields of a leased job. Updatable: every QueueJob field except id, key and
+        submitted_at. ``state`` may only be CLAIMED, RUNNING or DELIVERING (QUEUED goes through
+        requeue, final states through settle); anything else raises ValueError."""
         bad = set(updates) - _FIELDS
         if bad:
             raise ValueError(f"cannot update fields: {sorted(bad)}")
+        if "state" in updates:
+            updates["state"] = JobState(updates["state"])
+            if updates["state"] not in _LEASED_STATES:
+                raise ValueError(f"update cannot set state {updates['state'].value}; use requeue or settle")
         with self._tx() as c:
             job, row = self._owned(c, claim)
             for k, v in updates.items():
-                setattr(job, k, JobState(v) if k == "state" else v)
+                setattr(job, k, v)
             self._save(c, job, row["token"], row["lease_until"])
             return job
 
@@ -214,12 +241,12 @@ class LocalBackend(QueueBackend):
             return job
 
     def get(self, job_id: str) -> Optional[QueueJob]:
-        with self._tx() as c:
+        with self._read() as c:
             row = c.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
             return self._job(row) if row else None
 
     def list(self, states: Optional[set[JobState]] = None, limit: int = 100) -> list[QueueJob]:
-        with self._tx() as c:
+        with self._read() as c:
             sql, args = "SELECT * FROM jobs", []
             if states:
                 sql += f" WHERE state IN ({','.join('?' * len(states))})"
@@ -228,7 +255,7 @@ class LocalBackend(QueueBackend):
             return [self._job(r) for r in c.execute(sql + " ORDER BY submitted_at, seq LIMIT ?", args)]
 
     def stats(self) -> QueueStats:
-        with self._tx() as c:
+        with self._read() as c:
             by_state = {r["state"]: r["n"] for r in c.execute("SELECT state, COUNT(*) n FROM jobs GROUP BY state")}
             oldest = c.execute(
                 "SELECT MIN(submitted_at) m FROM jobs WHERE state=?", (JobState.QUEUED.value,)
@@ -279,7 +306,7 @@ class LocalBackend(QueueBackend):
                 self._set_meta(c, "coordinator_lease", None)
 
     def coordinator(self) -> Optional[dict]:
-        with self._tx() as c:
+        with self._read(reap=False) as c:
             return self._coord(c)
 
     def set_paused(self, paused: bool, actor: str) -> None:
@@ -288,7 +315,7 @@ class LocalBackend(QueueBackend):
             self._audit(c, actor, "set_paused", None, str(bool(paused)).lower())
 
     def paused(self) -> bool:
-        with self._tx() as c:
+        with self._read(reap=False) as c:
             return self._meta(c, "paused") == "1"
 
 
