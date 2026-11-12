@@ -198,6 +198,7 @@ def _new_session(state, session, now):
             "stop_failing_since": None,
             "action_failures": 0,
             "pending_shutdown": None,
+            "deadline_at": None,
         }
     )
     log_event(

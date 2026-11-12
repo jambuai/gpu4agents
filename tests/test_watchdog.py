@@ -485,6 +485,25 @@ def test_a_restarted_instance_is_guarded_again(agent_factory):
     assert agent.records("lifecycle_guard_triggered")[-1]["reason"] == "idle_timeout"
 
 
+def test_a_restarted_pool_machine_does_not_keep_the_old_sessions_deadline(agent_factory):
+    """A stopped pool machine started again: its old deadline has passed. The first
+    guard tick must not end it before the pool pushes a fresh one."""
+    now = time.time()
+    agent = agent_factory(
+        policy(idle_timeout_s=3_600.0, deadline_enforced=True),
+        created_at=now - 10_000,
+        state=persisted_previous_session(now, session=now - 10_000, deadline_at=now - 5_000),
+        env={"JAMBU_SESSION_STARTED_AT": str(int(now))},
+        startup_grace_s=600.0,
+    )
+    time.sleep(3)  # a few guard ticks (interval 1s)
+    assert agent.client.state()["deadline_at"] is None
+    assert not agent.marker.exists()
+    assert not agent.records("lifecycle_guard_triggered")
+    until = time.time() + 600  # the pool's reconcile pushes a new one
+    assert agent.client.try_request("POST", "/deadline", {"until": until})["deadline_at"] == until
+
+
 def test_a_supervisor_respawn_in_the_same_session_keeps_state(agent_factory):
     now = time.time()
     session = int(now) - 30
