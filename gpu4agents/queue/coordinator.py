@@ -28,8 +28,14 @@ the machine's deadline. A coordinator that finds such a job (after a crash, a
 takeover or an expired lease) looks for that remote id and adopts the run instead
 of starting it twice. When the recorded machine answers and its job runner has no
 record, no upload and no code for the run (and its jobs directory is older than the
-attempt), the run never started: it goes back to the queue at once as NOT_STARTED,
-which does not count toward max_attempts. Code still arriving is waited for. A run
+attempt), the run never started: the coordinator fences the remote id there
+(``Pool.refuse``: a late upload or start from the coordinator that died gets a 409 and
+never runs; a run that did start is returned and adopted), and once the machine
+acknowledges the fence the job goes back to the queue at once as NOT_STARTED, which
+does not count toward max_attempts (up to NOT_STARTED_FACTOR x max_attempts of them).
+A fence that does not get through leaves the timing rules to decide. A dispatch checks
+again, between the upload and the start, that it still leads and holds the job.
+Code still arriving is waited for. A run
 on a machine this coordinator cannot see (another host's pool) is requeued only
 after that machine's deadline plus a grace, when its watchdog has ended it. While
 the decision is pending, the recorded machine gets a keepalive every tick, so its
@@ -79,6 +85,8 @@ DEADLINE_GRACE_S = 300.0
 # A machine that answers without the remote id may still be receiving its upload.
 UPLOAD_SLACK_S = 60.0
 MAX_DISPATCH_FAILURES = 3
+# A job whose runs never start more than this many times max_attempts gives up.
+NOT_STARTED_FACTOR = 2
 MAX_FETCH_FAILURES = 5  # machine-side delivery failures (fetch, health check) before retiring it
 STORE_BACKOFF_MAX_S = 300.0
 # An in-flight record with no deadline at all (should not happen): the longest it may wait.
@@ -129,7 +137,8 @@ def find_run(
             continue
         if ours:
             home = "answering"
-        rec = next((j for j in listed if str(j.get("id")) == remote_id), None)
+        # A fenced ("refused") record is a run that never started and never will.
+        rec = next((j for j in listed if str(j.get("id")) == remote_id and j.get("state") != "refused"), None)
         if rec is not None:
             return home, m, rec
     return home, None, None
@@ -690,6 +699,9 @@ class Coordinator:
                     return None
                 run.locate = True
                 self._locate(run)
+                # _locate may have requeued (dropped) it: then it is not ours to place.
+                if self._runs.get(job.id) is not run:
+                    return None
                 return run if run.phase == "pending" and not run.locate else None
             if len(run.remote_id) > REMOTE_ID_MAX:
                 reason = (
@@ -790,9 +802,16 @@ class Coordinator:
         if home == "answering" and mine is not None:
             verdict, why = start_pending(views.get(mine.slot), lim, run.remote_id, now)
             if verdict == "never":
-                run.locate = False
-                self._fault(run, Outcome.NOT_STARTED, f"{why} (machine {mine.slot})")
-                return
+                # Fenced first, so a late start from the coordinator that died gets a 409.
+                fenced = self._fence(run, mine)
+                if fenced is True:
+                    run.locate = False
+                    self._fault(run, Outcome.NOT_STARTED, f"{why} (machine {mine.slot})")
+                    return
+                if isinstance(fenced, dict):
+                    self._adopt_run(run, mine, fenced)  # it started after all
+                    return
+                # Not fenced (the machine stopped answering): the timing rules decide.
             if verdict == "wait":
                 self._keep_awake(mine)
                 return
@@ -801,8 +820,31 @@ class Coordinator:
             if mine is not None:
                 self._keep_awake(mine)
             return
+        if home == "answering" and mine is not None:
+            fenced = self._fence(run, mine)
+            if isinstance(fenced, dict):
+                self._adopt_run(run, mine, fenced)
+                return
         run.locate = False
         self._fault(run, Outcome.MACHINE_LOST, detail)
+
+    def _fence(self, run: _Run, m: PoolMachine) -> Any:
+        """Ask the machine to refuse the run's remote id from now on (``Pool.refuse``):
+        True once it is fenced, the machine's record when the run did start there, None
+        when the machine could not be asked (nothing is known)."""
+        refuse = getattr(self.pool, "refuse", None)
+        if refuse is None:
+            return None
+        try:
+            got = refuse(m, run.remote_id)
+        except Exception as exc:  # noqa: BLE001 - the timing rules decide meanwhile
+            self._error_once("refuse", exc, slot=m.slot, job_id=run.job_id)
+            return None
+        self._ok("refuse")
+        if got.get("refused"):
+            return True
+        rec = got.get("job")
+        return rec if isinstance(rec, dict) and rec.get("state") != "refused" else None
 
     def _remote_view(self, m: PoolMachine) -> dict:
         """The machine's jobs plus what its runner knows of runs that never started
@@ -1371,7 +1413,10 @@ class Coordinator:
         attempts = run.job.attempts + [attempt]
         # An attempt sent back by `drain --now`, or one that never started, is nobody's fault:
         # it does not count toward the cap.
-        if sum(1 for a in attempts if a.outcome not in _UNCOUNTED) >= self.queue.max_attempts:
+        counted = sum(1 for a in attempts if a.outcome not in _UNCOUNTED)
+        never = sum(1 for a in attempts if a.outcome == Outcome.NOT_STARTED)
+        # Runs that never start do not use attempts, but a job never keeps bouncing.
+        if counted >= self.queue.max_attempts or never > NOT_STARTED_FACTOR * self.queue.max_attempts:
             reasons = "; ".join(
                 f"attempt {a.number}: {a.outcome.value if a.outcome else '?'}" + (f" ({a.detail})" if a.detail else "")
                 for a in attempts
@@ -1389,7 +1434,9 @@ class Coordinator:
             return
         self._w(run, "requeue", self.backend.requeue, run.claim, attempt)
         self.obs.inc("gpu_queue_attempts_total", outcome=outcome.value)
-        self.obs.inc("gpu_queue_retries_total", cause=outcome.value)
+        if outcome not in _UNCOUNTED:
+            # Not a failure: a drain or a run that never started (see QUEUE.md's alerts).
+            self.obs.inc("gpu_queue_retries_total", cause=outcome.value)
         self.obs.emit(
             ev.QUEUE_JOB_RETRIED, job_id=run.job_id, attempt=run.number, cause=outcome.value,
             slot=run.slot, detail=detail[:500],
@@ -1613,8 +1660,17 @@ class Coordinator:
         self._update(run, limits=lim, machine=m.slot)
         run.slot = m.slot  # from here a retry goes to this machine only
         self._check_lead()
+
+        def still_ours() -> None:
+            # The upload may take minutes: lead and job are checked again before the start.
+            self._check_lead()
+            if self._runs.get(run.job_id) is not run:
+                raise _Dropped()
+
         try:
-            outcome = self.pool.dispatch(m, run.remote_id, bundle, manifest, env)
+            outcome = self.pool.dispatch(m, run.remote_id, bundle, manifest, env, before_start=still_ours)
+        except (_Dropped, _Demoted):
+            raise
         except Exception as exc:  # noqa: BLE001 - "already_running" next time if it did start
             run.dispatch_failures += 1
             self.obs.emit(
@@ -1626,6 +1682,16 @@ class Coordinator:
                 self._retire(m, Outcome.UNHEALTHY, "dispatch kept failing", True,
                              details={run.job_id: (Outcome.UNHEALTHY, detail)})
             return
+        if outcome == "refused":
+            # A coordinator that took over fenced this remote id and sent the job back to
+            # the queue: it never runs here, and the job is not ours any more.
+            self._drop(run)
+            self.obs.inc("gpu_queue_stale_writes_total")
+            self.obs.emit(
+                ev.QUEUE_STALE_WRITE_REFUSED, job_id=job.id, operation="dispatch",
+                worker=self.worker_id, remote_id=run.remote_id, slot=m.slot, fenced=True,
+            )
+            raise _Dropped()
         try:
             if self._runs.get(run.job_id) is not run:
                 raise _Dropped()  # the lease went while the dispatch was on its way

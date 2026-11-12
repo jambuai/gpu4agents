@@ -117,6 +117,8 @@ class FakePool:
         self.uploads: dict[str, dict[str, dict]] = {}
         self.old_runner = False  # a job runner from before 0.14.0: says nothing of uploads
         self.jobs_dir_age_s: Optional[float] = None  # None -> since the machine opened
+        self.refused: dict[str, set[str]] = {}  # slot -> remote ids fenced by `refuse`
+        self.refuse_fails = False  # the machine lists its jobs but the fence does not get through
         # Slow calls: operation name -> seconds the call takes on the injected clock. The
         # clock moves in steps of ``slow_step_s``; ``during()`` runs after each step (a
         # heartbeat thread, or another coordinator acting meanwhile).
@@ -134,6 +136,7 @@ class FakePool:
         self.health_checks: list[str] = []
         self.fetches: list[str] = []
         self.cancels: list[str] = []
+        self.refusals: list[str] = []
         self.retired: list[tuple[str, str, bool]] = []  # (slot, reason, mark_bad)
 
     # ------------------------------------------------------------------ scripting
@@ -243,13 +246,23 @@ class FakePool:
         self._reach(m)
         self.keepalives.append(m.slot)
 
-    def dispatch(self, m: PoolMachine, remote_id: str, bundle: Path, manifest: dict, env: dict) -> str:
+    def dispatch(
+        self, m: PoolMachine, remote_id: str, bundle: Path, manifest: dict, env: dict,
+        before_start: Optional[Callable[[], None]] = None,
+    ) -> str:
         self._reach(m)
-        self._slow("dispatch")
+        self._slow("dispatch")  # the upload
         if self.dispatch_failures.get(m.slot, 0) > 0:
             self.dispatch_failures[m.slot] -= 1
             self.dispatches.append((m.slot, remote_id, "error"))
             raise WatchdogUnavailable(f"upload to {m.slot} cut short (scripted)")
+        if remote_id in self.refused.get(m.slot, set()):
+            # the job runner's 409 on the upload, and the record says "refused"
+            self.dispatches.append((m.slot, remote_id, "refused"))
+            return "refused"
+        if before_start is not None:
+            before_start()
+        self._slow("start")
         if any(r.id == remote_id and r.slot == m.slot for r in self.runs):
             # like the job runner's 409: only this machine knows the id
             self.dispatches.append((m.slot, remote_id, "already_running"))
@@ -304,6 +317,18 @@ class FakePool:
             r.state = "cancelled"
             r.returncode = -15
         self._sync(m)
+
+    def refuse(self, m: PoolMachine, remote_id: str) -> dict:
+        self._reach(m)
+        if self.refuse_fails:
+            raise WatchdogUnavailable(f"machine {m.slot}: refuse cut short (scripted)")
+        self.refusals.append(remote_id)
+        r = next((r for r in self.runs if r.id == remote_id and r.slot == m.slot), None)
+        if r is not None:
+            return {"ok": True, "refused": False, "job": r.record()}
+        self.refused.setdefault(m.slot, set()).add(remote_id)
+        self.uploads.get(m.slot, {}).pop(remote_id, None)  # its code is deleted
+        return {"ok": True, "refused": True}
 
     def remote_jobs(self, m: PoolMachine) -> list[dict]:
         return self.remote_view(m)["jobs"]

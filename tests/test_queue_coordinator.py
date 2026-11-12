@@ -17,10 +17,11 @@ import pytest
 from gpu4agents.core import events as ev
 from gpu4agents.core.events import EventLog
 from gpu4agents.queue.backends.local import LocalBackend
-from gpu4agents.queue.coordinator import DEADLINE_GRACE_S, Coordinator, TickReport
+from gpu4agents.queue.coordinator import DEADLINE_GRACE_S, Coordinator, TickReport, find_run
 from gpu4agents.queue.models import JobState, Outcome, QueueJob
 from gpu4agents.queue.observe import Observer
 from gpu4agents.queue.outputs import LocalOutputStore, OutputRef
+from gpu4agents.queue.pool_types import MachineState, PoolMachine
 
 from queue_fakes import FakePool, FakeRun
 
@@ -639,13 +640,37 @@ def test_a_slow_transfer_keeps_its_leases(world, op):
     assert not w.events(ev.COORDINATOR_LEASE_LOST)
 
 
+def test_an_upload_that_outlives_its_lease_never_starts_the_run(world):
+    w = world()
+    coord = w.coordinator()
+    w.submit("j0")
+    w.final(coord, "j0")  # a warm machine
+    w.submit("j1")
+    w.pool.delays["dispatch"] = 600.0  # the upload; no heartbeat meanwhile: the leases run out
+    taken = []
+
+    def intruder():
+        if not taken:
+            claim = w.backend.claim("intruder", 3600, job_id="j1")
+            if claim is not None:
+                taken.append(claim)
+
+    w.pool.during = intruder
+    w.step(coord)
+
+    assert taken, "the job's lease ran out during the upload"
+    assert [r.id for r in w.pool.starts] == ["j0-a1"]  # checked again before the start: never started
+    assert w.pool.cancels == []
+    assert w.job("j1").state == JobState.CLAIMED  # the intruder's, untouched
+
+
 def test_a_dispatch_that_outlives_its_lease_cancels_its_run(world):
     w = world()
     coord = w.coordinator()
     w.submit("j0")
     w.final(coord, "j0")  # a warm machine
     w.submit("j1")
-    w.pool.delays["dispatch"] = 600.0  # and no heartbeat: the leases run out
+    w.pool.delays["start"] = 600.0  # the start itself is slow; no heartbeat: the leases run out
     taken = []
 
     def intruder():
@@ -816,6 +841,118 @@ def test_code_that_stopped_arriving_or_was_never_started_ends_the_wait(world, mo
     job = w.final(b, "j1")
     assert job.state == JobState.SUCCEEDED
     assert [a.outcome for a in job.attempts] == [Outcome.NOT_STARTED, Outcome.SUCCEEDED]
+
+
+def test_a_run_that_never_started_is_fenced_before_it_goes_back(world, monkeypatch):
+    w = world()
+    slot, _ = _crash_before_dispatch(w, monkeypatch)
+
+    b = w.coordinator("coord-b")
+    job = w.final(b, "j1")
+
+    assert [a.outcome for a in job.attempts] == [Outcome.NOT_STARTED, Outcome.SUCCEEDED]
+    assert w.pool.refusals == ["j1-a1"] and w.pool.refused[slot] == {"j1-a1"}
+    # Not a failure: the retry rate the alert watches leaves it out.
+    assert 'cause="not_started"' not in (w.tmp / "metrics.prom").read_text()
+
+
+def test_a_late_start_from_the_coordinator_that_lost_the_job_is_refused_and_never_runs(world, monkeypatch):
+    w = world()
+    a = w.coordinator("coord-a")
+    w.submit("j0")
+    w.final(a, "j0")  # a warm machine
+    w.submit("j1")
+    b = w.coordinator("coord-b")
+    real = w.pool.dispatch
+    seen: list[str] = []
+
+    def late(m, remote_id, *args, **kwargs):
+        if remote_id == "j1-a1" and not seen:
+            # coord-a stalls before its upload lands; coord-b takes over meanwhile.
+            seen.append(remote_id)
+            monkeypatch.setattr(w.pool, "dispatch", real)
+            w.final(b, "j1", max_ticks=80)
+        return real(m, remote_id, *args, **kwargs)
+
+    monkeypatch.setattr(w.pool, "dispatch", late)
+    w.step(a)  # claims j1 and dispatches it: late
+
+    assert seen == ["j1-a1"]
+    job = w.job("j1")
+    assert job.state == JobState.SUCCEEDED
+    assert [(x.remote_id, x.outcome) for x in job.attempts] == [
+        ("j1-a1", Outcome.NOT_STARTED), ("j1-a2", Outcome.SUCCEEDED)
+    ]
+    assert [r.id for r in w.pool.starts] == ["j0-a1", "j1-a2"]  # j1-a1 never ran
+    assert ("j1-a1" in {d[1] for d in w.pool.dispatches if d[2] == "refused"})
+    assert "j1" not in a._runs  # dropped, not adopted
+    stale = [e for e in w.events(ev.QUEUE_STALE_WRITE_REFUSED) if e.get("fenced")]
+    assert [(e["job_id"], e["worker"]) for e in stale] == [("j1", "coord-a")]
+    assert w.job("j1").state == JobState.SUCCEEDED  # coord-a wrote nothing
+
+
+def test_a_fence_that_does_not_get_through_falls_back_to_the_timing_rules(world, monkeypatch):
+    w = world()
+    slot, started = _crash_before_dispatch(w, monkeypatch)
+    w.pool.refuse_fails = True
+
+    b = w.coordinator("coord-b")
+    w.step(b, 40)
+    assert w.job("j1").attempts == []  # not fenced: not requeued at once
+    assert w.pool.keepalives.count(slot) >= 25
+
+    w.clock.now = started + 600 + 61
+    job = w.final(b, "j1")
+    assert [a.outcome for a in job.attempts] == [Outcome.MACHINE_LOST, Outcome.SUCCEEDED]
+
+
+def test_a_refused_record_is_never_adopted():
+    m = PoolMachine(
+        slot="s1", instance_id="i-1", state=MachineState.READY, hourly_usd=1.0, stopped_hourly_usd=0.0,
+        ready_at=0.0, deadline_at=None,
+    )
+    lim = {"instance_id": "i-1", "slot": "s1"}
+    listed = [{"id": "j1-a1", "state": "refused"}]
+    home, found, rec = find_run([m], lim, "j1-a1", lambda _m: listed)
+    assert (home, found, rec) == ("answering", None, None)
+
+
+def test_a_claim_that_locate_sends_back_is_not_placed(world, monkeypatch):
+    w = world()
+    _, started = _crash_before_dispatch(w, monkeypatch)
+    w.clock.now = started + 3600  # every lease has run out
+    b = w.coordinator("coord-b")
+    claim = w.backend.claim("coord-b", 60)
+    assert claim is not None and claim.job.id == "j1"
+
+    assert b._claimed(claim) is None  # requeued NOT_STARTED: nothing to place
+    assert w.job("j1").state == JobState.QUEUED
+    assert [a.outcome for a in w.job("j1").attempts] == [Outcome.NOT_STARTED]
+
+
+def test_a_job_whose_runs_keep_not_starting_gives_up(world, monkeypatch):
+    w = world(max_attempts=1)
+    a = w.coordinator("c0")
+    w.submit("j0")
+    w.final(a, "j0")  # a warm machine
+    w.submit("j1")
+
+    def die(*args, **kwargs):
+        raise Crash()  # every coordinator dies right before its dispatch lands
+
+    real = w.pool.dispatch
+    monkeypatch.setattr(w.pool, "dispatch", die)
+    coords = [a] + [w.coordinator(f"c{i}") for i in range(1, 4)]
+    for c in coords[:3]:
+        with pytest.raises(Crash):
+            w.step(c, 200)
+    monkeypatch.setattr(w.pool, "dispatch", real)
+    job = w.final(coords[3], "j1", max_ticks=200)
+
+    assert job.state == JobState.FAILED  # more than 2 x max_attempts runs that never started
+    assert [x.outcome for x in job.attempts] == [Outcome.NOT_STARTED] * 3
+    assert job.result["reason"].count("never started") == 3  # every reason
+    assert w.events(ev.QUEUE_JOB_DEAD)
 
 
 def test_a_jobs_directory_newer_than_the_attempt_proves_nothing(world, monkeypatch):

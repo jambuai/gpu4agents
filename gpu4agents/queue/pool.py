@@ -544,9 +544,15 @@ class Pool:
             self.obs.emit(ev.POOL_MACHINE_UNHEALTHY, slot=m.slot, instance_id=m.instance_id, detail=result.detail)
         return result
 
-    def dispatch(self, m: PoolMachine, remote_id: str, bundle: Path, manifest: dict, env: dict) -> str:
+    def dispatch(
+        self, m: PoolMachine, remote_id: str, bundle: Path, manifest: dict, env: dict,
+        before_start: Optional[Callable[[], None]] = None,
+    ) -> str:
         """Upload ``bundle`` and start it as ``remote_id``. "already_running" when the
-        machine already has that job (a dispatch repeated after a crash): never a second start."""
+        machine already has that job (a dispatch repeated after a crash): never a second
+        start; "refused" when a coordinator that took over fenced it (it never runs).
+        ``before_start`` runs between the upload and the start (the caller checks it
+        still holds the job; raising stops the dispatch there)."""
         self._ensure_deadline(m)
         eng = self._owned(m)
         state = eng.store.load()
@@ -569,8 +575,16 @@ class Pool:
             bundle = Path(bundle)
             if bundle.is_file() and bundle.stat().st_size > 0:
                 jobs.upload(remote_id, bundle)
+            if before_start is not None:
+                before_start()
             jobs.start(remote_id, payload)
         except JobConflict:
+            try:
+                fenced = jobs.info(remote_id).get("state") == "refused"
+            except (StateError, WatchdogUnavailable):
+                fenced = False
+            if fenced:
+                return "refused"
             outcome = "already_running"
         else:
             outcome = "started"
@@ -591,6 +605,12 @@ class Pool:
     def cancel(self, m: PoolMachine, remote_id: str) -> None:
         self._jobs(m).cancel(remote_id)
 
+    def refuse(self, m: PoolMachine, remote_id: str) -> dict:
+        """Fence a run that never started on ``m``: a late upload or start of it gets a
+        409 and never runs. {"refused": True}, or {"refused": False, "job": record}
+        when it did start. Raises when the machine cannot be reached."""
+        return self._jobs(m).refuse(remote_id)
+
     def remote_jobs(self, m: PoolMachine) -> list[dict]:
         """The machine's queue jobs as its watchdog lists them (health checks and model
         servers left out); empty while the machine is still starting."""
@@ -609,6 +629,7 @@ class Pool:
         view["jobs"] = [
             j for j in view["jobs"]
             if not str(j.get("id", "")).startswith(HEALTH_JOB_PREFIX) and not j.get("service")
+            and j.get("state") != "refused"  # fenced: it never ran and never will
         ]
         return view
 

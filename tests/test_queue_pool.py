@@ -217,6 +217,32 @@ def test_dispatch_twice_returns_already_running(pool_parts, tmp_path):
     assert m.state == MachineState.READY and m.jobs == []
 
 
+def test_a_fenced_run_is_refused_on_dispatch_and_hidden_from_the_listing(pool_parts, tmp_path):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    bundle = make_bundle(tmp_path, {"main.py": "print('ran')\n"})
+    manifest = {"run": "python3 main.py"}
+
+    assert pool.refuse(m, "q1-a1") == {"ok": True, "refused": True}
+    assert pool.dispatch(m, "q1-a1", bundle, manifest, {}) == "refused"  # a late dispatch never runs
+    assert m.jobs == [] and pool.remote_jobs(m) == []
+    view = pool.remote_view(m)
+    assert view["jobs"] == [] and view["uploads"] == {}
+
+    # A dispatch whose caller lost the job between the upload and the start stops there.
+    def lost() -> None:
+        raise RuntimeError("not ours any more")
+
+    with pytest.raises(RuntimeError):
+        pool.dispatch(m, "q2-a1", bundle, manifest, {}, before_start=lost)
+    assert pool.remote_jobs(m) == [] and set(pool.remote_view(m)["uploads"]) == {"q2-a1"}
+
+    assert pool.dispatch(m, "q3-a1", bundle, manifest, {}) == "started"
+    got = pool.refuse(m, "q3-a1")
+    assert got["refused"] is False and got["job"]["id"] == "q3-a1"  # it started: adopt it
+    assert wait_remote(pool, m, "q3-a1")["state"] == "succeeded"
+
+
 def test_extend_deadline_reaches_the_watchdog(pool_parts, tmp_path):
     pool, provider, observer, clock, cfg = pool_parts()
     m = settle(pool, pool.open())
@@ -590,6 +616,26 @@ def test_a_recovered_machine_s_restart_budget_resets(pool_parts):
         provider.start(instance)
         settle(pool, m)  # back to checking: deadline and health check, then ready
         assert m.state == MachineState.READY
+
+
+def test_a_machine_started_again_gets_a_fresh_deadline(pool_parts):
+    """Its watchdog starts the new session without the old deadline (``_new_session``);
+    the pool pushes a new one from now, never the old one that has passed."""
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    instance = provider.instances[m.instance_id]
+    agent = provider.agents[m.instance_id]
+    old = m.deadline_at
+    provider.stop(instance)
+    pool.poll()
+    assert m.state == MachineState.STOPPED
+    clock.advance(old - clock() + 3600)  # the old deadline is long gone
+    drop_remote_deadline(agent)  # what a new session on the machine starts with
+    provider.start(instance)
+    settle(pool, m)
+    assert m.state == MachineState.READY
+    assert m.deadline_at >= clock() + cfg.boot_timeout_s
+    assert agent.client.state()["deadline_at"] == pytest.approx(m.deadline_at)
 
 
 def test_a_pull_that_crashes_reports_every_job_lost(pool_parts, tmp_path, monkeypatch):

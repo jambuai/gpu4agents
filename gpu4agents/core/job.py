@@ -67,6 +67,8 @@ DEFAULT_EXCLUDES = (
 BUNDLE_WARN_BYTES = 200 * 1024**2
 BUNDLE_MAX_BYTES = 2 * 1024**3
 UPLOAD_TIMEOUT_S = 600.0
+# A machine that does not accept the connection soon is not going to take the upload.
+UPLOAD_CONNECT_TIMEOUT_S = 15.0
 LOG_POLL_S = 2.0
 
 
@@ -299,7 +301,7 @@ class JobClient:
                 self._url(f"/jobs/{job_id}/bundle"),
                 content=chunks(),
                 headers=headers,
-                timeout=UPLOAD_TIMEOUT_S,
+                timeout=httpx.Timeout(UPLOAD_TIMEOUT_S, connect=UPLOAD_CONNECT_TIMEOUT_S),
             )
         except httpx.HTTPError as exc:
             raise WatchdogUnavailable(f"uploading the job's code failed: {exc}") from exc
@@ -319,6 +321,11 @@ class JobClient:
 
     def cancel(self, job_id: str) -> dict[str, Any]:
         return self._request("POST", f"/jobs/{job_id}/cancel")
+
+    def refuse(self, job_id: str) -> dict[str, Any]:
+        """Fence a job that never started: its later upload or start gets a 409. Returns
+        {"refused": True}, or {"refused": False, "job": record} when it did start."""
+        return self._request("POST", f"/jobs/{job_id}/refuse")
 
     def list(self) -> list[dict[str, Any]]:
         return list(self._request("GET", "/jobs").get("jobs") or [])

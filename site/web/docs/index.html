@@ -860,7 +860,7 @@ conn = ensure_gpu()
           <tr><td>coordinator heartbeat age is more than 3 ticks</td><td><code>gpu_queue_coordinator_heartbeat_age_seconds</code>, I7</td></tr>
           <tr><td>any invariant violation</td><td><code>gpu_queue_invariant_violations_total</code>, <code>gpu queue audit</code> exits 1</td></tr>
           <tr><td>the oldest pending output delivery is older than 10 minutes</td><td><code>gpu_queue_outputs_oldest_pending_seconds</code></td></tr>
-          <tr><td>the retry rate is above 20% over 1 hour</td><td><code>gpu_queue_retries_total</code> against attempts</td></tr>
+          <tr><td>the retry rate is above 20% over 1 hour</td><td><code>gpu_queue_retries_total</code> against attempts (drained attempts and runs that never started are left out)</td></tr>
           <tr><td>pool spend is at or above 90% of <code>max_usd_per_hour</code></td><td><code>gpu_pool_usd_per_hour</code>, I5</td></tr>
           <tr><td>the oldest queued job is older than 2 × <code>scale_up_after</code> plus the cold start p50 while <code>blocked_by</code> is set</td><td><code>gpu_queue_oldest_queued_seconds</code>, <code>pool_scale_decision</code></td></tr>
         </table></div>

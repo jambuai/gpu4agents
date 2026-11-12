@@ -32,6 +32,8 @@ Routes (behind X-Jambu-Token, like every other control route):
     GET  /jobs/<id>/log?offset=N  -> {data, offset, size, done}
     GET  /jobs/<id>/outputs       -> tar.gz of the output directory
     POST /jobs/<id>/cancel
+    POST /jobs/<id>/refuse        -> {refused: true} or, when it started, {refused:
+                                     false, job: record}
 
 On disk, under JOBS_DIR/<id>/: bundle.tar.gz, src/ (the code, and the job's
 working directory), out/ (outputs), job.log, job.json (the record), and rc
@@ -45,7 +47,10 @@ ago it last changed), and how old the jobs directory is (``jobs_dir_age_s``, fro
 a marker written when the runner first finds it). A queue coordinator that takes
 over uses both to tell a run that never started from one still on its way: a
 directory older than the dispatch that holds nothing for the job means the job
-never reached this machine.
+never reached this machine. Before it sends such a job back to the queue it fences
+it with ``POST /jobs/<id>/refuse``: the runner records the id as "refused" and
+deletes its code, so a late upload or start from the coordinator that died gets a
+409 and never runs. A job that did start is returned instead, to be adopted.
 """
 
 # Loaded with exec() into the watchdog's globals. Imported directly (tests,
@@ -68,6 +73,7 @@ if "log_event" not in globals():  # pragma: no cover - only in standalone import
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import tarfile
@@ -250,9 +256,42 @@ def job_upload(request, job_id):
     if remaining:
         os.remove(path + ".part")
         return 400, {"error": "upload cut short (%d bytes missing)" % remaining}
-    os.replace(path + ".part", path)
+    with _JOB_LOCK:
+        if job_read(job_id) is not None:
+            # Refused (or started) while the code was on its way: it never runs from here.
+            _remove(path + ".part")
+            return 409, {"error": "job %s already started" % job_id}
+        try:
+            os.replace(path + ".part", path)
+        except OSError as exc:
+            return 409, {"error": "upload of job %s was cut off: %s" % (job_id, exc)}
     touch("job_upload")
     return 200, {"ok": True, "bytes": length}
+
+
+def _remove(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def job_refuse(job_id):
+    """Fence a job that never started: from now on its upload and start get a 409.
+    A job that did start is returned as it is (the caller adopts it)."""
+    with _JOB_LOCK:
+        record = job_read(job_id)
+        if record is not None and record.get("state") != "refused":
+            return 200, {"ok": True, "refused": False, "job": record}
+        if record is None:
+            os.makedirs(_job_path(job_id), exist_ok=True)
+            record = {"id": job_id, "state": "refused", "refused_at": time.time(), "started_at": None}
+            job_write(record)
+        for name in ("bundle.tar.gz", "bundle.tar.gz.part"):
+            _remove(_job_path(job_id, name))
+        shutil.rmtree(_job_path(job_id, "src"), ignore_errors=True)
+    log_event("job_refused", job_id=job_id)
+    return 200, {"ok": True, "refused": True}
 
 
 def job_start(job_id, body):
@@ -618,6 +657,8 @@ def jobs_route(request, method, path, body):
         request._reply(*job_start(job_id, body or {}))
     elif (method, action) == ("POST", "cancel"):
         request._reply(*job_cancel(job_id))
+    elif (method, action) == ("POST", "refuse"):
+        request._reply(*job_refuse(job_id))
     elif (method, action) == ("GET", ""):
         request._reply(*job_info(job_id))
     elif (method, action) == ("GET", "log"):
