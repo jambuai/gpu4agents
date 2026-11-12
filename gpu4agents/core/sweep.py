@@ -209,6 +209,7 @@ def _state_beside(config_path: Path) -> Optional[RuntimeState]:
         return None
 
 
+COORDINATOR_PROBE_TIMEOUT_S = 15.0
 POOL_GUARD = "guard"
 POOL_REPORT_ONLY = "report_only"  # a live coordinator owns the actions
 POOL_PAST_DUE_ONLY = "past_due_only"  # the queue is unreachable: only what is already overdue
@@ -231,18 +232,30 @@ def _pool_meta(slot_dir: Path) -> dict:
 
 def coordinator_status(config) -> str:
     """``live`` (a coordinator holds the lease), ``none`` or ``unreachable``."""
-    try:
-        from ..queue.backend import load_backend
+    # The Redis client has its own socket timeouts (SOCKET_TIMEOUT_S); any other
+    # backend is bounded here by a thread, so a hung queue never hangs the sweep.
+    import threading
 
-        backend = load_backend(config.queue.backend, config)
+    out: list[str] = []
+
+    def probe() -> None:
         try:
-            return "live" if backend.coordinator() is not None else "none"
-        finally:
-            close = getattr(backend, "close", None)
-            if callable(close):
-                close()
-    except Exception:  # noqa: BLE001 - an unreachable queue must not stop the safety net
-        return "unreachable"
+            from ..queue.backend import load_backend
+
+            backend = load_backend(config.queue.backend, config)
+            try:
+                out.append("live" if backend.coordinator() is not None else "none")
+            finally:
+                close = getattr(backend, "close", None)
+                if callable(close):
+                    close()
+        except Exception:  # noqa: BLE001 - an unreachable queue must not stop the safety net
+            out.append("unreachable")
+
+    thread = threading.Thread(target=probe, daemon=True)
+    thread.start()
+    thread.join(COORDINATOR_PROBE_TIMEOUT_S)
+    return out[0] if out else "unreachable"
 
 
 def _past_due(state: RuntimeState, meta: dict, stopped_ttl_s: Optional[float], now: float) -> bool:
@@ -289,6 +302,23 @@ def _guard_pool(config, path, make_engine, apply, say, results, tracked) -> None
         _describe_guard(guard, slot_apply, say)
 
 
+def _track_pool_from_disk(state_dir: Path, tracked: set[tuple[str, str]]) -> None:
+    """Pool machines are tracked from their files alone, whatever else fails later:
+    a machine whose project or slot cannot be guarded is still not an orphan."""
+    for slot_dir in pool_slot_dirs(state_dir):
+        try:
+            data = json.loads((slot_dir / "state.json").read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        provider = data.get("provider")
+        ids = {data.get("instance_id"), _pool_meta(slot_dir).get("instance_id")}
+        for iid in ids:
+            if provider and isinstance(iid, str) and iid:
+                tracked.add((str(provider), iid))
+
+
 def guard_projects(
     paths: list[Path],
     make_engine: Callable[..., Any],
@@ -308,6 +338,7 @@ def guard_projects(
     for path in paths:
         guard = ProjectGuard(config_path=path)
         results.append(guard)
+        _track_pool_from_disk(project_state_dir(Path(path).parent), tracked)
         try:
             config = load_config(path)
         except JambuError as exc:

@@ -163,7 +163,7 @@ def warn_stopped_billing() -> None:
         )
         project = str(Path(item["config"]).parent)
         ends = (
-            "`gpu sweep --apply` ends it"
+            "`gpu sweep --apply` ends it once no coordinator is running"
             if item.get("slot")
             else "`gpu destroy` in that directory ends it"
         )

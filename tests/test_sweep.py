@@ -758,8 +758,6 @@ def test_sweep_guards_pool_slots_of_a_registered_project(config, cli_fake, monke
 
 
 def test_sweep_leaves_pool_actions_to_a_live_coordinator(config, cli_fake, monkeypatch, tmp_path):
-    from gpu4agents.queue.backend import load_backend
-
     monkeypatch.chdir(config.project_dir)
     provider = _seed(cli_fake, config)
     qconfig, engine, state = _pool_project(provider, tmp_path / "q")
@@ -839,3 +837,39 @@ def test_stopped_billing_warning_counts_pool_machines(config, cli_fake, monkeypa
         stored.instance.stopped_hourly_cost_usd = 0.05
     found = sweep_mod.stopped_and_billing()
     assert [(f["slot"], f["instance_id"], f["overdue"]) for f in found] == [("s1", state.instance_id, True)]
+
+
+def test_a_pool_machine_is_not_an_orphan_when_its_project_cannot_be_guarded(
+    config, cli_fake, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(config.project_dir)
+    provider = _seed(cli_fake, config)
+    qconfig, engine, state = _pool_project(provider, tmp_path / "q")
+    provider.instances[state.instance_id].label = "jambu-model-s1-abc123"
+    provider.instances[state.instance_id].created_at = utc_now() - 48 * HOUR
+    qconfig.source_path.write_text("gpu_runtime: [not a mapping")  # config no longer loads
+    result, payload = _sweep_json("--apply")
+    assert ("destroy", state.instance_id) not in provider.calls
+    assert ("stop", state.instance_id) not in provider.calls[1:]
+    assert payload["tracked"] == 1 and payload["actions"] == []
+
+
+def test_a_pool_machine_is_not_an_orphan_when_its_slot_cannot_be_guarded(
+    config, cli_fake, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(config.project_dir)
+    provider = _seed(cli_fake, config)
+    _, engine, state = _pool_project(provider, tmp_path / "q")
+    provider.instances[state.instance_id].label = "jambu-model-s1-abc123"
+    _stop_long_ago(engine)
+
+    def boom(cfg, **kw):
+        if kw.get("slot"):
+            raise sweep_mod.JambuError("slot engine broke")
+        return real(cfg, **kw)
+
+    real = account_cli.make_engine
+    monkeypatch.setattr(account_cli, "make_engine", lambda cfg, echo=None, **kw: boom(cfg, **kw))
+    result, payload = _sweep_json("--apply")
+    assert ("destroy", state.instance_id) not in provider.calls
+    assert payload["tracked"] == 1 and payload["actions"] == []
