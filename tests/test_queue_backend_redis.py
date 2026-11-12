@@ -84,6 +84,10 @@ class TestRedisBackend(QueueBackendContract):
         rows = backend.audit()
         assert [(r["actor"], r["action"]) for r in rows] == [("alice", "set_paused"), ("bob", "request_cancel")]
 
+    def test_a_drain_request_is_audited(self, backend, clock):
+        backend.request_drain("alice")
+        assert [(r["actor"], r["action"]) for r in backend.audit()] == [("alice", "request_drain")]
+
     def test_update_state_only_among_leased_states(self, backend, clock):
         backend.submit(make_job(1))
         c = backend.claim("w", 60)

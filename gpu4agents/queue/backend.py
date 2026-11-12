@@ -85,6 +85,17 @@ class QueueBackend(ABC):
     @abstractmethod
     def paused(self) -> bool: ...
 
+    @abstractmethod
+    def request_drain(self, actor: str) -> None:
+        """Ask the coordinator to drain now (pause, requeue running jobs, retire every machine).
+        Audited. The coordinator that holds the lease performs it on its next tick."""
+
+    @abstractmethod
+    def drain_requested(self) -> bool: ...
+
+    @abstractmethod
+    def clear_drain(self) -> None: ...
+
 
 def load_backend(spec: str, config: Any) -> QueueBackend:
     """Resolve "local", "redis" or "module:factory" (the factory receives the config).

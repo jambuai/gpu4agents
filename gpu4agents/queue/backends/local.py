@@ -318,6 +318,19 @@ class LocalBackend(QueueBackend):
         with self._read(reap=False) as c:
             return self._meta(c, "paused") == "1"
 
+    def request_drain(self, actor: str) -> None:
+        with self._tx() as c:
+            self._set_meta(c, "drain", "1")
+            self._audit(c, actor, "request_drain", None)
+
+    def drain_requested(self) -> bool:
+        with self._read(reap=False) as c:
+            return self._meta(c, "drain") == "1"
+
+    def clear_drain(self) -> None:
+        with self._tx() as c:
+            self._set_meta(c, "drain", None)
+
 
 def create(config: Any) -> LocalBackend:
     return LocalBackend(Path(config.state_dir) / "queue" / "queue.db")

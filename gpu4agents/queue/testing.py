@@ -204,6 +204,16 @@ class QueueBackendContract:
         assert backend.claim("w", 60, job_id="job-0001") is not None
         assert backend.claim("w", 60) is None  # nothing named: still paused
 
+    def test_a_drain_request_is_a_flag_until_cleared(self, backend, clock):
+        assert backend.drain_requested() is False
+        backend.request_drain("alice")
+        assert backend.drain_requested() is True
+        backend.request_drain("alice")  # idempotent
+        assert backend.drain_requested() is True
+        backend.clear_drain()
+        assert backend.drain_requested() is False
+        backend.clear_drain()  # clearing nothing is fine
+
     def test_one_coordinator_lease_at_a_time(self, backend, clock):
         assert backend.acquire_coordinator("a", 30) is True
         assert backend.acquire_coordinator("b", 30) is False

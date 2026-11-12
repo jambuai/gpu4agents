@@ -10,7 +10,7 @@ atomic, and every time comparison uses the server's ``TIME`` (never a client clo
     st:<state>    sorted set per state, score = submitted_at (QUEUED is the claim order)
     leased        sorted set of leased ids, score = lease_until
     tokens        hash id -> fencing token of the live lease
-    coord         hash owner / lease_until;  paused  string;  audit  stream of control actions
+    coord         hash owner / lease_until;  paused  string;  drain  string;  audit  stream of control actions
 
 Needs Redis >= 5. Scripts address keys by prefix, so this targets a single Redis (or a primary
 with replicas), not a Redis Cluster.
@@ -209,6 +209,16 @@ return ret('OK', id)
     "pause": """
 redis.call('SET', P .. ':paused', ARGV[3])
 audit(ARGV[4], 'set_paused', '', ARGV[3] == '1' and 'true' or 'false')
+return 1
+""",
+    # ARGV: '1' (request) / '0' (clear), actor
+    "drain": """
+if ARGV[3] == '1' then
+  redis.call('SET', P .. ':drain', '1')
+  audit(ARGV[4], 'request_drain', '', '')
+else
+  redis.call('DEL', P .. ':drain')
+end
 return 1
 """,
     # returns counts per state (in JobState order), then oldest queued score and now
@@ -440,6 +450,15 @@ class RedisBackend(QueueBackend):
 
     def paused(self) -> bool:
         return self._r.get(f"{self.namespace}:paused") == "1"
+
+    def request_drain(self, actor: str) -> None:
+        self._run("drain", "1", actor)
+
+    def drain_requested(self) -> bool:
+        return self._r.get(f"{self.namespace}:drain") == "1"
+
+    def clear_drain(self) -> None:
+        self._run("drain", "0", "")
 
     def audit(self) -> list[dict]:
         rows = self._r.xrange(f"{self.namespace}:audit")
