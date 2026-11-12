@@ -31,6 +31,18 @@ Operator reference. The project front page is the [README](../README.md). Field-
 | `gpu agent install` | Give Claude Code (`-t claude`), Cursor (`-t cursor`) or Claude Desktop (`-t desktop`) the gpu skill and MCP server ([AGENTS.md](AGENTS.md)) |
 | `gpu agent skill` | Print the bundled `SKILL.md` |
 | `gpu mcp` | The local MCP server on stdio, started by the agent's client |
+| `gpu queue submit DIR` | Queue a job directory and print its id at once (`--key` makes it idempotent, `--env NAME=VALUE`). Needs `queue:` in gpu.yaml. See [QUEUE.md](../QUEUE.md) |
+| `gpu queue status [JOB]` | One job's state and attempts, or the queue: counts, pool machines and their cost per hour, the coordinator, paused |
+| `gpu queue ls` | List jobs, oldest first (`--state`) |
+| `gpu queue cancel JOB` | Cancel at once when queued; a running job is stopped on its machine and keeps the outputs written so far |
+| `gpu queue retry JOB` | Queue a failed job again, keeping its attempts |
+| `gpu queue pull JOB` | Verified outputs into `gpu-outputs/<job>/` (`--to DIR`) |
+| `gpu queue pause` / `gpu queue resume` | Stop or restart new claims. Running jobs go on; idle machines (`min_machines` included) time out |
+| `gpu queue drain` | Pause and let the machines idle out. `--now` also sends running jobs back to the queue (requeued, not failed, and not counted toward `max_attempts`) and retires every machine, pulling outputs first |
+| `gpu queue audit` | Check the queue's guarantees I1 to I8; `--repair` fixes what is safe. Exits 1 while a violation remains |
+| `gpu queue stats` | The coordinator's metrics as of its last tick, and the queue's counts |
+| `gpu queue run` | The coordinator: opens machines, runs jobs, delivers outputs (`--once`, `--metrics-port`). It rents GPUs: start it only with the caps decided |
+| `gpu queue install-service` | Write a user service that keeps `gpu queue run` running (`--uninstall`); prints the command that enables it |
 
 Every command accepts `--json` and `--config PATH`. To call `gpu` from an application in any language, see [INTEGRATION.md](INTEGRATION.md).
 

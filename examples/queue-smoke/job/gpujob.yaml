@@ -1,0 +1,3 @@
+run: python matmul.py
+timeout: 10m
+label: queue-smoke

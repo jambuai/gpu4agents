@@ -15,13 +15,14 @@ from pathlib import Path
 
 import pytest
 import yaml
-from test_watchdog import Agent, policy
+from test_watchdog import policy
 
 from gpu4agents.cli.job import shell_command
 from gpu4agents.core.config import load_config
 from gpu4agents.core.errors import ConfigError, StateError
 from gpu4agents.core.job import (
     JobClient,
+    JobConflict,
     JobManifest,
     bundle_files,
     build_bundle,
@@ -30,32 +31,6 @@ from gpu4agents.core.job import (
     load_manifest,
     safe_extract,
 )
-
-
-@pytest.fixture
-def runner(tmp_path):
-    """A live watchdog with the job runner loaded, and a client for it."""
-    made: list[Agent] = []
-
-    def _make(pol=None, **kwargs) -> tuple[Agent, JobClient]:
-        directory = tmp_path / f"agent{len(made)}"
-        directory.mkdir()
-        env = {
-            "JAMBU_WATCHDOG_EXT": str(directory / "ext"),
-            "JAMBU_JOBS_DIR": str(directory / "jobs"),
-            "JAMBU_JOB_HEARTBEAT_S": "0.3",
-            "JAMBU_JOB_CANCEL_GRACE_S": "1",
-        }
-        env.update(kwargs.pop("env", {}))
-        agent = Agent(directory, pol or policy(idle_timeout_s=600.0), env=env, **kwargs)
-        made.append(agent)
-        client = JobClient(agent.client)
-        client.ensure_runner()
-        return agent, client
-
-    yield _make
-    for agent in made:
-        agent.close()
 
 
 def make_bundle(tmp_path: Path, files: dict[str, str]) -> Path:
@@ -213,6 +188,58 @@ def test_a_bundle_escaping_its_directory_is_refused(runner, tmp_path):
     assert not list(tmp_path.rglob("escaped.txt"))
 
 
+def test_the_job_list_says_which_uploads_never_started(runner, tmp_path):
+    agent, client = runner()
+    jobs_dir = agent.dir / "jobs"
+    view = client.view()
+    assert view["jobs"] == [] and view["uploads"] == {}
+    assert view["jobs_dir_age_s"] >= 0.0  # the directory's age: older than a dispatch means nothing was wiped
+
+    client.upload("u1", make_bundle(tmp_path, {"main.py": "print(1)\n"}))
+    (jobs_dir / "u2").mkdir()
+    (jobs_dir / "u2" / "bundle.tar.gz.part").write_bytes(b"half")
+    time.sleep(0.2)
+    view = client.view()
+    assert {k: v["state"] for k, v in view["uploads"].items()} == {"u1": "uploaded", "u2": "uploading"}
+    assert all(v["age_s"] >= 0.1 for v in view["uploads"].values())
+    assert view["jobs"] == [] and client.list() == []  # an upload is not a job
+
+    client.start("u1", {"command": "true"})
+    wait_done(client, "u1")
+    view = client.view()
+    assert [j["id"] for j in view["jobs"]] == ["u1"]
+    assert set(view["uploads"]) == {"u2"}  # started: listed as a job, no longer as an upload
+    assert view["jobs_dir_age_s"] >= 0.2
+
+
+def test_a_refused_job_never_runs_and_a_started_one_is_returned(runner, tmp_path):
+    agent, client = runner()
+    jobs_dir = agent.dir / "jobs"
+    bundle = make_bundle(tmp_path, {"main.py": "print(1)\n"})
+    client.upload("late-a1", bundle)
+    (jobs_dir / "late-a1" / "bundle.tar.gz.part").write_bytes(b"half")
+
+    assert client.refuse("late-a1") == {"ok": True, "refused": True}
+    assert not (jobs_dir / "late-a1" / "bundle.tar.gz").exists()  # its code is gone
+    assert not (jobs_dir / "late-a1" / "bundle.tar.gz.part").exists()
+    assert client.refuse("late-a1")["refused"] is True  # asking again changes nothing
+
+    # The coordinator that died, still sending: its upload and its start get a 409.
+    with pytest.raises(JobConflict):
+        client.upload("late-a1", bundle)
+    with pytest.raises(JobConflict):
+        client.start("late-a1", {"command": "touch ran"})
+    assert client.info("late-a1")["state"] == "refused"
+    assert not (jobs_dir / "late-a1" / "bundle.tar.gz").exists()
+    assert not list(jobs_dir.rglob("ran"))
+    assert client.view()["uploads"] == {}  # neither an upload nor a running job
+
+    client.start("ran-a1", {"command": "true"})
+    got = client.refuse("ran-a1")
+    assert got["refused"] is False and got["job"]["id"] == "ran-a1"  # it started: adopt it
+    assert wait_done(client, "ran-a1")["state"] == "succeeded"
+
+
 def test_job_ids_are_unique_and_validated(runner, tmp_path):
     _, client = runner()
     client.start("once", {"command": "true"})
@@ -333,3 +360,40 @@ def test_the_default_jobs_image_is_never_placed_on_a_gpu_too_old_for_it(write_co
     assert runtime.required_compute_cap() == 7.5
     config.compute.image = "nvidia/cuda:12.8.0-runtime-ubuntu24.04"
     assert runtime_registry.get(config).required_compute_cap() is None
+
+
+class _FakeUpload:
+    def __init__(self, body: bytes, declared: int, on_eof=None):
+        self.headers = {"Content-Length": str(declared)}
+        self._body = io.BytesIO(body)
+        self._on_eof = on_eof
+        self.rfile = self
+
+    def read(self, n):
+        data = self._body.read(n)
+        if not data and self._on_eof:
+            self._on_eof()
+        return data
+
+
+def test_a_refuse_during_a_short_upload_does_not_break_the_handler(tmp_path, monkeypatch):
+    from gpu4agents.watchdog import jobs_ext
+
+    monkeypatch.setattr(jobs_ext, "JOBS_DIR", str(tmp_path))
+    request = _FakeUpload(b"abc", 10, on_eof=lambda: jobs_ext.job_refuse("j1"))
+    status, body = jobs_ext.job_upload(request, "j1")
+    assert status == 400 and "cut short" in body["error"]
+
+
+def test_a_failed_bundle_move_is_a_server_error_not_a_conflict(tmp_path, monkeypatch):
+    from gpu4agents.watchdog import jobs_ext
+
+    monkeypatch.setattr(jobs_ext, "JOBS_DIR", str(tmp_path))
+
+    def broken_replace(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(jobs_ext.os, "replace", broken_replace)
+    status, body = jobs_ext.job_upload(_FakeUpload(b"abc", 3), "j2")
+    assert status == 500 and "disk full" in body["error"]
+    assert not (tmp_path / "j2" / "bundle.tar.gz.part").exists()

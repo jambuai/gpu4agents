@@ -81,6 +81,12 @@ On the machine, the job runner marks a job's outputs saved once `GET /jobs/<id>/
 
 On this computer, `gpu guard` and `gpu sweep` download the results of finished jobs into `gpu-outputs/<job id>/` while the machine runs, and before any automatic destroy. A stopped machine that still holds results, on a provider where a stopped machine bills and without `keep_disk`, is started, emptied and destroyed (reason `job_outputs_saved`); a failed attempt is retried after an hour and recorded as `job_outputs_kept`. `gpu job pull` starts a stopped machine too, and puts it back afterwards. `gpu destroy` downloads first and refuses when it cannot, unless `--discard-outputs`. `gpu status` lists the jobs whose results are only on the machine (`job_outputs_unsaved`).
 
+## Queue mode: a deadline, not a lifetime
+
+A pool machine has no fixed age. The coordinator gives its watchdog a **deadline** (`POST /deadline`, never moved backwards) that covers the job it just took, that job's `timeout` plus `queue.defaults.deadline_margin`, and moves it again with each job. The watchdog ends the machine at the deadline even with work running (reason `deadline`, which a lock does not override), or after `idle_timeout` with nothing running, whichever comes first. So a machine whose coordinator died finishes what it was given and goes; a warm machine with work keeps going. The deadline applies only when the coordinator sets one: a project without `queue:` has none.
+
+When a machine ends, the same rule as for single jobs applies: outputs not yet downloaded are fetched first, or kept on a stopped disk, and `gpu sweep` saves them before any automatic destroy. See [QUEUE.md](../QUEUE.md).
+
 ## A second path
 
 Run the same rule from anywhere that has API access:

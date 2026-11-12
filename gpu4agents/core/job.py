@@ -67,6 +67,8 @@ DEFAULT_EXCLUDES = (
 BUNDLE_WARN_BYTES = 200 * 1024**2
 BUNDLE_MAX_BYTES = 2 * 1024**3
 UPLOAD_TIMEOUT_S = 600.0
+# A machine that does not accept the connection soon is not going to take the upload.
+UPLOAD_CONNECT_TIMEOUT_S = 15.0
 LOG_POLL_S = 2.0
 
 
@@ -81,6 +83,8 @@ class JobManifest(BaseModel):
     timeout: Optional[str] = None
     exclude: list[str] = Field(default_factory=list)
     label: Optional[str] = None
+    max_cost_usd: Optional[float] = None
+    min_vram_gb: Optional[float] = None
 
     @field_validator("run", "setup", mode="before")
     @classmethod
@@ -213,6 +217,10 @@ def extension_digest(source: str) -> str:
     return hashlib.sha256(source.encode()).hexdigest()[:16]
 
 
+class JobConflict(WatchdogUnavailable):
+    """The job runner already has a job with this id (HTTP 409): it was started before."""
+
+
 class JobClient:
     """The watchdog's /jobs routes. Unlike the beacon, failures raise."""
 
@@ -252,6 +260,8 @@ class JobClient:
             message = data.get("error") or response.text[:200]
             if response.status_code == 404:
                 raise StateError(message)
+            if response.status_code == 409:
+                raise JobConflict(f"job runner returned 409: {message}")
             raise WatchdogUnavailable(f"job runner returned {response.status_code}: {message}")
         return data
 
@@ -291,7 +301,7 @@ class JobClient:
                 self._url(f"/jobs/{job_id}/bundle"),
                 content=chunks(),
                 headers=headers,
-                timeout=UPLOAD_TIMEOUT_S,
+                timeout=httpx.Timeout(UPLOAD_TIMEOUT_S, connect=UPLOAD_CONNECT_TIMEOUT_S),
             )
         except httpx.HTTPError as exc:
             raise WatchdogUnavailable(f"uploading the job's code failed: {exc}") from exc
@@ -312,8 +322,26 @@ class JobClient:
     def cancel(self, job_id: str) -> dict[str, Any]:
         return self._request("POST", f"/jobs/{job_id}/cancel")
 
+    def refuse(self, job_id: str) -> dict[str, Any]:
+        """Fence a job that never started: its later upload or start gets a 409. Returns
+        {"refused": True}, or {"refused": False, "job": record} when it did start."""
+        return self._request("POST", f"/jobs/{job_id}/refuse")
+
     def list(self) -> list[dict[str, Any]]:
         return list(self._request("GET", "/jobs").get("jobs") or [])
+
+    def view(self) -> dict[str, Any]:
+        """The job list in one request, with what the runner knows of jobs that never
+        started: ``uploads`` (id -> {state, age_s}) and ``jobs_dir_age_s``. Both are None
+        from a runner older than 0.14.0, which does not say."""
+        data = self._request("GET", "/jobs")
+        uploads = data.get("uploads")
+        age = data.get("jobs_dir_age_s")
+        return {
+            "jobs": list(data.get("jobs") or []),
+            "uploads": dict(uploads) if isinstance(uploads, dict) else None,
+            "jobs_dir_age_s": float(age) if isinstance(age, (int, float)) else None,
+        }
 
     def download_outputs(self, job_id: str, dest: Path) -> list[str]:
         with tempfile.TemporaryDirectory(prefix="gpu-job-") as tmp:

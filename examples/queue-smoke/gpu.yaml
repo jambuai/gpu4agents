@@ -1,0 +1,43 @@
+# gpu.yaml - shared across Jambu.ai Lab sub-projects. This tool only reads
+# the gpu_runtime: key below.
+gpu_runtime:
+  version: 1
+
+  provider:
+    name: vast
+    profile: default
+
+  compute:
+    gpu:
+      min_vram_gb: 16
+      count: 1
+    disk_gb: 40
+    # Jobs install what they need on top of this image (gpujob.yaml setup:).
+    image: pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
+
+  runtime:
+    engine: none
+
+  lifecycle:
+    max_lifetime: 6h
+    idle_timeout: 5m
+    stopped_ttl: 24h
+    auto_stop: true
+    auto_destroy: false
+    watchdog:
+      enabled: true
+      port: 8777
+
+  budget:
+    max_hourly_cost_usd: 0.40
+    max_session_cost_usd: 5.00
+
+  queue:
+    backend: local
+    outputs: local
+    max_machines: 2
+    max_usd_per_hour: 0.80
+    scale_up_after: 30s
+    max_attempts: 3
+    defaults:
+      timeout: 10m

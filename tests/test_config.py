@@ -414,3 +414,47 @@ def test_pull_stall_timeout_defaults_to_ten_minutes_and_can_be_off(write_config)
     assert write_config(health={"pull_stall_timeout": "off"}).pull_stall_timeout_s is None
     with pytest.raises(ConfigError, match="pull_stall_timeout"):
         write_config(health={"pull_stall_timeout": "soon"})
+
+
+def test_no_queue_section_means_agent_mode(write_config):
+    assert write_config().queue is None
+
+
+def test_queue_defaults_match_the_spec(write_config):
+    q = write_config(queue={}).queue
+    assert q.min_machines == 0
+    assert q.max_attempts == 3
+    assert q.unresponsive_after_s == 300
+    assert q.max_machine_lifetime_s is None
+    assert q.jobs_per_machine == 1
+    assert q.tick_s == 5
+    assert q.scale_up_after_s == 30
+    assert q.backend == "local" and q.outputs == "local"
+    assert q.defaults.timeout == "1h" and q.defaults.deadline_margin == "10m"
+    assert q.health_check.timeout == "2m" and q.health_check.between_jobs is True
+
+
+def test_queue_rejects_max_below_min(write_config):
+    with pytest.raises(ConfigError):
+        write_config(queue={"min_machines": 2, "max_machines": 1})
+
+
+def test_queue_backend_url_in_yaml_is_refused(write_config):
+    with pytest.raises(ConfigError) as exc:
+        write_config(queue={"backend": "redis://u:p@h"})
+    assert "GPU_QUEUE_URL" in str(exc.value)
+    with pytest.raises(ConfigError):
+        write_config(queue={"outputs": "s3://bucket/x"})
+
+
+def test_queue_rejects_bad_duration(write_config):
+    with pytest.raises(ConfigError):
+        write_config(queue={"tick": "soon"})
+
+
+def test_job_manifest_accepts_cost_and_vram(tmp_path):
+    from gpu4agents.core.job import load_manifest
+
+    (tmp_path / "gpujob.yaml").write_text("run: python x.py\nmax_cost_usd: 2.5\nmin_vram_gb: 24\n")
+    m = load_manifest(tmp_path)
+    assert m.max_cost_usd == 2.5 and m.min_vram_gb == 24

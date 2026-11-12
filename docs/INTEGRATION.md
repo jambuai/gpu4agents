@@ -103,7 +103,7 @@ gpu env --format dotenv > .env.gpu
 | 1 | unexpected error | log stderr, retry later |
 | 2 | config error (`gpu.yaml` invalid, or changed since setup) | fix the config; `setup --recreate` replaces a machine built from the old one |
 | 3 | no instance / no endpoint (from `env`, `endpoint`) | call `setup` |
-| 4 | provider API error | retry with backoff |
+| 4 | provider API error, or the queue or its output store is unreachable (queue commands) | retry with backoff |
 | 5 | provider authentication failed | fix `VAST_API_KEY` |
 | 6 | no capacity matches the config | retry later, or relax `compute.gpu` / the budget |
 | 7 | provisioning failed | retry; the failed machine was already destroyed |
@@ -201,6 +201,21 @@ def ask(prompt):
                 raise
             conn = ensure_gpu()   # stopped while idle: restart it, then retry
 ```
+
+### Python: queue mode
+
+For jobs that arrive over the day, not one machine per conversation, `gpu4agents.queue.api` submits to the queue and follows a job without shelling out. It needs `queue:` in `gpu.yaml`; a coordinator (`gpu queue run`, a service you run) does the renting. See [QUEUE.md](../QUEUE.md).
+
+```python
+from gpu4agents.queue import api
+
+job_id = api.submit("train/", key="order-1234")      # idempotent on the key
+info = api.wait(job_id, timeout_s=3600)               # a dict; "timed_out": true if still running
+if info["state"] == "succeeded":
+    path = api.outputs(job_id)                        # verified outputs, gpu-outputs/<job>/
+```
+
+`api.status`, `listing`, `cancel`, `retry`, `pause`, `resume`, `drain`, `audit_queue`, `stats` and `summary` match the `gpu queue` commands. Credentials (`GPU_QUEUE_URL`, `GPU_OUTPUTS_URL`, `AWS_*`) come from the environment or `~/.gpu/credentials`. An unreachable queue or store raises; handle it like exit code 4.
 
 ### Shell / curl
 

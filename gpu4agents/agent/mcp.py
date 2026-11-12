@@ -493,6 +493,55 @@ class Server:
     def tool_job_cancel(self, args: dict[str, Any]) -> Any:
         return self._ok(self.cli(["job", "cancel", str(args["job_id"])], self._project_dir(args)))
 
+    def tool_queue_submit(self, args: dict[str, Any]) -> Any:
+        argv = ["queue", "submit"]
+        if args.get("dir"):
+            argv.append(str(Path(str(args["dir"])).expanduser()))
+        if args.get("key"):
+            argv += ["--key", str(args["key"])]
+        for key, value in (args.get("env") or {}).items():
+            argv += ["--env", f"{key}={value}"]
+        data = self._ok(self.cli(argv, self._project_dir(args)))
+        data["next"] = (
+            "the job is queued, not running yet: a coordinator (`gpu queue run`, started by the user) runs it. "
+            "Poll gpu_queue_status(job_id); gpu_queue_pull(job_id) once it is succeeded"
+        )
+        return data
+
+    def tool_queue_status(self, args: dict[str, Any]) -> Any:
+        argv = ["queue", "status"]
+        if args.get("job_id"):
+            argv.append(str(args["job_id"]))
+        return self._ok(self.cli(argv, self._project_dir(args)))
+
+    def tool_queue_cancel(self, args: dict[str, Any]) -> Any:
+        return self._ok(self.cli(["queue", "cancel", str(args["job_id"])], self._project_dir(args)))
+
+    def tool_queue_pull(self, args: dict[str, Any]) -> Any:
+        argv = ["queue", "pull", str(args["job_id"])]
+        if args.get("dest"):
+            argv += ["--to", str(Path(str(args["dest"])).expanduser())]
+        return self._ok(self.cli(argv, self._project_dir(args)))
+
+    def tool_queue_control(self, args: dict[str, Any]) -> Any:
+        action = args.get("action")
+        if action not in ("pause", "resume", "drain"):
+            raise ToolError({"error": "action must be pause, resume or drain", "exit_code": 2})
+        now = bool(args.get("now"))
+        if now and action != "drain":
+            raise ToolError({"error": "now only goes with action=drain", "exit_code": 2})
+        if action == "drain" and now and args.get("confirm") is not True:
+            raise ToolError(
+                {
+                    "error": "gpu_queue_control drain with now=true needs confirm=true",
+                    "exit_code": 2,
+                    "next": "ask the user to confirm: it pauses the queue, sends running jobs back to the "
+                    "queue and destroys every pool machine; then call again with confirm=true",
+                }
+            )
+        argv = ["queue", action] + (["--now"] if now else [])
+        return self._ok(self.cli(argv, self._project_dir(args)))
+
     def tool_adopt(self, args: dict[str, Any]) -> Any:
         return self._ok(self.cli(["adopt", str(args["instance_id"])], self._project_dir(args)))
 
@@ -751,6 +800,66 @@ class Server:
                 ),
                 self.tool_destroy,
                 {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": True},
+            ),
+            Tool(
+                "gpu_queue_submit",
+                "Queue a job",
+                "Pack a job directory (gpujob.yaml with `run:`, see jobs.md) and put it in the queue; returns "
+                "job_id at once, without renting anything. A coordinator the user runs (`gpu queue run`) opens "
+                "machines, runs it, retries it on another machine if one fails, and keeps its outputs. The same "
+                "key never queues twice. Needs `queue:` in gpu.yaml. When `paused` is true it waits for a resume.",
+                _schema(
+                    {
+                        "dir": {"type": "string", "description": "Job directory (default: the project)."},
+                        "key": {"type": "string", "description": "Idempotency key: resubmitting it returns the same job."},
+                        "env": {"type": "object", "additionalProperties": {"type": "string"}},
+                    }
+                ),
+                self.tool_queue_submit,
+                {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False},
+            ),
+            Tool(
+                "gpu_queue_status",
+                "Queue status",
+                "One queued job's state, attempts and result (job_id), or without job_id the queue: counts, "
+                "pool machines and what they cost per hour, which coordinator runs it, and whether it is paused.",
+                _schema({"job_id": {"type": "string"}}),
+                self.tool_queue_status,
+                {"readOnlyHint": True, "openWorldHint": False},
+            ),
+            Tool(
+                "gpu_queue_cancel",
+                "Cancel a queued job",
+                "Cancel a queued job at once; a running one is stopped on its machine by the coordinator "
+                "and the outputs written so far are kept.",
+                _schema({"job_id": {"type": "string"}}, ["job_id"]),
+                self.tool_queue_cancel,
+                {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False},
+            ),
+            Tool(
+                "gpu_queue_pull",
+                "Download queue outputs",
+                "Get a finished queue job's verified outputs into gpu-outputs/<job_id>/ (or dest).",
+                _schema({"job_id": {"type": "string"}, "dest": {"type": "string"}}, ["job_id"]),
+                self.tool_queue_pull,
+                {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+            ),
+            Tool(
+                "gpu_queue_control",
+                "Pause, resume or drain the queue",
+                "pause: stop starting new jobs. resume: start them again. drain: pause and let the machines idle "
+                "out. drain with now=true also sends running jobs back to the queue and destroys every pool "
+                "machine at once (their outputs are pulled first); it needs confirm=true and the user's yes.",
+                _schema(
+                    {
+                        "action": {"type": "string", "enum": ["pause", "resume", "drain"]},
+                        "now": {"type": "boolean", "description": "With drain: stop everything now."},
+                        "confirm": {"type": "boolean", "description": "Required with drain now=true."},
+                    },
+                    ["action"],
+                ),
+                self.tool_queue_control,
+                {"readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": False},
             ),
             Tool(
                 "gpu_adopt",
