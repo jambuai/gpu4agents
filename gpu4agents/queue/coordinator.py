@@ -40,6 +40,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -79,6 +80,7 @@ STORE_BACKOFF_MAX_S = 300.0
 NO_DEADLINE_CAP_S = 24 * 3600.0
 REMOTE_ID_MAX = 64  # the watchdog's job runner: [A-Za-z0-9][A-Za-z0-9_.-]{0,63}
 PREVIOUS_DIR = ".jambu-previous"
+_OUT = re.compile(r"out-a([0-9]+)")
 # The watchdog's job runner default (JAMBU_JOBS_DIR); the command also exports the
 # real path, so a machine with another jobs directory still gets it right.
 REMOTE_JOBS_DIR = "/workspace/jobs"
@@ -137,7 +139,7 @@ class _Run:
     store_failures: int = 0  # store-side: never the machine's fault
     next_store_at: Optional[float] = None
     last_store_problem: Optional[str] = None
-    unstored: bool = False  # local outputs exist that are not stored and verified yet
+    last_fetch_problem: Optional[str] = None
 
     @property
     def job(self) -> QueueJob:
@@ -199,6 +201,7 @@ class Coordinator:
         self._retired_instances: set[str] = set()
         self._first_seen: dict[str, float] = {}  # job id -> when a deadline-less record was first met
         self._violations: set[str] = set()
+        self._leftover: dict[str, tuple[int, float]] = {}  # "<job>/<n>" -> (failures, next try)
         self._renewed_at: Optional[float] = None
         self._ticks = 0
         self._last_decision: Optional[tuple] = None
@@ -273,6 +276,7 @@ class Coordinator:
                 self._renew_jobs()
             self._machine_faults()
             self._watch()
+            self._store_leftovers()
             self._place()
             self._scale()
         except _Demoted:
@@ -400,10 +404,80 @@ class Coordinator:
                 self._runs.pop(run.job_id, None)
 
     def _cleanup(self, run: _Run) -> None:
-        """Remove the job's work dir, except outputs fetched here and not stored yet."""
-        if run.unstored:
+        self._cleanup_job(run.job_id)
+
+    def _cleanup_job(self, job_id: str) -> None:
+        """Remove what the job's work dir holds, except every out-a<n> not marked stored
+        (with its marker file); the dir itself goes once nothing unstored is left."""
+        base = self.workdir / job_id
+        if not base.is_dir():
             return
-        shutil.rmtree(self.workdir / run.job_id, ignore_errors=True)
+        keep: set[str] = set()
+        for child in base.iterdir():
+            if child.is_dir() and _OUT.fullmatch(child.name) and not (base / f"{child.name}.stored").exists():
+                keep |= {child.name, f"{child.name}.json"}
+        for child in list(base.iterdir()):
+            if child.name in keep:
+                continue
+            if child.is_dir():
+                shutil.rmtree(child, ignore_errors=True)
+            else:
+                try:
+                    child.unlink()
+                except OSError:
+                    pass
+        if not keep:
+            shutil.rmtree(base, ignore_errors=True)
+
+    def _store_leftovers(self, only: Optional[str] = None) -> None:
+        """Store, as failed attempts, outputs fetched here for attempts that are closed
+        but whose store failed (the store was down). Retried with backoff; once stored
+        they are marked and, for a job no longer in hand, cleaned up."""
+        if not self.workdir.is_dir():
+            return
+        now = self.clock()
+        bases = [self.workdir / only] if only else sorted(p for p in self.workdir.iterdir() if p.is_dir())
+        for base in bases:
+            if not base.is_dir():
+                continue
+            job_id = base.name
+            pending = sorted(
+                (c for c in base.iterdir()
+                 if c.is_dir() and _OUT.fullmatch(c.name) and not (base / f"{c.name}.stored").exists()),
+                key=lambda c: int(_OUT.fullmatch(c.name).group(1)),
+            )
+            if not pending:
+                continue
+            with self._lock:
+                held = self._runs.get(job_id)
+                job = self.backend.get(job_id)
+            if job is None:
+                continue
+            stored_any = False
+            for out in pending:
+                k = int(_OUT.fullmatch(out.name).group(1))
+                if k > len(job.attempts) or (held is not None and k >= held.number):
+                    continue  # still in flight: its own delivery stores it
+                key = f"{job_id}/{k}"
+                tries, next_at = self._leftover.get(key, (0, 0.0))
+                if now < next_at:
+                    continue
+                try:
+                    ref = self.outputs.put_outputs(job_id, k, out, success=False)
+                    problems = self.outputs.verify(ref)
+                except Exception as exc:  # noqa: BLE001
+                    ref, problems = None, [f"{type(exc).__name__}: {str(exc)[:300]}"]
+                if problems or ref is None:
+                    self._leftover[key] = (tries + 1, now + min(self.tick_s * 2 ** tries, STORE_BACKOFF_MAX_S))
+                    self._error_once(f"store_leftover:{key}", RuntimeError("; ".join(problems)[:400]), job_id=job_id)
+                    continue
+                self._leftover.pop(key, None)
+                self._ok(f"store_leftover:{key}")
+                self._stored_event(job_id, k, ref)
+                self._mark_stored(job_id, out)
+                stored_any = True
+            if stored_any and held is None:
+                self._cleanup_job(job_id)
 
     def _w(self, run: _Run, operation: str, fn: Callable, *args: Any, **kwargs: Any) -> Any:
         """A fenced write: refused (and never retried) once the lease is lost."""
@@ -544,7 +618,6 @@ class Coordinator:
         home = next((m for m in self.pool.machines() if instance and m.instance_id == instance), None)
         run.slot = home.slot if home is not None else None
         run.fetched = out
-        run.unstored = True
         run.exit_code = data.get("exit_code")
         run.remote_state = data.get("remote_state")
         run.checked = bool(data.get("checked"))
@@ -614,7 +687,8 @@ class Coordinator:
             return deadline + DEADLINE_GRACE_S
         started, timeout = num("started_at"), num("timeout_s")
         if started is not None and timeout is not None:
-            return started + timeout + (num("deadline_margin_s") or 0.0) + DEADLINE_GRACE_S
+            margin = num("deadline_margin_s")
+            return started + timeout + (self.default_margin_s if margin is None else margin) + DEADLINE_GRACE_S
         if run.job_id not in self._violations:
             self._violations.add(run.job_id)
             self.obs.inc("gpu_queue_invariant_violations_total", code="inflight_without_deadline")
@@ -701,7 +775,6 @@ class Coordinator:
                 if run.phase == "delivering" and pulled is not None and (run.exit_code == 0 or run.checked):
                     # It finished; deliver from what retire saved.
                     run.fetched = pulled
-                    run.unstored = True
                     run.checked = True
                     run.fetch_failures = 0
                     continue
@@ -802,8 +875,7 @@ class Coordinator:
             try:
                 shutil.rmtree(dest, ignore_errors=True)
                 self.pool.fetch_outputs(m, run.remote_id, dest)
-                run.unstored = True
-                run.unstored = not self._store_attempt(run, dest)
+                self._store_attempt(run, dest)
             except _Dropped:
                 raise
             except Exception:  # noqa: BLE001 - a cancelled job's outputs are best effort
@@ -825,7 +897,7 @@ class Coordinator:
                 self._fetch_failed(run, m, "fetch", [f"{type(exc).__name__}: {str(exc)[:300]}"])
                 return
             run.fetched = dest
-            run.unstored = True
+            run.fetch_failures, run.last_fetch_problem = 0, None
             self._write_marker(run)
             self._heartbeat()
 
@@ -871,9 +943,8 @@ class Coordinator:
         if problems or ref is None:
             self._store_failed(run, problems)
             return
-        run.unstored = False
         run.store_failures, run.next_store_at, run.last_store_problem = 0, None, None
-        self._stored(run, ref)
+        self._stored(run, ref, run.fetched)
 
         if ok_exit:
             outcome, state = Outcome.SUCCEEDED, JobState.SUCCEEDED
@@ -907,10 +978,13 @@ class Coordinator:
 
     def _fetch_failed(self, run: _Run, m: Optional[PoolMachine], stage: str, problems: list[str]) -> None:
         run.fetch_failures += 1
-        self.obs.emit(
-            ev.QUEUE_OUTPUTS_DELIVERY_FAILED, job_id=run.job_id, attempt=run.number,
-            stage=stage, problems=list(problems)[:10], failures=run.fetch_failures,
-        )
+        summary = f"{stage}: " + "; ".join(problems)[:500]
+        if summary != run.last_fetch_problem:
+            run.last_fetch_problem = summary
+            self.obs.emit(
+                ev.QUEUE_OUTPUTS_DELIVERY_FAILED, job_id=run.job_id, attempt=run.number,
+                stage=stage, problems=list(problems)[:10], failures=run.fetch_failures,
+            )
         if run.fetch_failures < MAX_FETCH_FAILURES or m is None or m.state not in _ANSWERING:
             return
         # The machine leaves; it pulls what it can. Pulled -> delivered from there,
@@ -922,14 +996,28 @@ class Coordinator:
             details={run.job_id: (Outcome.DELIVERY_FAILED, detail)},
         )
 
-    def _stored(self, run: _Run, ref: OutputRef) -> None:
+    def _stored(self, run: _Run, ref: OutputRef, src: Optional[Path] = None) -> None:
+        self._stored_event(run.job_id, run.number, ref)
+        if src is not None:
+            self._mark_stored(run.job_id, Path(src))
+
+    def _stored_event(self, job_id: str, attempt: int, ref: OutputRef) -> None:
         total = sum(int(f.get("bytes") or 0) for f in ref.files)
         digest = hashlib.sha256(json.dumps(ref.files, sort_keys=True).encode()).hexdigest()
         self.obs.inc("gpu_queue_outputs_bytes_total", total)
         self.obs.emit(
-            ev.QUEUE_OUTPUTS_STORED, job_id=run.job_id, attempt=run.number, files=len(ref.files),
+            ev.QUEUE_OUTPUTS_STORED, job_id=job_id, attempt=attempt, files=len(ref.files),
             bytes=total, sha256=digest, location=ref.location,
         )
+
+    def _mark_stored(self, job_id: str, src: Path) -> None:
+        """``out-a<n>.stored`` beside an out-a<n> of ours: its files are in the store."""
+        if src.parent != self.workdir / job_id or not _OUT.fullmatch(src.name):
+            return  # not one of our local copies (e.g. a directory retire() pulled into)
+        try:
+            src.with_name(src.name + ".stored").touch()
+        except OSError:
+            pass
 
     def _store_attempt(self, run: _Run, src: Path) -> bool:
         """Keep a failed attempt's outputs (for the next attempt's $JAMBU_PREVIOUS_OUTPUT_DIR).
@@ -947,9 +1035,7 @@ class Coordinator:
                 stage="store_attempt", problems=list(problems)[:10],
             )
             return False
-        if run.fetched is not None and Path(src) == Path(run.fetched):
-            run.unstored = False
-        self._stored(run, ref)
+        self._stored(run, ref, src)
         self._update(run, outputs_ref=asdict(ref))
         return True
 
@@ -967,9 +1053,8 @@ class Coordinator:
 
     def _fault(self, run: _Run, outcome: Outcome, detail: str, outputs_dir: Optional[Path] = None) -> None:
         """The attempt ended for a reason that is not the job's: retry, or give up at max_attempts."""
-        stored = True
         if outputs_dir is not None:
-            stored = self._store_attempt(run, Path(outputs_dir))
+            self._store_attempt(run, Path(outputs_dir))
         attempt = self._attempt(run, outcome, detail)
         attempts = run.job.attempts + [attempt]
         if len(attempts) >= self.queue.max_attempts:
@@ -997,8 +1082,7 @@ class Coordinator:
         )
         self._report.requeued += 1
         self._drop(run)
-        if stored:
-            self._cleanup(run)
+        self._cleanup(run)
 
     def _reject(self, run: _Run, reason: str) -> None:
         now = self.clock()
@@ -1050,6 +1134,7 @@ class Coordinator:
         else:
             self.obs.emit(ev.QUEUE_CONTROL, action="cancelled", actor=self.worker_id, **fields)
         self._drop(run)
+        self._store_leftovers(only=run.job_id)  # earlier attempts' outputs, if the store is back
         self._cleanup(run)
 
     def _job_cost(self, job: QueueJob) -> Optional[float]:

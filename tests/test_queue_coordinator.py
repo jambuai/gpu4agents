@@ -430,7 +430,7 @@ def test_delivery_failure_keeps_the_job_delivering_and_retries(world):
     assert job.state == JobState.SUCCEEDED
     assert w.pool.fetches.count("j1-a1") == 3
     assert len(w.pool.starts) == 1
-    assert len(w.events(ev.QUEUE_OUTPUTS_DELIVERY_FAILED)) == 2
+    assert len(w.events(ev.QUEUE_OUTPUTS_DELIVERY_FAILED)) == 1  # the same problem twice: once
     assert w.outputs.verify(OutputRef(**job.outputs_ref)) == []
 
 
@@ -795,7 +795,9 @@ def test_outputs_that_cannot_be_fetched_are_pulled_by_retiring_the_machine(world
     job = w.final(coord, "j1")
 
     assert job.state == JobState.SUCCEEDED
-    assert len(w.events(ev.QUEUE_OUTPUTS_DELIVERY_FAILED)) == 5
+    assert w.pool.fetches.count("j1-a1") == 5
+    failed = w.events(ev.QUEUE_OUTPUTS_DELIVERY_FAILED)
+    assert len(failed) == 1 and failed[0]["stage"] == "fetch"  # reported once per change
     assert [s for s, _, _ in w.pool.retired] == ["s1"]
     assert (Path(job.outputs_ref["location"]) / "out.txt").read_bytes() == b"result"
     assert len(w.pool.starts) == 1
@@ -999,7 +1001,7 @@ def test_a_health_check_that_keeps_raising_counts_toward_retiring_the_machine(wo
     assert job.state == JobState.SUCCEEDED
     assert [s for s, _, _ in w.pool.retired] == ["s1"]
     stages = [e["stage"] for e in w.events(ev.QUEUE_OUTPUTS_DELIVERY_FAILED)]
-    assert stages == ["health_check"] * 5
+    assert stages == ["health_check"]  # five failures, one report
 
 
 def _ghost_in_flight(w: World, job_id: str, limits: dict) -> None:
@@ -1086,3 +1088,76 @@ def test_outputs_that_could_not_be_stored_are_kept_after_the_job_ends(world, mon
     assert job.state == JobState.FAILED  # a machine fault with no attempts left
     local = w.cfg.state_dir / "queue" / "work" / "j1" / "out-a1" / "ckpt.pt"
     assert local.read_bytes() == b"step 9"  # never deleted unstored
+
+
+
+def test_an_earlier_attempt_s_unstored_outputs_survive_a_later_success_and_are_stored_when_the_store_is_back(
+    world, monkeypatch,
+):
+    w = world(max_machines=2)
+    w.pool.script("j1", FakeRun(exit_code=1, outputs={"ckpt.pt": b"step 3"}), FakeRun(outputs={"out.txt": b"done"}))
+    w.submit("j1")
+    coord = w.coordinator()
+    w.until_state(coord, "j1", JobState.RUNNING)
+    w.pool.health_failures.append(w.pool.slot_of("j1-a1"))
+    real = w.outputs.put_outputs
+    down = {"on": True}
+
+    def store(job_id, attempt, *args, **kwargs):
+        if down["on"] and attempt == 1:
+            raise OSError("the store is down")
+        return real(job_id, attempt, *args, **kwargs)
+
+    monkeypatch.setattr(w.outputs, "put_outputs", store)
+    work = w.cfg.state_dir / "queue" / "work" / "j1"
+
+    job = w.final(coord, "j1")  # attempt 1 faults (store down), attempt 2 succeeds
+    assert job.state == JobState.SUCCEEDED
+    assert [a.outcome for a in job.attempts] == [Outcome.UNHEALTHY, Outcome.SUCCEEDED]
+    assert (work / "out-a1" / "ckpt.pt").read_bytes() == b"step 3"  # kept: never stored
+    assert not (work / "out-a2").exists()  # stored and verified: cleaned
+
+    down["on"] = False
+    w.until(coord, lambda: not work.exists(), max_ticks=40)
+    stored = Path(job.outputs_ref["location"]) / ".attempt-1" / "ckpt.pt"
+    assert stored.read_bytes() == b"step 3"
+    assert w.outputs.verify(OutputRef(**job.outputs_ref)) == []
+    assert any(e["attempt"] == 1 for e in w.events(ev.QUEUE_OUTPUTS_STORED))
+
+
+def test_the_deadline_fallback_uses_the_default_margin_when_the_record_has_none(world):
+    w = world(defaults={"deadline_margin": "7m"})
+    w.submit("j1")
+    started = w.clock()
+    _ghost_in_flight(w, "j1", {
+        "attempt": 1, "remote_id": "j1-a1", "slot": "s1", "instance_id": "i-elsewhere",
+        "started_at": started, "timeout_s": 600.0,
+    })
+    coord = w.coordinator("coord-b")
+    w.clock.now = started + 600 + 420 + DEADLINE_GRACE_S - 30
+    w.step(coord, 5)
+    assert w.job("j1").attempts == []
+
+    w.clock.advance(60)
+    assert w.final(coord, "j1").attempts[0].outcome == Outcome.MACHINE_LOST
+
+
+def test_a_successful_fetch_resets_the_fetch_failure_count(world, monkeypatch):
+    w = world()
+    w.pool.fetch_failures["j1-a1"] = 4  # one short of retiring the machine
+    w.submit("j1")
+    coord = w.coordinator()
+    real = w.pool.health_check
+    boom = {"n": 1}
+
+    def flaky(m):
+        if boom["n"]:
+            boom["n"] -= 1
+            raise RuntimeError("health job could not start")
+        return real(m)
+
+    monkeypatch.setattr(w.pool, "health_check", flaky)
+    job = w.final(coord, "j1")
+
+    assert job.state == JobState.SUCCEEDED
+    assert w.pool.retired == []  # 4 fetch failures, a good fetch, then 1 health failure: not 5
