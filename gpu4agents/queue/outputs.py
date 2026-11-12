@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import os
 import re
 import shutil
 from abc import ABC, abstractmethod
@@ -47,10 +48,18 @@ def _sha256_file(path: Path) -> str:
 
 def _scan(src_dir: Path) -> list[dict]:
     files = []
-    for p in sorted(src_dir.rglob("*")):
-        if p.is_file() and not p.is_symlink() and p.name != MANIFEST:
+    for dirpath, dirnames, filenames in os.walk(src_dir, followlinks=False):
+        dirnames[:] = sorted(d for d in dirnames if not (Path(dirpath) / d).is_symlink())
+        for name in sorted(filenames):
+            p = Path(dirpath) / name
+            if p.is_symlink() or not p.is_file() or (name == MANIFEST and p.parent == Path(src_dir)):
+                continue
             files.append({"path": p.relative_to(src_dir).as_posix(), "bytes": p.stat().st_size, "sha256": _sha256_file(p)})
-    return files
+    return sorted(files, key=lambda f: f["path"])
+
+
+def _norm(files: list[dict]) -> list[tuple]:
+    return sorted((f["path"], f["bytes"], f["sha256"]) for f in files)
 
 
 def _manifest_bytes(job_id: str, attempt: int, files: list[dict]) -> bytes:
@@ -119,40 +128,56 @@ class LocalOutputStore(OutputStore):
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(Path(src_dir) / f["path"], dst)
         (staging / MANIFEST).write_bytes(_manifest_bytes(job_id, attempt, files))
-        if success and job_dir.exists():
-            for child in job_dir.iterdir():  # keep failed-attempt dirs, replace the previous result
-                if not child.name.startswith(".attempt-"):
-                    shutil.rmtree(child) if child.is_dir() else child.unlink()
-            for child in staging.iterdir():
-                shutil.move(str(child), job_dir / child.name)
-            staging.rmdir()
+        if target.exists():
+            old = target.parent / f".{target.name}.old-{attempt}"
+            if old.exists():
+                shutil.rmtree(old)
+            os.replace(target, old)  # the old result leaves the path before the new one arrives
+            os.replace(staging, target)
+            if success:
+                for child in old.iterdir():  # failed-attempt dirs belong to the job, keep them
+                    if child.name.startswith(".attempt-"):
+                        os.replace(child, target / child.name)
+            shutil.rmtree(old)
         else:
-            if target.exists():
-                shutil.rmtree(target)
             target.parent.mkdir(parents=True, exist_ok=True)
-            staging.replace(target)
+            os.replace(staging, target)
         return OutputRef(location=str(target), files=files)
 
     def verify(self, ref: OutputRef) -> list[str]:
         base = Path(ref.location)
         problems = []
-        if not (base / MANIFEST).is_file():
-            problems.append(f"{MANIFEST} is missing")
+        try:
+            stored = json.loads((base / MANIFEST).read_text())["files"]
+            if _norm(stored) != _norm(ref.files):
+                problems.append(f"{MANIFEST} does not match the recorded files")
+        except (OSError, ValueError, KeyError, TypeError):
+            problems.append(f"{MANIFEST} is missing or unreadable")
+        listed = set()
         for f in ref.files:
             try:
                 p = self._inside(base, _check_rel(f["path"]))
             except ValueError as exc:
                 problems.append(str(exc))
                 continue
+            listed.add(f["path"])
             if not p.is_file():
                 problems.append(f"{f['path']}: missing")
             elif p.stat().st_size != f["bytes"]:
                 problems.append(f"{f['path']}: size {p.stat().st_size} != {f['bytes']}")
             elif _sha256_file(p) != f["sha256"]:
                 problems.append(f"{f['path']}: sha256 mismatch")
+        if base.is_dir():
+            for p in sorted(base.rglob("*")):
+                rel = p.relative_to(base).as_posix()
+                if p.is_file() and rel != MANIFEST and not rel.startswith(".attempt-") and rel not in listed:
+                    problems.append(f"{rel}: unexpected file")
         return problems
 
     def fetch_previous(self, ref: OutputRef, dest: Path) -> None:
+        problems = self.verify(ref)
+        if problems:
+            raise ValueError("previous outputs failed verification: " + "; ".join(problems))
         base, dest = Path(ref.location), Path(dest)
         for f in ref.files:
             src = self._inside(base, _check_rel(f["path"]))
@@ -210,11 +235,28 @@ class S3OutputStore(OutputStore):
         _check_job_id(job_id)
         base = self._key(job_id) if success else self._key(job_id, f".attempt-{int(attempt)}")
         files = _scan(Path(src_dir))
+        self._s3.delete_object(Bucket=self.bucket, Key=f"{base}/{MANIFEST}")  # no manifest while the set is incomplete
         for f in files:
             self._put_file(f"{base}/{f['path']}", Path(src_dir) / f["path"])
         # manifest last: its presence means every file above was written
         self._s3.put_object(Bucket=self.bucket, Key=f"{base}/{MANIFEST}", Body=_manifest_bytes(job_id, attempt, files))
+        keep = {f"{base}/{f['path']}" for f in files} | {f"{base}/{MANIFEST}"}
+        for key in self._list(base):
+            if key not in keep:
+                self._s3.delete_object(Bucket=self.bucket, Key=key)
         return OutputRef(location=f"s3://{self.bucket}/{base}", files=files)
+
+    def _list(self, base: str) -> list[str]:
+        """Keys under ``base/`` except failed-attempt dirs."""
+        keys = []
+        for page in self._s3.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix=base + "/"):
+            keys += [o["Key"] for o in page.get("Contents", []) if not o["Key"][len(base) + 1 :].startswith(".attempt-")]
+        return keys
+
+    @staticmethod
+    def _is_missing(exc: Exception) -> bool:
+        code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+        return code in ("404", "NoSuchKey", "NotFound")
 
     def _sha_and_size(self, key: str) -> tuple[str, int]:
         body = self._s3.get_object(Bucket=self.bucket, Key=key)["Body"]
@@ -231,26 +273,41 @@ class S3OutputStore(OutputStore):
         except ValueError as exc:
             return [str(exc)]
         try:
-            self._s3.head_object(Bucket=self.bucket, Key=f"{base}/{MANIFEST}")
-        except Exception:
-            problems.append(f"{MANIFEST} is missing")
+            body = self._s3.get_object(Bucket=self.bucket, Key=f"{base}/{MANIFEST}")["Body"].read()
+            if _norm(json.loads(body)["files"]) != _norm(ref.files):
+                problems.append(f"{MANIFEST} does not match the recorded files")
+        except Exception as exc:
+            if not self._is_missing(exc) and not isinstance(exc, (ValueError, KeyError, TypeError)):
+                raise
+            problems.append(f"{MANIFEST} is missing or unreadable")
+        listed = set()
         for f in ref.files:
             try:
                 rel = _check_rel(f["path"])
-                sha, size = self._sha_and_size(f"{base}/{rel}")
             except ValueError as exc:
                 problems.append(str(exc))
                 continue
-            except Exception:
+            listed.add(f"{base}/{rel}")
+            try:
+                sha, size = self._sha_and_size(f"{base}/{rel}")
+            except Exception as exc:
+                if not self._is_missing(exc):
+                    raise
                 problems.append(f"{f['path']}: missing")
                 continue
             if size != f["bytes"]:
                 problems.append(f"{f['path']}: size {size} != {f['bytes']}")
             elif sha != f["sha256"]:
                 problems.append(f"{f['path']}: sha256 mismatch")
+        for key in self._list(base):
+            if key != f"{base}/{MANIFEST}" and key not in listed:
+                problems.append(f"{key[len(base) + 1 :]}: unexpected file")
         return problems
 
     def fetch_previous(self, ref: OutputRef, dest: Path) -> None:
+        problems = self.verify(ref)
+        if problems:
+            raise ValueError("previous outputs failed verification: " + "; ".join(problems))
         base, dest = self._split(ref.location), Path(dest)
         for f in ref.files:
             rel = _check_rel(f["path"])

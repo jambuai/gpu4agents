@@ -138,3 +138,133 @@ def test_importing_gpu4agents_without_boto3_works():
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert out.returncode == 0, out.stderr
     assert out.stdout.strip() == "ok"
+
+
+def test_local_replace_crash_never_leaves_manifest_beside_incomplete_files(tmp_path, src, monkeypatch):
+    import os
+
+    import gpu4agents.queue.outputs as o
+
+    store = LocalOutputStore(tmp_path / "gpu-outputs")
+    old = store.put_outputs("job1", 1, src)
+    (src / "a.txt").write_text("v2-longer")
+    real = os.replace
+    calls = []
+
+    def flaky(a, b):
+        calls.append(b)
+        if len(calls) == 2:  # the staging dir moving into place
+            raise OSError("crash")
+        return real(a, b)
+
+    monkeypatch.setattr(o.os, "replace", flaky)
+    with pytest.raises(OSError):
+        store.put_outputs("job1", 2, src)
+    monkeypatch.setattr(o.os, "replace", real)
+    job = tmp_path / "gpu-outputs" / "job1"
+    assert not (job / "MANIFEST.json").exists() or store.verify(old) == []
+    assert store.verify(old)  # old result is no longer presented as intact
+
+
+def test_local_failed_attempt_leaves_success_untouched_and_attempt_dirs_survive(tmp_path, src):
+    store = LocalOutputStore(tmp_path / "gpu-outputs")
+    ok = store.put_outputs("job1", 1, src)
+    (src / "a.txt").write_text("bad")
+    failed = store.put_outputs("job1", 2, src, success=False)
+    assert store.verify(ok) == [] and store.verify(failed) == []
+    (src / "a.txt").write_text("v3")
+    ok3 = store.put_outputs("job1", 3, src)
+    assert store.verify(ok3) == [] and store.verify(failed) == []
+    assert not [p for p in (tmp_path / "gpu-outputs").iterdir() if ".old-" in p.name or "staging" in p.name]
+
+
+def test_local_replace_removes_stale_files(tmp_path, src):
+    store = LocalOutputStore(tmp_path / "gpu-outputs")
+    store.put_outputs("job1", 1, src)
+    (src / "sub" / "b.bin").unlink()
+    ref = store.put_outputs("job1", 2, src)
+    assert not (tmp_path / "gpu-outputs" / "job1" / "sub" / "b.bin").exists()
+    assert store.verify(ref) == []
+
+
+def test_verify_reports_extra_file_and_manifest_mismatch_local(tmp_path, src):
+    store = LocalOutputStore(tmp_path / "gpu-outputs")
+    ref = store.put_outputs("job1", 1, src)
+    job = tmp_path / "gpu-outputs" / "job1"
+    (job / "extra.txt").write_text("x")
+    assert any("extra.txt" in p and "unexpected" in p for p in store.verify(ref))
+    (job / "extra.txt").unlink()
+    (job / "MANIFEST.json").write_text(json.dumps({"files": []}))
+    assert any("does not match" in p for p in store.verify(ref))
+    (job / "MANIFEST.json").unlink()
+    assert any("MANIFEST" in p for p in store.verify(ref))
+    with pytest.raises(ValueError):
+        store.fetch_previous(ref, tmp_path / "prev")
+
+
+def test_symlinked_dirs_are_not_followed(tmp_path, src):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("s")
+    (src / "link").symlink_to(outside, target_is_directory=True)
+    ref = LocalOutputStore(tmp_path / "gpu-outputs").put_outputs("job1", 1, src)
+    assert all("secret" not in f["path"] for f in ref.files)
+
+
+def test_s3_reput_leaves_no_stale_keys_and_failed_put_has_no_manifest(tmp_path, src, s3, monkeypatch):
+    store = S3OutputStore("s3://bkt/pre")
+    store.put_outputs("job1", 1, src)
+    failed = store.put_outputs("job1", 2, src, success=False)
+    (src / "sub" / "b.bin").unlink()
+    ref = store.put_outputs("job1", 3, src)
+    keys = {o["Key"] for o in s3.list_objects_v2(Bucket="bkt")["Contents"]}
+    assert "pre/job1/sub/b.bin" not in keys and "pre/job1/.attempt-2/MANIFEST.json" in keys
+    assert store.verify(ref) == [] and store.verify(failed) == []
+    (src / "c.txt").write_text("c")
+    (src / "d.txt").write_text("d")
+    calls = []
+    real = store._put_file
+
+    def flaky(key, path):
+        calls.append(key)
+        if len(calls) == 2:
+            raise OSError("boom")
+        real(key, path)
+
+    monkeypatch.setattr(store, "_put_file", flaky)
+    with pytest.raises(OSError):
+        store.put_outputs("job1", 4, src)
+    keys = {o["Key"] for o in s3.list_objects_v2(Bucket="bkt")["Contents"]}
+    assert "pre/job1/MANIFEST.json" not in keys
+    assert store.verify(ref)
+
+
+def test_s3_verify_extra_mismatch_and_errors(tmp_path, src, s3):
+    store = S3OutputStore("s3://bkt/pre")
+    ref = store.put_outputs("job1", 1, src)
+    s3.put_object(Bucket="bkt", Key="pre/job1/extra.txt", Body=b"x")
+    assert any("extra.txt" in p for p in store.verify(ref))
+    s3.delete_object(Bucket="bkt", Key="pre/job1/extra.txt")
+    s3.put_object(Bucket="bkt", Key="pre/job1/MANIFEST.json", Body=b'{"files": []}')
+    assert any("does not match" in p for p in store.verify(ref))
+    with pytest.raises(ValueError):
+        store.fetch_previous(ref, tmp_path / "prev")
+    assert store.verify(OutputRef(location="s3://other/x", files=[]))
+    bad = OutputRef(location=ref.location, files=[{"path": "../x", "bytes": 1, "sha256": "0"}])
+    assert store.verify(bad)
+    with pytest.raises(ValueError):
+        store.fetch_previous(bad, tmp_path / "p2")
+
+
+def test_s3_non_404_errors_raise(tmp_path, src, s3, monkeypatch):
+    from botocore.exceptions import ClientError
+
+    store = S3OutputStore("s3://bkt/pre")
+    ref = store.put_outputs("job1", 1, src)
+
+    def denied(**kw):
+        raise ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")
+
+    monkeypatch.setattr(store._s3, "get_object", denied)
+    with pytest.raises(ClientError):
+        store.verify(ref)
