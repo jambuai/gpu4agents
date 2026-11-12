@@ -499,6 +499,25 @@ def test_pause_stops_claims_but_not_running_jobs(world):
     assert w.final(coord, "j2").state == JobState.SUCCEEDED
 
 
+def test_a_paused_queue_passes_no_min_machines_to_the_scaler(world, monkeypatch):
+    from gpu4agents.queue import coordinator as coord_mod
+
+    seen = []
+    real = coord_mod.decide
+    monkeypatch.setattr(coord_mod, "decide", lambda inp: (seen.append(inp), real(inp))[1])
+    w = world(max_machines=2, min_machines=1)
+    coord = w.coordinator()
+    w.step(coord)
+    assert seen[-1].min_machines == 1 and w.pool.opens == 1  # unpaused: the warm machine opens
+
+    w.backend.set_paused(True, "tester")
+    w.submit("j1")  # queued work is not counted either while paused
+    seen.clear()
+    w.step(coord, 3)
+    assert seen and all(i.min_machines == 0 and i.queued == 0 for i in seen)
+    assert w.pool.opens == 1 and w.pool.keepalives == []  # nothing opened, no keepalive: it may idle out
+
+
 def test_cancel_reaches_the_running_job(world):
     w = world()
     w.pool.script("j1", FakeRun(polls=100))

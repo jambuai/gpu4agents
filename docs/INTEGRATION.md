@@ -103,7 +103,7 @@ gpu env --format dotenv > .env.gpu
 | 1 | unexpected error | log stderr, retry later |
 | 2 | config error (`gpu.yaml` invalid, or changed since setup) | fix the config; `setup --recreate` replaces a machine built from the old one |
 | 3 | no instance / no endpoint (from `env`, `endpoint`) | call `setup` |
-| 4 | provider API error | retry with backoff |
+| 4 | provider API error, or the queue or its output store is unreachable (queue commands) | retry with backoff |
 | 5 | provider authentication failed | fix `VAST_API_KEY` |
 | 6 | no capacity matches the config | retry later, or relax `compute.gpu` / the budget |
 | 7 | provisioning failed | retry; the failed machine was already destroyed |
