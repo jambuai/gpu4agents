@@ -215,6 +215,10 @@ def extension_digest(source: str) -> str:
     return hashlib.sha256(source.encode()).hexdigest()[:16]
 
 
+class JobConflict(WatchdogUnavailable):
+    """The job runner already has a job with this id (HTTP 409): it was started before."""
+
+
 class JobClient:
     """The watchdog's /jobs routes. Unlike the beacon, failures raise."""
 
@@ -254,6 +258,8 @@ class JobClient:
             message = data.get("error") or response.text[:200]
             if response.status_code == 404:
                 raise StateError(message)
+            if response.status_code == 409:
+                raise JobConflict(f"job runner returned 409: {message}")
             raise WatchdogUnavailable(f"job runner returned {response.status_code}: {message}")
         return data
 

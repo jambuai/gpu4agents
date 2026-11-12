@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from test_watchdog import Agent, policy
+from test_watchdog import policy
 
 from gpu4agents.cli.job import shell_command
 from gpu4agents.core.config import load_config
@@ -30,32 +30,6 @@ from gpu4agents.core.job import (
     load_manifest,
     safe_extract,
 )
-
-
-@pytest.fixture
-def runner(tmp_path):
-    """A live watchdog with the job runner loaded, and a client for it."""
-    made: list[Agent] = []
-
-    def _make(pol=None, **kwargs) -> tuple[Agent, JobClient]:
-        directory = tmp_path / f"agent{len(made)}"
-        directory.mkdir()
-        env = {
-            "JAMBU_WATCHDOG_EXT": str(directory / "ext"),
-            "JAMBU_JOBS_DIR": str(directory / "jobs"),
-            "JAMBU_JOB_HEARTBEAT_S": "0.3",
-            "JAMBU_JOB_CANCEL_GRACE_S": "1",
-        }
-        env.update(kwargs.pop("env", {}))
-        agent = Agent(directory, pol or policy(idle_timeout_s=600.0), env=env, **kwargs)
-        made.append(agent)
-        client = JobClient(agent.client)
-        client.ensure_runner()
-        return agent, client
-
-    yield _make
-    for agent in made:
-        agent.close()
 
 
 def make_bundle(tmp_path: Path, files: dict[str, str]) -> Path:
