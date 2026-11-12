@@ -107,8 +107,12 @@ class Engine:
         provider: Optional[GPUProvider] = None,
         echo: Optional[Echo] = None,
         credentials: Optional[CredentialResolver] = None,
+        *,
+        state_dir: Optional[Path] = None,
+        slot: Optional[str] = None,
     ) -> None:
         self.config = config
+        self.slot = slot
         self.echo = echo or _noop
         self.credentials = credentials or CredentialResolver(
             config.project_dir, profile=config.provider.profile
@@ -117,7 +121,7 @@ class Engine:
         self.provider = provider or registry.get(config, self.credentials)
         self.runtime: ModelRuntime = runtime_registry.get(config)
         self.runtime.provider_image = self.provider.preferred_images.get(self.runtime.engine)
-        self.store = StateStore(config.state_dir)
+        self.store = StateStore(state_dir if state_dir is not None else config.state_dir)
         self.events = EventLog(self.store.logs_dir).bind(provider=self.provider.name)
         # Whether the last reconcile read the watchdog's state. Traffic activity
         # lives only on the instance, so without it the local idle clock lies.
@@ -134,9 +138,10 @@ class Engine:
     def policy_config(self, hourly_cost_usd: Optional[float] = None) -> policy.PolicyConfig:
         caps = self.provider.capabilities
         cfg = self.config
+        pooled = bool(self.slot and cfg.queue)
         return policy.PolicyConfig(
             idle_timeout_s=cfg.idle_timeout_s,
-            max_lifetime_s=cfg.max_lifetime_s,
+            max_lifetime_s=cfg.queue.max_machine_lifetime_s if pooled else cfg.max_lifetime_s,
             heartbeat_grace_s=cfg.heartbeat_grace_s,
             auto_stop=cfg.lifecycle.auto_stop,
             auto_destroy=cfg.lifecycle.auto_destroy,
@@ -145,9 +150,10 @@ class Engine:
             destroy_supported=caps.destroy,
             stop_eliminates_billing=caps.stop_eliminates_billing,
             hourly_cost_usd=hourly_cost_usd,
-            max_session_cost_usd=cfg.budget.max_session_cost_usd,
+            max_session_cost_usd=None if pooled else cfg.budget.max_session_cost_usd,
             stopped_ttl_s=cfg.stopped_ttl_s,
             keep_disk=cfg.lifecycle.keep_disk,
+            deadline_enforced=pooled,
         )
 
     def snapshot(self, state: RuntimeState) -> policy.Snapshot:
@@ -457,12 +463,18 @@ class Engine:
             ports=self._ports(),
             env=env,
             onstart=onstart,
-            label=f"{JAMBU_LABEL_PREFIX}{self._label_name()[:24]}-{cfg.fingerprint()[:6]}",
+            label=self._label(cfg),
             spot=cfg.compute.spot,
             region=cfg.compute.region,
             max_hourly_cost_usd=cfg.budget.max_hourly_cost_usd,
             provider_options=dict(cfg.provider.options),
         )
+
+    def _label(self, cfg: RuntimeConfig) -> str:
+        fp = cfg.fingerprint()[:6]
+        if self.slot:
+            return f"{JAMBU_LABEL_PREFIX}{self._label_name()[:20]}-{self.slot}-{fp}"
+        return f"{JAMBU_LABEL_PREFIX}{self._label_name()[:24]}-{fp}"
 
     def _label_name(self) -> str:
         cfg = self.config
@@ -1936,6 +1948,17 @@ class Engine:
     # ------------------------------------------------------------------
     # lock / unlock (spec section 11)
     # ------------------------------------------------------------------
+
+    def set_deadline(self, until: float) -> float:
+        """Tell the machine's watchdog to end it at `until` (it never moves back)."""
+        with self.store.process_lock():
+            state = self._reconcile(self.store.load())
+            if not state.has_instance():
+                raise StateError("no instance to set a deadline on")
+            client = self.beacon(state)
+            if client is None:
+                raise StateError("no watchdog to carry the deadline")
+            return float(client.set_deadline(until)["deadline_at"])
 
     def lock(self, ttl_seconds: Optional[float], reason: str = "") -> dict[str, Any]:
         if ttl_seconds is None and not self.config.lifecycle.allow_indefinite_lock:

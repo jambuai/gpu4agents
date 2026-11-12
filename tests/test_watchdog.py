@@ -1149,3 +1149,21 @@ def test_the_agent_config_names_the_runtime_files():
         startup_grace_s=900.0, policy=policy(), created_at=0.0,
     )
     assert "runtime_pid_path" not in bare and "runtime" not in bare["logs"]
+
+
+def test_deadline_route_sets_and_reports_the_deadline(agent_factory):
+    agent = agent_factory(policy(idle_timeout_s=3_600.0))
+    agent.client.mark_ready()
+    until = time.time() + 600
+    assert agent.client.try_request("POST", "/deadline", {"until": until}) is not None
+    assert agent.client.state()["deadline_at"] == until
+
+
+def test_deadline_route_refuses_moving_backwards(agent_factory):
+    agent = agent_factory(policy(idle_timeout_s=3_600.0))
+    agent.client.mark_ready()
+    until = time.time() + 600
+    agent.client.try_request("POST", "/deadline", {"until": until})
+    reply = agent.client.try_request("POST", "/deadline", {"until": until - 300})
+    assert reply["deadline_at"] == until
+    assert agent.client.state()["deadline_at"] == until

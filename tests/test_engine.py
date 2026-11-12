@@ -937,3 +937,31 @@ def test_status_reads_through_a_setup_holding_the_lock(engine, monkeypatch):
                 pass
         assert busy.value.exit_code == 12
     assert engine.status()["busy"] is False
+
+
+def test_pool_engine_uses_its_own_state_dir_and_slot_label(config, tmp_path):
+    import re
+
+    provider = FakeProvider(config, CredentialResolver(config.project_dir))
+    eng = Engine(config, provider=provider, state_dir=tmp_path / "pool" / "s1", slot="s1")
+    assert eng.store.dir == tmp_path / "pool" / "s1"
+    assert eng.slot == "s1"
+    eng.setup(wait=False)
+    labels = [i.label for i in provider.instances.values()]
+    assert len(labels) == 1 and re.match(r"^jambu-.+-s1-[0-9a-f]{6}$", labels[0])
+
+
+def test_queue_mode_policy_drops_lifetime_and_session_budget(write_config, tmp_path):
+    cfg = write_config(
+        queue={"max_machine_lifetime": "2h"},
+        budget={"max_session_cost_usd": 5},
+        lifecycle={"max_lifetime": "1h"},
+    )
+    provider = FakeProvider(cfg, CredentialResolver(cfg.project_dir))
+    pooled = Engine(cfg, provider=provider, state_dir=tmp_path / "p", slot="s1").policy_config()
+    assert pooled.max_lifetime_s == 7200
+    assert pooled.max_session_cost_usd is None
+    assert pooled.deadline_enforced is True
+    plain = Engine(cfg, provider=provider).policy_config()
+    assert plain.max_session_cost_usd == 5
+    assert plain.deadline_enforced is False

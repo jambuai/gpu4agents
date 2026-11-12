@@ -250,3 +250,21 @@ def test_idle_destroys_where_a_stopped_instance_still_bills():
         snap, p.PolicyConfig(idle_timeout_s=60, destroy_supported=False, **bills)
     )
     assert no_destroy.action == p.ACTION_STOP
+
+
+def test_deadline_ends_a_machine_even_with_work_running():
+    cfg = p.PolicyConfig(deadline_enforced=True, idle_timeout_s=900)
+    snap = p.Snapshot(now=1000, created_at=0, last_activity=999, deadline_at=999,
+                    workloads=[p.Workload(id="j", started_at=0, last_heartbeat=999)])
+    d = p.evaluate(snap, cfg)
+    assert d.terminates and d.reason == "deadline"
+
+
+def test_no_deadline_set_means_only_idle_and_lifetime_apply():
+    cfg = p.PolicyConfig(deadline_enforced=True, idle_timeout_s=900)
+    assert p.evaluate(p.Snapshot(now=1000, created_at=0, last_activity=999), cfg).reason == "within_policy"
+
+
+def test_deadline_is_ignored_outside_queue_mode():
+    cfg = p.PolicyConfig(deadline_enforced=False)
+    assert not p.evaluate(p.Snapshot(now=1000, created_at=0, last_activity=999, deadline_at=1), cfg).terminates
