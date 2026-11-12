@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from enum import Enum
 from typing import Any, Optional
 
@@ -97,7 +97,8 @@ class QueueJob:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "QueueJob":
-        d = dict(d)
+        known = {f.name for f in fields(cls)}
+        d = {k: v for k, v in d.items() if k in known}
         d["state"] = JobState(d.get("state", "queued"))
         d["attempts"] = [Attempt.from_dict(a) for a in d.get("attempts", [])]
         return cls(**d)

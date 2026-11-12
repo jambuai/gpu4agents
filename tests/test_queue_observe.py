@@ -29,3 +29,21 @@ def test_observer_redacts_secrets(tmp_path):
     assert rec["outputs_url"] == "s3://a:***@c"
     assert rec["token"] == "***" and rec["api_key"] == "***" and rec["n"] == 1
     assert "pw" not in (tmp_path / "logs" / "events.jsonl").read_text()
+
+
+def test_url_password_with_slash_and_at_is_fully_redacted(tmp_path):
+    o = _obs(tmp_path)
+    rec = o.emit("x", url="redis://u:a/b@c@h:6379/0")
+    assert rec["url"] == "redis://u:***@h:6379/0"
+    assert "a/b" not in (tmp_path / "logs" / "events.jsonl").read_text()
+
+
+def test_metric_values_labels_and_inf(tmp_path):
+    o = _obs(tmp_path)
+    o.gauge("g", 0.1)
+    o.gauge("h", float("inf"))
+    o.inc("c", why='a\nb"c')
+    o.write()
+    text = (tmp_path / "q" / "metrics.prom").read_text()
+    assert "g 0.1\n" in text and "h +Inf\n" in text
+    assert 'c{why="a\\nb\\"c"} 1.0' in text or 'c{why="a\\nb\\"c"} 1' in text

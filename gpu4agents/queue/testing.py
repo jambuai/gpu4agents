@@ -1,7 +1,9 @@
 """Conformance suite for QueueBackend implementations.
 
 Subclass ``QueueBackendContract`` in a test module and provide fixtures ``backend``
-and ``clock`` (an object with ``advance(seconds)`` that moves ``backend.now()``).
+and ``clock``: an object whose ``advance(seconds)`` must move ``backend.now()``. Backends
+therefore need an injectable clock or offset (Redis: an offset added to the server TIME in tests).
+Ages and leases are measured on ``backend.now()``, and ``submit`` stamps ``submitted_at`` with it.
 """
 
 from __future__ import annotations
@@ -73,6 +75,79 @@ class QueueBackendContract:
             backend.settle(old, JobState.SUCCEEDED, {})
         with pytest.raises(LeaseLost):
             backend.renew(old, 60)
+        assert backend.update(new, machine="m2").machine == "m2"
+
+    def test_a_stale_token_is_dead_after_expiry_before_any_reclaim(self, backend, clock):
+        self._submit(backend, clock, 1)
+        old = backend.claim("w", 60)
+        clock.advance(61)
+        with pytest.raises(LeaseLost):
+            backend.update(old, machine="m1")
+        with pytest.raises(LeaseLost):
+            backend.requeue(old, Attempt(1, "m", "r", 1.0))
+        with pytest.raises(LeaseLost):
+            backend.renew(old, 60)
+
+    def test_requeue_with_a_stale_token_raises(self, backend, clock):
+        self._submit(backend, clock, 1)
+        old = backend.claim("w", 60)
+        clock.advance(61)
+        backend.claim("w2", 60)
+        with pytest.raises(LeaseLost):
+            backend.requeue(old, Attempt(1, "m", "r", 1.0))
+
+    def test_renew_extends_the_lease(self, backend, clock):
+        self._submit(backend, clock, 1)
+        c = backend.claim("w", 60)
+        clock.advance(50)
+        renewed = backend.renew(c, 60)
+        assert renewed.lease_until > c.lease_until
+        clock.advance(50)  # t+100: past the first lease, inside the renewed one
+        assert backend.stats().by_state.get("queued", 0) == 0
+        assert backend.claim("w2", 60) is None
+        assert backend.update(c, machine="m1").machine == "m1"
+
+    def test_update_persists_fields(self, backend, clock):
+        self._submit(backend, clock, 1)
+        c = backend.claim("w", 60)
+        backend.update(c, state=JobState.RUNNING, machine="m1")
+        got = backend.get("job-0001")
+        assert got.state == JobState.RUNNING and got.machine == "m1"
+
+    def test_reaping_a_cancel_requested_claim_cancels_the_job(self, backend, clock):
+        self._submit(backend, clock, 1)
+        backend.claim("w", 60)
+        backend.request_cancel("job-0001", "me")
+        clock.advance(61)
+        assert backend.get("job-0001") is not None
+        backend.stats()
+        assert backend.get("job-0001").state == JobState.CANCELLED
+        assert backend.claim("w2", 60) is None
+
+    def test_retry_requeues_a_failed_job_keeping_attempts(self, backend, clock):
+        self._submit(backend, clock, 1)
+        c = backend.claim("w", 60)
+        backend.requeue(c, Attempt(1, "m", "r", 1.0, 2.0, Outcome.JOB_FAILED))
+        c = backend.claim("w", 60)
+        backend.settle(c, JobState.FAILED, {"why": "x"})
+        job = backend.retry("job-0001", "me")
+        assert job.state == JobState.QUEUED
+        assert [a.number for a in job.attempts] == [1]
+        assert backend.claim("w", 60).job.id == "job-0001"
+
+    def test_retry_of_a_non_failed_job_raises(self, backend, clock):
+        self._submit(backend, clock, 1)
+        with pytest.raises(ValueError):
+            backend.retry("job-0001", "me")
+
+    def test_list_filters_by_state_and_limit(self, backend, clock):
+        for n in (1, 2, 3):
+            self._submit(backend, clock, n)
+        backend.claim("w", 600)
+        assert {j.id for j in backend.list({JobState.QUEUED})} == {"job-0002", "job-0003"}
+        assert [j.id for j in backend.list({JobState.CLAIMED})] == ["job-0001"]
+        assert len(backend.list()) == 3
+        assert len(backend.list(limit=2)) == 2
 
     def test_settle_is_final(self, backend, clock):
         self._submit(backend, clock, 1)
@@ -83,8 +158,10 @@ class QueueBackendContract:
         assert backend.claim("w", 60, job_id="job-0001") is None
         with pytest.raises(LeaseLost):
             backend.settle(c, JobState.SUCCEEDED, {})
+        self._submit(backend, clock, 2)
+        fresh = backend.claim("w", 60)
         with pytest.raises(ValueError):
-            backend.settle(c, JobState.RUNNING, {})
+            backend.settle(fresh, JobState.RUNNING, {})
 
     def test_requeue_records_the_attempt(self, backend, clock):
         self._submit(backend, clock, 1)
@@ -131,6 +208,9 @@ class QueueBackendContract:
         clock.advance(31)
         assert backend.acquire_coordinator("b", 30) is True
         assert backend.coordinator()["owner"] == "b"
+        assert backend.renew_coordinator("a", 30) is False
+        backend.release_coordinator("a")
+        assert backend.coordinator()["owner"] == "b"
 
     def test_stats_counts_and_oldest_age(self, backend, clock):
         assert backend.stats().oldest_queued_age_s is None
@@ -141,7 +221,9 @@ class QueueBackendContract:
         s = backend.stats()
         assert s.by_state.get("queued") == 1
         assert s.by_state.get("claimed") == 1
-        assert s.oldest_queued_age_s is not None and s.oldest_queued_age_s >= 10
+        # job 2 (the only one queued) was submitted at T+1; now is T+12.
+        assert s.oldest_queued_age_s is not None
+        assert 10.5 <= s.oldest_queued_age_s <= 11.5
 
     def test_concurrent_claims_never_share_a_job(self, backend, clock):
         for n in range(100):
@@ -149,7 +231,10 @@ class QueueBackendContract:
         got: list[str] = []
         lock = threading.Lock()
 
+        barrier = threading.Barrier(8)
+
         def worker(i: int) -> None:
+            barrier.wait()
             for _ in range(50):
                 c = backend.claim(f"w{i}", 600)
                 if c is not None:

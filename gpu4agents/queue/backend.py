@@ -18,14 +18,18 @@ class QueueBackend(ABC):
 
     @abstractmethod
     def submit(self, job: QueueJob) -> QueueJob:
-        """Idempotent on ``job.key``: returns the existing job when the key is known."""
+        """Idempotent on ``job.key``: returns the existing job when the key is known.
+
+        A new job is stamped ``submitted_at = self.now()`` (the backend clock, not the caller's).
+        """
 
     @abstractmethod
     def claim(self, worker: str, lease_s: float, job_id: Optional[str] = None) -> Optional[Claim]:
         """Oldest QUEUED job (skips a paused queue and cancel_requested jobs).
 
         With ``job_id``, claim exactly that job if it is QUEUED (including one whose
-        lease just expired and was reaped), else None.
+        lease just expired and was reaped), else None. A reaped claim whose job has
+        ``cancel_requested`` becomes CANCELLED instead of QUEUED.
         """
 
     @abstractmethod
@@ -37,18 +41,20 @@ class QueueBackend(ABC):
         """Raises LeaseLost on a stale token."""
 
     @abstractmethod
-    def requeue(self, claim: Claim, attempt: Attempt) -> QueueJob: ...
+    def requeue(self, claim: Claim, attempt: Attempt) -> QueueJob:
+        """Raises LeaseLost on a stale token."""
 
     @abstractmethod
     def settle(self, claim: Claim, state: JobState, result: dict) -> QueueJob:
-        """Final. Raises ValueError for a non-final state, LeaseLost when stale or settled."""
+        """Final. Check order: a non-final ``state`` raises ValueError first, then a
+        stale or already-settled claim raises LeaseLost."""
 
     @abstractmethod
     def request_cancel(self, job_id: str, actor: str) -> QueueJob: ...
 
     @abstractmethod
     def retry(self, job_id: str, actor: str) -> QueueJob:
-        """FAILED -> QUEUED, keeping attempts."""
+        """FAILED -> QUEUED, keeping attempts. ValueError for a job that is not FAILED."""
 
     @abstractmethod
     def get(self, job_id: str) -> Optional[QueueJob]: ...
@@ -80,9 +86,13 @@ class QueueBackend(ABC):
 
 
 def load_backend(spec: str, config: Any) -> QueueBackend:
-    """Resolve "local", "redis" or "module:factory" (the factory receives the config)."""
+    """Resolve "local", "redis" or "module:factory" (the factory receives the config).
+
+    "local" -> gpu4agents.queue.backends.local, "redis" -> gpu4agents.queue.backends.redis;
+    each module exposes ``create(config: RuntimeConfig) -> QueueBackend``.
+    """
     if spec in ("local", "redis"):
-        module_name = "gpu4agents.queue.local" if spec == "local" else "gpu4agents.queue.redis_backend"
+        module_name = "gpu4agents.queue.backends.local" if spec == "local" else "gpu4agents.queue.backends.redis"
         try:
             module = importlib.import_module(module_name)
         except ImportError as exc:

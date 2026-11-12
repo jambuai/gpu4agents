@@ -33,5 +33,17 @@ def test_contract_suite_imports_and_lists_its_tests():
                  "test_cancel_of_a_queued_job_is_immediate",
                  "test_cancel_of_a_claimed_job_sets_the_flag", "test_paused_queue_claims_nothing",
                  "test_one_coordinator_lease_at_a_time", "test_coordinator_lease_expires",
-                 "test_stats_counts_and_oldest_age", "test_concurrent_claims_never_share_a_job"):
+                 "test_stats_counts_and_oldest_age", "test_concurrent_claims_never_share_a_job", "test_renew_extends_the_lease",
+                 "test_update_persists_fields", "test_retry_requeues_a_failed_job_keeping_attempts",
+                 "test_retry_of_a_non_failed_job_raises", "test_list_filters_by_state_and_limit",
+                 "test_reaping_a_cancel_requested_claim_cancels_the_job",
+                 "test_a_stale_token_is_dead_after_expiry_before_any_reclaim",
+                 "test_requeue_with_a_stale_token_raises"):
         assert callable(getattr(QueueBackendContract, name))
+
+
+def test_from_dict_ignores_unknown_keys():
+    job = QueueJob(id="j", key="k", bundle_ref="b", manifest={}, submitted_at=1.0, submitted_by="me")
+    data = job.to_dict()
+    data["added_in_a_future_version"] = 1
+    assert QueueJob.from_dict(data) == job
