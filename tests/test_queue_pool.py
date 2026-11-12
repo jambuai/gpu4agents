@@ -24,7 +24,7 @@ from gpu4agents.core.hosts import BadHosts
 from gpu4agents.core.job import build_bundle
 from gpu4agents.core.models import Endpoint
 from gpu4agents.queue.observe import Observer
-from gpu4agents.queue.pool import HealthResult, Pool, builtin_health_command
+from gpu4agents.queue.pool import HealthResult, Pool, RetireResult, builtin_health_command
 from gpu4agents.queue.pool_types import MachineState
 from gpu4agents import watchdog as watchdog_pkg
 
@@ -53,8 +53,11 @@ class PoolProvider(FakeProvider):
         self.agents: dict = {}
         self.setups = 0
         self.lock = threading.Lock()
+        self.before_setup = None  # called (outside the lock) before each rent
 
     def setup(self, spec):
+        if self.before_setup is not None:
+            self.before_setup()
         with self.lock:  # the fake and the runner fixture are not thread-safe
             return self._setup(spec)
 
@@ -184,8 +187,9 @@ def test_a_vanished_machine_is_gone(pool_parts, tmp_path):
     pool.poll()
     assert m.state == MachineState.GONE
     assert events(tmp_path, "pool_machine_gone")
-    pool.retire(m, "gone")
+    result = pool.retire(m, "gone")
     assert m.state == MachineState.RETIRED and pool.machines() == []
+    assert result.destroyed and BadHosts().recent("fake") == []  # vanishing is not the host's fault
 
 
 def test_dispatch_twice_returns_already_running(pool_parts, tmp_path):
@@ -343,7 +347,7 @@ def test_orphans_are_this_project_s_untracked_slot_instances(pool_parts):
     from gpu4agents.core.models import Instance
 
     def add(iid, label):
-        provider.instances[iid] = Instance(id=iid, provider="fake", label=label)
+        provider.instances[iid] = Instance(id=iid, provider="fake", label=label, created_at=time.time() - 1000)
 
     add("x1", f"{prefix}s7-{fp}")          # orphan
     add("x2", f"{prefix}s8-ffffff")        # other config
@@ -394,3 +398,156 @@ def test_the_built_in_health_check_tests_cuda_and_free_memory():
 def test_health_result_shape():
     r = HealthResult(ok=False, detail="x")
     assert (r.ok, r.detail) == (False, "x")
+
+
+# -- fix round 1 ----------------------------------------------------------------
+
+
+def test_each_interval_is_billed_once_across_a_restart(pool_parts):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    provider.agents[m.instance_id].close()
+    clock.advance(400)
+    pool.poll()  # unresponsive now: skipped by reconcile, still billed
+    assert m.state == MachineState.UNRESPONSIVE
+    clock.advance(3200)
+    pool.poll()
+    billed = pool.spend.total()
+    again = Pool(cfg, observer, provider=provider, clock=clock)
+    again.poll()
+    assert again.spend.total() == pytest.approx(billed)
+    clock.advance(3600)
+    again.poll()
+    assert again.spend.total() == pytest.approx(billed + 0.42)
+
+
+def test_a_bring_up_that_crashes_after_the_rent_leaves_the_machine_unhealthy(pool_parts, tmp_path, monkeypatch):
+    pool, provider, observer, clock, cfg = pool_parts()
+
+    def broken(m):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(pool, "health_check", broken)
+    m = settle(pool, pool.open())
+    assert m.state == MachineState.UNHEALTHY and m.instance_id in provider.instances
+    assert any("OSError" in e["detail"] for e in events(tmp_path, "pool_machine_unhealthy"))
+    err = [e for e in events(tmp_path, "provider_error") if e.get("operation") == "pool_bring_up"]
+    assert err and err[0]["error_type"] == "OSError"
+    assert pool.retire(m, "bring-up crashed").destroyed
+    assert provider.instances == {}
+
+
+def test_resumes_are_capped(pool_parts, tmp_path, monkeypatch):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    with pool._lock:
+        m.state = MachineState.CHECKING  # as if every bring-up died before finishing
+    monkeypatch.setattr(pool, "_start", lambda m, fresh: None)
+    for _ in range(4):
+        pool.poll()
+    assert m.state == MachineState.UNHEALTHY
+    assert any("attempts" in e["detail"] for e in events(tmp_path, "pool_machine_unhealthy"))
+
+
+def write_result(tmp_path):
+    return make_bundle(tmp_path, {"main.py": "import os, pathlib\n"
+                                  "(pathlib.Path(os.environ['JAMBU_OUTPUT_DIR']) / 'r.txt').write_text('42')\n"})
+
+
+def test_retire_reports_what_it_saved(pool_parts, tmp_path):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    pool.dispatch(m, "q5-a1", write_result(tmp_path), {"run": "python3 main.py"}, {})
+    wait_remote(pool, m, "q5-a1")
+    pool.poll()
+    assert m.jobs == ["q5-a1"]  # finished, outputs only on the machine
+    assert m.state == MachineState.READY
+    result = pool.retire(m, "test")
+    assert isinstance(result, RetireResult) and result.destroyed and result.lost == []
+    assert (result.pulled["q5-a1"] / "r.txt").read_text() == "42"
+    [retired] = events(tmp_path, "pool_machine_retired")
+    assert retired["outputs_pulled"] == 1 and retired["outputs_pulled_ids"] == ["q5-a1"]
+    assert retired["outputs_lost"] == 0
+
+
+def test_retire_destroys_even_when_outputs_cannot_be_saved(pool_parts, tmp_path, monkeypatch):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    pool.dispatch(m, "q6-a1", write_result(tmp_path), {"run": "python3 main.py"}, {})
+    wait_remote(pool, m, "q6-a1")
+
+    def no_space(self, job_id, dest):
+        raise OSError("no space left")
+
+    monkeypatch.setattr("gpu4agents.core.job.JobClient.download_outputs", no_space)
+    result = pool.retire(m, "test")
+    assert result.destroyed and result.lost == ["q6-a1"] and result.pulled == {}
+    assert provider.instances == {}
+
+
+def test_retire_counts_an_unreachable_machine_s_jobs_as_lost(pool_parts, tmp_path):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    pool.dispatch(m, "q7-a1", write_result(tmp_path), {"run": "sleep 30"}, {})
+    provider.agents[m.instance_id].close()
+    result = pool.retire(m, "unresponsive")
+    assert result.destroyed and result.lost == ["q7-a1"]
+    assert events(tmp_path, "pool_machine_retired")[0]["outputs_lost_ids"] == ["q7-a1"]
+
+
+def test_backoff_runs_from_the_failure_not_the_open(pool_parts):
+    pool, provider, observer, clock, cfg = pool_parts()
+    provider.no_offers = True
+    provider.before_setup = lambda: clock.advance(40)  # a slow rent that then fails
+    settle(pool, pool.open())
+    assert provider.setups == 1
+    clock.advance(5)  # 45 s after the open, 5 s after the failure
+    assert pool.open() is None and pool.backing_off()
+    clock.advance(26)
+    assert pool.open() is not None
+
+
+def test_concurrent_failures_double_the_backoff_once(pool_parts):
+    pool, provider, observer, clock, cfg = pool_parts()
+    provider.no_offers = True
+    gate = threading.Event()
+    provider.before_setup = gate.wait
+    a = pool.open()
+    b = pool.open()
+    gate.set()
+    settle(pool, a)
+    settle(pool, b)
+    assert provider.setups == 2 and pool.open_backoff_s == 30
+
+
+def test_a_reloaded_pool_waits_the_full_grace_before_unresponsive(pool_parts):
+    pool, provider, observer, clock, cfg = pool_parts()
+    m = settle(pool, pool.open())
+    clock.advance(3600)  # the coordinator was down for an hour
+    again = Pool(cfg, observer, provider=provider, clock=clock)
+    [n] = again.machines()
+    provider.agents[n.instance_id].close()
+    again.poll()
+    assert n.state == MachineState.READY
+    clock.advance(301)
+    again.poll()
+    assert n.state == MachineState.UNRESPONSIVE
+
+
+def test_a_booting_slot_or_a_young_instance_is_not_an_orphan(pool_parts):
+    pool, provider, observer, clock, cfg = pool_parts()
+    from gpu4agents.core.models import Instance
+
+    fp = cfg.fingerprint()[:6]
+    prefix = pool.label_prefix()
+    gate = threading.Event()
+    provider.before_setup = gate.wait
+    m = pool.open()  # s1 is renting
+    try:
+        provider.instances["x1"] = Instance(id="x1", provider="fake", label=f"{prefix}s1-{fp}", created_at=time.time() - 1000)
+        provider.instances["x2"] = Instance(id="x2", provider="fake", label=f"{prefix}s9-{fp}", created_at=time.time())
+        provider.instances["x3"] = Instance(id="x3", provider="fake", label=f"{prefix}s8-{fp}", created_at=time.time() - 1000)
+        assert [i.id for i in pool.orphans()] == ["x3"]
+    finally:
+        gate.set()
+        settle(pool, m)

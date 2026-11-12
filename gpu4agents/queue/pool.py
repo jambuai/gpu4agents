@@ -22,7 +22,7 @@ import re
 import tempfile
 import threading
 import time
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -55,8 +55,14 @@ BACKOFF_MAX_S = 300.0
 OFFER_CACHE_S = 60.0
 # How long a health job may take beyond its own timeout before the pool gives up on it.
 HEALTH_SLACK_S = 30.0
+# Bring-up attempts for one slot in this process before the machine is given up as unhealthy.
+MAX_RESUMES = 3
+# A labeled instance younger than this may still be on its way into a slot's records.
+ORPHAN_MIN_AGE_S = 120.0
 
 _COUNTED = (MachineState.PROVISIONING, MachineState.CHECKING, MachineState.READY, MachineState.BUSY)
+# Everything that may still be billing at full rate counts toward max_machines.
+_HELD = _COUNTED + (MachineState.DRAINING, MachineState.UNHEALTHY, MachineState.UNRESPONSIVE, MachineState.HELD)
 _BOOTING = (MachineState.PROVISIONING, MachineState.CHECKING)
 _WATCHED = (MachineState.READY, MachineState.BUSY, MachineState.DRAINING, MachineState.HELD)
 
@@ -91,6 +97,15 @@ def builtin_health_command(command: Optional[str], min_free_vram_gb: Optional[fl
 class HealthResult:
     ok: bool
     detail: str
+
+
+@dataclass
+class RetireResult:
+    """What retire() saved from the machine before destroying it."""
+
+    pulled: dict[str, Path] = field(default_factory=dict)  # remote id -> local directory
+    lost: list[str] = field(default_factory=list)  # remote ids whose outputs could not be saved
+    destroyed: bool = False
 
 
 class _SlotEngine(Engine):
@@ -134,7 +149,10 @@ class Pool:
         self._deadline_set: set[str] = set()  # slots whose watchdog got a deadline from this pool
 
         self.last_open_at: Optional[float] = None
+        # Backoff runs from the moment an open failed, not from when it began.
+        self.last_failed_at: Optional[float] = None
         self.open_backoff_s: float = 0.0
+        self._resumes: dict[str, int] = {}
         self._blocked: Optional[str] = None
         self._offer: Optional[Any] = None
         self._offer_at: Optional[float] = None
@@ -148,6 +166,10 @@ class Pool:
         return self.dir / slot
 
     def _engine(self, slot: str) -> _SlotEngine:
+        with self._lock:
+            return self._engine_locked(slot)
+
+    def _engine_locked(self, slot: str) -> _SlotEngine:
         eng = self._engines.get(slot)
         if eng is None:
             eng = _SlotEngine(
@@ -201,6 +223,10 @@ class Pool:
                 continue
             if m.state == MachineState.RETIRED or m.slot != path.parent.name:
                 continue
+            if m.state in _WATCHED:
+                # Silence before this process started is not evidence: the clock for
+                # unresponsive_after starts now.
+                m.last_seen_at = max(m.last_seen_at or 0.0, self.clock())
             self._machines[m.slot] = m
             billed = data.get("billed_at")
             self._billed_at[m.slot] = float(billed) if isinstance(billed, (int, float)) else self.clock()
@@ -234,9 +260,9 @@ class Pool:
         when the pool already has max_machines; the jobs simply keep waiting."""
         now = self.clock()
         with self._lock:
-            if self.last_open_at is not None and now - self.last_open_at < self.open_backoff_s:
+            if self.backing_off(now):
                 return None
-            counted = [m for m in self._machines.values() if m.state in _COUNTED]
+            counted = [m for m in self._machines.values() if m.state in _HELD]
             if len(counted) >= self.queue.max_machines:
                 return None
             slot = self._free_slot()
@@ -259,6 +285,11 @@ class Pool:
         self.obs.emit(ev.POOL_MACHINE_REQUESTED, slot=slot)
         self._start(m, fresh=True)
         return m
+
+    def backing_off(self, now: Optional[float] = None) -> bool:
+        """True while open attempts wait after a failure (open() then returns None)."""
+        now = self.clock() if now is None else now
+        return self.last_failed_at is not None and now - self.last_failed_at < self.open_backoff_s
 
     def _start(self, m: PoolMachine, fresh: bool) -> None:
         thread = threading.Thread(
@@ -290,12 +321,21 @@ class Pool:
                 if fresh:
                     self._open_succeeded()
                 m.state = MachineState.CHECKING
-            self._save(m)
-            if m.slot not in self._deadline_set:
-                self._push_deadline(m, eng, state, self.clock() + self._startup_allowance_s())
-            result = self.health_check(m)
+            try:
+                self._save(m)
+                with self._lock:
+                    need_deadline = m.slot not in self._deadline_set
+                if need_deadline:
+                    self._push_deadline(m, eng, state, self.clock() + self._startup_allowance_s())
+                result = self.health_check(m)
+            except Exception as exc:  # noqa: BLE001 - the machine runs: hand it to the coordinator
+                self._crashed(m, exc, "bring_up")
+                return
             if not result.ok:
-                self.retire(m, f"health check failed: {result.detail[-200:]}")
+                try:
+                    self.retire(m, f"health check failed: {result.detail[-200:]}")
+                except Exception as exc:  # noqa: BLE001
+                    self._crashed(m, exc, "retire")
                 return
             now = self.clock()
             with self._lock:
@@ -314,6 +354,18 @@ class Pool:
         finally:
             self._end_thread(m)
 
+    def _crashed(self, m: PoolMachine, exc: BaseException, operation: str) -> None:
+        """Something unexpected after the rent: leave the machine unhealthy for retire()."""
+        detail = f"{type(exc).__name__}: {str(exc)[:300]}"
+        with self._lock:
+            m.state = MachineState.UNHEALTHY
+        try:
+            self._save(m)
+        except OSError:
+            pass
+        self.obs.emit(ev.PROVIDER_ERROR, operation=f"pool_{operation}", slot=m.slot, error_type=type(exc).__name__, error=str(exc)[:300])
+        self.obs.emit(ev.POOL_MACHINE_UNHEALTHY, slot=m.slot, instance_id=m.instance_id, detail=detail)
+
     def _end_thread(self, m: PoolMachine) -> None:
         with self._lock:
             if self._threads.get(m.slot) is threading.current_thread():
@@ -329,14 +381,20 @@ class Pool:
 
     def _open_succeeded(self) -> None:
         self.open_backoff_s = 0.0
+        self.last_failed_at = None
         self._blocked = None
 
     def _open_failed(self, m: PoolMachine, eng: Engine, exc: BaseException, fresh: bool) -> None:
         if fresh:
+            now = self.clock()
             with self._lock:
-                self.open_backoff_s = (
-                    BACKOFF_FIRST_S if not self.open_backoff_s else min(self.open_backoff_s * 2, BACKOFF_MAX_S)
-                )
+                if not self.backing_off(now):
+                    # A second failure inside the same window (opens that ran together)
+                    # does not double it again.
+                    self.open_backoff_s = (
+                        BACKOFF_FIRST_S if not self.open_backoff_s else min(self.open_backoff_s * 2, BACKOFF_MAX_S)
+                    )
+                    self.last_failed_at = now
             if isinstance(exc, CapacityUnavailableError):
                 key, event, fields_ = "capacity", ev.POOL_CAP_BLOCKED, {"cap": "provider_capacity"}
             elif isinstance(exc, BudgetExceededError):
@@ -372,7 +430,8 @@ class Pool:
     # ------------------------------------------------------------------
 
     def _on_watchdog(self, eng: _SlotEngine, state: RuntimeState) -> None:
-        m = self._machines.get(eng.slot or "")
+        with self._lock:
+            m = self._machines.get(eng.slot or "")
         if m is None:
             return
         self._push_deadline(m, eng, state, self.clock() + self._startup_allowance_s())
@@ -407,8 +466,9 @@ class Pool:
 
     def _ensure_deadline(self, m: PoolMachine) -> None:
         """An adopted or restarted machine gets its deadline before any work."""
-        if m.slot in self._deadline_set:
-            return
+        with self._lock:
+            if m.slot in self._deadline_set:
+                return
         self.extend_deadline(m, self.clock() + self._startup_allowance_s())
 
     def keepalive(self, m: PoolMachine) -> None:
@@ -545,13 +605,23 @@ class Pool:
     # retire
     # ------------------------------------------------------------------
 
-    def retire(self, m: PoolMachine, reason: str) -> None:
-        """Pull the outputs the machine still holds, destroy it and mark its host bad.
-        A destroy the provider refuses leaves the machine listed (unhealthy) to retry."""
+    def retire(self, m: PoolMachine, reason: str, mark_bad: bool = True) -> RetireResult:
+        """Pull the outputs the machine still holds, destroy it and mark its host bad
+        (never for a machine that is gone: nothing says its host failed).
+
+        The result says which jobs' outputs were saved and which were lost. A failure
+        to save outputs never keeps a machine running. A destroy the provider refuses
+        leaves the machine listed (unhealthy) to retry, with ``destroyed`` False."""
         eng = self._owned(m)
+        if m.state == MachineState.GONE:
+            mark_bad = False
         state = eng.store.load()
         host_id = state.instance.host_id if state.instance is not None else None
-        self._pull_left_outputs(m, eng, state)
+        result = RetireResult()
+        try:
+            self._pull_left_outputs(m, eng, state, result)
+        except Exception as exc:  # noqa: BLE001 - outputs never keep a machine alive
+            self.obs.emit(ev.PROVIDER_ERROR, operation="pool_retire_outputs", slot=m.slot, error_type=type(exc).__name__)
         now = self.clock()
         self._bill(m, now)
         try:
@@ -564,32 +634,54 @@ class Pool:
                 if m.state not in (MachineState.GONE, MachineState.UNRESPONSIVE):
                     m.state = MachineState.UNHEALTHY
             self._save(m)
-            return
-        if host_id:
+            return result
+        result.destroyed = True
+        if host_id and mark_bad:
             BadHosts().mark(self.provider.name, host_id, reason)
         with self._lock:
             m.state = MachineState.RETIRED
+            self._resumes.pop(m.slot, None)
         self._forget(m)
-        self.obs.emit(ev.POOL_MACHINE_RETIRED, slot=m.slot, instance_id=m.instance_id, reason=reason, host_id=host_id)
+        self.obs.emit(
+            ev.POOL_MACHINE_RETIRED, slot=m.slot, instance_id=m.instance_id, reason=reason, host_id=host_id,
+            host_marked_bad=bool(host_id and mark_bad),
+            outputs_pulled=len(result.pulled), outputs_pulled_ids=sorted(result.pulled),
+            outputs_lost=len(result.lost), outputs_lost_ids=list(result.lost),
+        )
         self._gauges()
+        return result
 
-    def _pull_left_outputs(self, m: PoolMachine, eng: Engine, state: RuntimeState) -> None:
+    def _pull_left_outputs(self, m: PoolMachine, eng: Engine, state: RuntimeState, result: RetireResult) -> None:
+        """Download every queue job's outputs the machine still holds unsaved; jobs the
+        pool knows of (``m.jobs``) count as lost when the machine cannot be reached."""
         client = eng.beacon(state)
-        if client is None or not state.instance_id or not client.ping():
+        reachable = client is not None and bool(state.instance_id) and client.ping()
+        listed: Optional[list[dict]] = None
+        if reachable:
+            try:
+                jobs = JobClient(client)
+                jobs.ensure_runner()
+                listed = jobs.list()
+            except (StateError, WatchdogUnavailable):
+                listed = None
+        if listed is None:
+            result.lost.extend(j for j in m.jobs if j not in result.lost)
             return
-        try:
-            jobs = JobClient(client)
-            jobs.ensure_runner()
-            for job in jobs.list():
-                rid = str(job.get("id", ""))
-                if rid.startswith(HEALTH_JOB_PREFIX) or job.get("service") or not job.get("outputs_unsaved"):
-                    continue
-                try:
-                    jobs.download_outputs(rid, self._slot_dir(m.slot) / "retired-outputs" / rid)
-                except (StateError, WatchdogUnavailable):
-                    continue
-        except (StateError, WatchdogUnavailable):
-            return
+        for job in listed:
+            rid = str(job.get("id", ""))
+            if rid.startswith(HEALTH_JOB_PREFIX) or job.get("service"):
+                continue
+            if not job.get("outputs_unsaved") and rid not in m.jobs:
+                continue
+            dest = self._slot_dir(m.slot) / "retired-outputs" / rid
+            try:
+                jobs.download_outputs(rid, dest)
+            except (StateError, WatchdogUnavailable, OSError):
+                result.lost.append(rid)
+                continue
+            result.pulled[rid] = dest
+        seen = {str(j.get("id", "")) for j in listed}
+        result.lost.extend(j for j in m.jobs if j not in seen and j not in result.lost)
 
     def retire_instance(self, instance: Instance, reason: str) -> None:
         """Destroy a provider instance no slot tracks (an orphan, see ``orphans()``)."""
@@ -611,7 +703,7 @@ class Pool:
                 continue
             if m.state in _BOOTING:
                 # The thread that was bringing it up is gone (a restarted coordinator).
-                self._start(m, fresh=False)
+                self._resume(m)
                 continue
             if m.state in (MachineState.GONE, MachineState.RETIRED, MachineState.UNRESPONSIVE):
                 continue
@@ -621,6 +713,21 @@ class Pool:
                 self.obs.emit(ev.PROVIDER_ERROR, operation="pool_poll", slot=m.slot, error=str(exc)[:500])
         self._gauges()
         return self.machines()
+
+    def _resume(self, m: PoolMachine) -> None:
+        with self._lock:
+            tries = self._resumes.get(m.slot, 0) + 1
+            self._resumes[m.slot] = tries
+        if tries > MAX_RESUMES:
+            with self._lock:
+                m.state = MachineState.UNHEALTHY
+            self._save(m)
+            self.obs.emit(
+                ev.POOL_MACHINE_UNHEALTHY, slot=m.slot, instance_id=m.instance_id,
+                detail=f"bring-up did not finish after {MAX_RESUMES} attempts",
+            )
+            return
+        self._start(m, fresh=False)
 
     def _reconcile(self, m: PoolMachine, now: float) -> None:
         eng = self._engine(m.slot)
@@ -663,7 +770,7 @@ class Pool:
                 m.state = MachineState.CHECKING
                 self._deadline_set.discard(m.slot)
             self._save(m)
-            self._start(m, fresh=False)
+            self._resume(m)
             return
         if m.state not in _WATCHED:
             return
@@ -684,19 +791,26 @@ class Pool:
             m.last_seen_at = now
         if remote.get("deadline_at") is None or (m.deadline_at and float(remote["deadline_at"]) < m.deadline_at - 1):
             # The watchdog lost its deadline (restart) or never had one from us (adopted).
-            self._deadline_set.discard(m.slot)
+            with self._lock:
+                self._deadline_set.discard(m.slot)
             self._push_deadline(m, eng, state, max(m.deadline_at or 0.0, now + self._startup_allowance_s()))
-        elif m.slot not in self._deadline_set and m.deadline_at:
-            self._deadline_set.add(m.slot)
+        elif m.deadline_at:
+            with self._lock:
+                self._deadline_set.add(m.slot)
         try:
-            running_ids = [str(j["id"]) for j in self.remote_jobs(m) if j.get("state") == "running"]
+            listed = self.remote_jobs(m)
         except (StateError, WatchdogUnavailable):
-            running_ids = None
+            listed = None
         with self._lock:
-            if running_ids is not None:
-                m.jobs = running_ids
-            if m.state in (MachineState.READY, MachineState.BUSY):
-                m.state = MachineState.BUSY if m.jobs else MachineState.READY
+            if listed is not None:
+                # Running jobs, and finished ones whose outputs exist only on the machine.
+                m.jobs = [
+                    str(j["id"]) for j in listed
+                    if j.get("state") == "running" or j.get("outputs_unsaved")
+                ]
+                running = any(j.get("state") == "running" for j in listed)
+                if m.state in (MachineState.READY, MachineState.BUSY):
+                    m.state = MachineState.BUSY if running else MachineState.READY
         self._save(m)
 
     def _mark_gone(self, m: PoolMachine, eng: Engine, why: str) -> None:
@@ -724,6 +838,8 @@ class Pool:
             self._billed_at[m.slot] = max(since, now)
         if rate > 0 and now > since:
             self.spend.record(m.slot, since, now, rate, jobs=jobs)
+            if m.state != MachineState.RETIRED:
+                self._save(m)  # billed_at on disk: a restarted pool never bills this again
 
     def _gauges(self) -> None:
         machines = self.machines()
@@ -785,6 +901,11 @@ class Pool:
         tracked: set[str] = set()
         with self._lock:
             slots = list(self._machines.values())
+            # A slot still coming up may have rented an instance it has not recorded yet.
+            booting = {
+                m.slot for m in slots
+                if m.state in _BOOTING or (self._threads.get(m.slot) is not None and self._threads[m.slot].is_alive())
+            }
         for m in slots:
             if m.instance_id:
                 tracked.add(m.instance_id)
@@ -799,8 +920,10 @@ class Pool:
             label = inst.label or ""
             if not (label.startswith(prefix) and label.endswith(suffix)):
                 continue
-            if not _SLOT.fullmatch(label[len(prefix): -len(suffix)]):
+            slot = label[len(prefix): -len(suffix)]
+            if not _SLOT.fullmatch(slot) or slot in booting or inst.id in tracked:
                 continue
-            if inst.id not in tracked:
-                out.append(inst)
+            if inst.created_at and time.time() - float(inst.created_at) < ORPHAN_MIN_AGE_S:
+                continue
+            out.append(inst)
         return out
