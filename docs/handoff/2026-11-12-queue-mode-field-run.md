@@ -29,3 +29,7 @@ The crash at 20:02 landed between the coordinator recording an attempt and sendi
 - a machine restarted to pull outputs starts with a fresh deadline.
 
 Reproduce: `cd examples/queue-smoke`, submit with `gpu queue submit job --key smoke-N --env SMOKE_SECONDS=60`, run `gpu queue run`, follow `gpu queue status`.
+
+## Run 3: the final code (21:45 to 22:05 UTC)
+
+Ten more jobs on the code with every fix in. Six ran to success after a coordinator restart; then four more, with the coordinator killed by SIGKILL while two of them were running on warm machines. The new coordinator adopted both running jobs (no retry, no second start) and finished all four. 30 of 30 jobs succeeded across the three runs, `gpu queue audit` found no violations, and with the coordinator stopped both machines ended by themselves within the idle timeout (none listed at 22:05).
