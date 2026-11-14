@@ -205,3 +205,24 @@ def test_page_served_and_selfcontained():
         assert not re.search(r'(src|href)\s*=\s*["\']https?://', html)
     finally:
         server.stop()
+
+
+# --- Task 7: systemd service -----------------------------------------------
+
+def test_service_unit_is_restarting_and_boot_safe(tmp_path):
+    from gpu4agents.dashboard import service as svc
+
+    unit = svc.render_unit(project_dir=tmp_path, python="/usr/bin/python3")
+    assert "Type=simple" in unit
+    assert "Restart=always" in unit
+    assert "WantedBy=default.target" in unit
+    assert "dashboard" in unit and "gpu4agents" in unit
+
+
+def test_service_slug_per_project(tmp_path):
+    from gpu4agents.dashboard import service as svc
+
+    a = svc.unit_name(tmp_path / "proj-a")
+    b = svc.unit_name(tmp_path / "proj-b")
+    assert a != b
+    assert a == svc.unit_name(tmp_path / "proj-a")

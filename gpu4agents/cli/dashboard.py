@@ -1,29 +1,40 @@
 """`gpu dashboard`: a read-only, host-wide status web UI.
 
-    gpu dashboard start   run the dashboard in the foreground (what the service runs)
+    gpu dashboard start       run the dashboard in the foreground (what the service runs)
+    gpu dashboard install     install + enable a systemd user service (auto-restart, boot-safe)
+    gpu dashboard uninstall   remove the service
+    gpu dashboard status       is it installed / listening
+    gpu dashboard logs         journalctl for the service
 
 The dashboard reads only local state (the project registry + each project's
 .gpu/state.json) and probes endpoint reachability; it never calls a provider
-API and holds no provider credential. Bound to 127.0.0.1 by default.
+API and holds no provider credential. Bound to 127.0.0.1 by default; a
+non-loopback bind requires a token (generated on install).
 """
 
 from __future__ import annotations
 
 import os
+import secrets
 import time
 from pathlib import Path
+from typing import Optional
 
 import typer
 
 from ..core.durations import parse_duration
+from ..core.errors import JambuError
 from ..core.sweep import ProjectRegistry
 from ..dashboard.auth import TokenGate
 from ..dashboard.collect import project_snapshots
 from ..dashboard.probe import ReachabilityWatch
 from ..dashboard.server import DashboardServer
-from ._common import err_console, get_context
+from ..dashboard import service as svc
+from ._common import console, err_console, get_context, print_json
 
 dashboard_app = typer.Typer(help="Read-only control-plane web UI: every GPU, proxy and service this host sees.")
+
+_LOOPBACK = {"127.0.0.1", "localhost", "::1", ""}
 
 
 def _project_paths(context) -> list[Path]:
@@ -45,8 +56,19 @@ def _state_provider(context):
     return provider
 
 
-def _token(cfg) -> str | None:
-    return cfg.options.get("token") or os.environ.get("GPU_DASHBOARD_TOKEN")
+def _token_file(project_dir: Path) -> Path:
+    return Path(project_dir) / ".gpu" / "dashboard.token"
+
+
+def _read_token(cfg, project_dir: Optional[Path]) -> Optional[str]:
+    token = cfg.options.get("token") or os.environ.get("GPU_DASHBOARD_TOKEN")
+    if token:
+        return token
+    if project_dir:
+        tf = _token_file(project_dir)
+        if tf.is_file():
+            return tf.read_text().strip() or None
+    return None
 
 
 @dashboard_app.command("start")
@@ -56,7 +78,7 @@ def start_command(ctx: typer.Context) -> None:
     cfg = context.config().dashboard
     host, port = cfg.listen_host_port
     provider = _state_provider(context)
-    gate = TokenGate(_token(cfg))
+    gate = TokenGate(_read_token(cfg, context.config().project_dir))
     watch = ReachabilityWatch(
         interval_s=parse_duration(cfg.watch_interval) or 15.0,
         history_s=parse_duration(cfg.history) or 1200.0,
@@ -66,7 +88,85 @@ def start_command(ctx: typer.Context) -> None:
         context.echo("! dashboard.enabled is false in gpu.yaml; starting anyway because you asked")
     try:
         server = DashboardServer(cfg, provider, watch, gate, log=context.echo)
-    except OSError as exc:
-        err_console.print(f"error: cannot bind {host}:{port}: {exc}")
+    except (OSError, ValueError) as exc:
+        err_console.print(f"error: {exc}")
         raise typer.Exit(1) from exc
     server.serve_forever()
+
+
+@dashboard_app.command("install")
+def install_command(ctx: typer.Context) -> None:
+    """Install and enable a systemd user service (auto-restart, survives reboot)."""
+    context = get_context(ctx)
+    project_dir = context.config().project_dir
+    cfg = context.config().dashboard
+    host, _ = cfg.listen_host_port
+    try:
+        info = svc.install_service(project_dir)
+    except (JambuError, NotImplementedError) as exc:
+        err_console.print(f"error: {exc}")
+        raise typer.Exit(1) from exc
+    new_token = None
+    if host not in _LOOPBACK and _read_token(cfg, project_dir) is None:
+        new_token = secrets.token_urlsafe(24)
+        tf = _token_file(project_dir)
+        tf.parent.mkdir(parents=True, exist_ok=True)
+        tf.write_text(new_token)
+        os.chmod(tf, 0o600)
+    if context.json:
+        print_json({**info, "token_generated": new_token is not None})
+        return
+    console.print(f"[green]+[/green] wrote {info['file']}")
+    if new_token:
+        console.print(f"[yellow]![/yellow] non-loopback bind: generated access token (shown once):")
+        console.print(f"  [cyan]{new_token}[/cyan]")
+        console.print(f"  stored at {_token_file(project_dir)} (chmod 600); reach the page with ?token=…")
+    console.print("Enable it with:")
+    console.print(f"  [cyan]{info['enable']}[/cyan]")
+
+
+@dashboard_app.command("uninstall")
+def uninstall_command(ctx: typer.Context) -> None:
+    """Remove the systemd user service for this project."""
+    context = get_context(ctx)
+    info = svc.uninstall_service(context.config().project_dir)
+    if context.json:
+        print_json(info)
+        return
+    for path in info["removed"]:
+        console.print(f"[red]-[/red] removed {path}")
+    console.print("Disable it with:")
+    console.print(f"  [cyan]{info['disable']}[/cyan]")
+
+
+@dashboard_app.command("status")
+def status_command(ctx: typer.Context) -> None:
+    """Show whether the dashboard is installed and listening."""
+    import http.client
+
+    context = get_context(ctx)
+    cfg = context.config().dashboard
+    host, port = cfg.listen_host_port
+    installed = svc.is_installed(context.config().project_dir)
+    listening = False
+    try:
+        conn = http.client.HTTPConnection(host if host not in ("", "0.0.0.0") else "127.0.0.1", port, timeout=2)
+        conn.request("HEAD", "/")
+        listening = conn.getresponse().status < 500
+        conn.close()
+    except OSError:
+        listening = False
+    payload = {"installed": installed, "listening": listening, "listen": cfg.listen}
+    if context.json:
+        print_json(payload)
+        return
+    console.print(f"installed    {installed}")
+    console.print(f"listening    {listening}  ({cfg.listen})")
+
+
+@dashboard_app.command("logs")
+def logs_command(ctx: typer.Context) -> None:
+    """Print the journalctl command for the dashboard service (its logs)."""
+    context = get_context(ctx)
+    name = svc.unit_name(context.config().project_dir)
+    console.print(f"  [cyan]journalctl --user -u {name}.service -f[/cyan]")
