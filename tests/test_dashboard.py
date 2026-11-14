@@ -84,6 +84,68 @@ def test_select_instances_includes_error_rows():
     assert {r["project"] for r in picked} == {"a", "b"}
 
 
+def test_reconcile_marks_gone_when_not_live():
+    # The truth is the provider's live instance list; a local state.json that
+    # still names a dead instance is a ghost and must be marked gone.
+    from gpu4agents.dashboard.collect import reconcile
+
+    projects = [
+        {"project": "a", "instance_id": "i-live"},
+        {"project": "b", "instance_id": "i-dead"},
+        {"project": "c"},  # no instance to reconcile
+        {"project": "d", "error": "corrupt"},
+    ]
+    out = reconcile(projects, live_ids={"i-live"})
+    by = {r["project"]: r for r in out}
+    assert by["a"]["gone"] is False and by["a"]["verified"] is True
+    assert by["b"]["gone"] is True and by["b"]["state"] == "gone"
+    assert by["c"]["verified"] is True
+    assert "gone" not in by["d"]  # an error row is never reconciled
+
+
+def test_reconcile_unverified_when_no_live_data():
+    from gpu4agents.dashboard.collect import reconcile
+
+    out = reconcile([{"project": "a", "instance_id": "i"}], live_ids=None)
+    assert out[0]["verified"] is False
+    assert "gone" not in out[0]
+
+
+def test_select_instances_drops_ghosts():
+    from gpu4agents.dashboard.collect import select_instances
+
+    rows = [{"project": "a", "instance_id": "i"},
+            {"project": "b", "instance_id": "j", "gone": True}]
+    assert [r["project"] for r in select_instances(rows)] == ["a"]
+
+
+# --- ops: shell to the gpu CLI (live truth, logs, offers, control) ---------
+
+def test_ops_live_ids_parses_and_tolerates_failure():
+    from gpu4agents.dashboard import ops
+
+    def ok(args, cwd=None, timeout=0):
+        return (0, json.dumps({"provider": "vast",
+                               "instances": [{"id": "60128336", "state": "running"}, {"id": 77}]}), "")
+
+    assert ops.live_ids(run=ok) == {"60128336", "77"}
+
+    def fail(args, cwd=None, timeout=0):
+        return (2, "", "no credentials")
+
+    assert ops.live_ids(run=fail) is None  # unverifiable → None, never a crash
+
+
+def test_ops_offers_parses():
+    from gpu4agents.dashboard import ops
+
+    def run(args, cwd=None, timeout=0):
+        return (0, json.dumps({"offers": [{"id": "1", "gpu": "A100", "hourly_cost_usd": 0.9}]}), "")
+
+    offers = ops.offers(run=run)
+    assert offers[0]["id"] == "1"
+
+
 # --- Task 3: reachability watch --------------------------------------------
 
 def test_probe_records_failure_window():
@@ -245,14 +307,14 @@ def test_service_slug_per_project(tmp_path):
 
 # --- Task 8: control actions (phase 3) -------------------------------------
 
-def _boot_control(cfg, actions, gate, local_project="p"):
+def _boot_control(cfg, actions, gate, project_dirs=None):
     from gpu4agents.dashboard.probe import ReachabilityWatch
     from gpu4agents.dashboard.server import DashboardServer
 
     watch = ReachabilityWatch(interval_s=15, history_s=300)
     provider = lambda: {"instances": [], "projects": [], "proxies": []}  # noqa: E731
     server = DashboardServer(cfg, provider, watch, gate, log=lambda _m: None,
-                             actions=actions, local_project=local_project)
+                             actions=actions, project_dirs=project_dirs if project_dirs is not None else {"p": "/x"})
     threading.Thread(target=server.serve_forever, daemon=True).start()
     time.sleep(0.2)
     return server
@@ -263,9 +325,9 @@ def test_control_requires_token_and_confirm():
     from gpu4agents.dashboard.auth import TokenGate
 
     calls = []
-    actions = {"stop": lambda project: calls.append(("stop", project)) or {"stopped": project}}
+    actions = {"stop": lambda body: calls.append(("stop", body.get("project"))) or {"stopped": body.get("project")}}
     cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}", control_enabled=True)
-    server = _boot_control(cfg, actions, TokenGate("T"))
+    server = _boot_control(cfg, actions, TokenGate("T"), project_dirs={"p": "/x"})
     base = f"http://{cfg.listen}"
     hdr = {"Authorization": "Bearer T", "Content-Type": "application/json"}
     try:
@@ -286,6 +348,42 @@ def test_control_requires_token_and_confirm():
         server.stop()
 
 
+def test_logs_and_offers_routes():
+    from gpu4agents.core.config import DashboardConfig
+    from gpu4agents.dashboard.auth import TokenGate
+    from gpu4agents.dashboard.probe import ReachabilityWatch
+    from gpu4agents.dashboard.server import DashboardServer
+
+    cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}")
+    provider = lambda: {"instances": [], "projects": [], "proxies": []}  # noqa: E731
+    watch = ReachabilityWatch(interval_s=15, history_s=300)
+    server = DashboardServer(cfg, provider, watch, TokenGate(None), log=lambda _m: None,
+                             logs_fn=lambda p: f"logs for {p}", offers_fn=lambda: [{"id": "1"}])
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    time.sleep(0.2)
+    base = f"http://{cfg.listen}"
+    try:
+        r = httpx.get(f"{base}/api/logs?project=x", timeout=5)
+        assert r.status_code == 200 and r.text == "logs for x"
+        o = httpx.get(f"{base}/api/offers", timeout=5)
+        assert o.status_code == 200 and o.json()["offers"][0]["id"] == "1"
+    finally:
+        server.stop()
+
+
+def test_logs_route_404_without_fn():
+    from gpu4agents.core.config import DashboardConfig
+    from gpu4agents.dashboard.auth import TokenGate
+
+    cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}")
+    server = _boot(cfg, lambda: {"instances": [], "projects": [], "proxies": []}, TokenGate(None))
+    try:
+        assert httpx.get(f"http://{cfg.listen}/api/logs?project=x", timeout=5).status_code == 404
+        assert httpx.get(f"http://{cfg.listen}/api/offers", timeout=5).status_code == 404
+    finally:
+        server.stop()
+
+
 def test_control_rejects_foreign_project():
     # The dashboard controls only its own project; a card for another project
     # must not be able to act on the local one (the host-wide view shows many).
@@ -293,16 +391,16 @@ def test_control_rejects_foreign_project():
     from gpu4agents.dashboard.auth import TokenGate
 
     calls = []
-    actions = {"destroy": lambda project: calls.append(project)}
+    actions = {"destroy": lambda body: calls.append(body.get("project"))}
     cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}", control_enabled=True)
-    server = _boot_control(cfg, actions, TokenGate("T"), local_project="local")
+    server = _boot_control(cfg, actions, TokenGate("T"), project_dirs={"local": "/x"})
     base = f"http://{cfg.listen}"
     hdr = {"Authorization": "Bearer T", "Content-Type": "application/json"}
     try:
         r = httpx.post(f"{base}/api/control/destroy",
                        content=json.dumps({"project": "other", "confirm": True}), headers=hdr, timeout=5)
         assert r.status_code == 409
-        assert calls == []  # the foreign target was refused, nothing ran
+        assert calls == []  # an unknown project is refused, nothing ran
         r2 = httpx.post(f"{base}/api/control/destroy",
                         content=json.dumps({"project": "local", "confirm": True}), headers=hdr, timeout=5)
         assert r2.status_code == 200
