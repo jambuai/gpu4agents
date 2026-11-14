@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gpu dashboard</title>
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c2230; --line:#2a313c;
+    --fg:#e6edf3; --dim:#8b96a5; --ok:#3fb950; --bad:#f85149; --warn:#d29922;
+    --accent:#58a6ff;
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg:#f6f8fa; --panel:#fff; --panel2:#f0f3f6; --line:#d8dee4;
+      --fg:#1f2328; --dim:#6b7684; --accent:#0969da;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:14px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:14px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  header h1{font-size:16px;margin:0;font-weight:650;letter-spacing:.2px}
+  .pill{font-size:12px;color:var(--dim)}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;
+    vertical-align:middle;background:var(--dim)}
+  .dot.ok{background:var(--ok)} .dot.bad{background:var(--bad)} .dot.warn{background:var(--warn)}
+  main{padding:16px;max-width:1100px;margin:0 auto}
+  h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--dim);
+    margin:22px 0 10px}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card .top{display:flex;justify-content:space-between;align-items:start;gap:8px}
+  .name{font-weight:600}
+  .model{font-size:12px;color:var(--dim);word-break:break-all;margin-top:2px}
+  .badge{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);
+    white-space:nowrap}
+  .badge.ok{color:var(--ok);border-color:#1f5f2e} .badge.bad{color:var(--bad);border-color:#5f2220}
+  .badge.warn{color:var(--warn);border-color:#5f4a12} .badge.dim{color:var(--dim)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin-top:10px;font-size:13px}
+  .kv .k{color:var(--dim)} .kv .v{text-align:right;font-variant-numeric:tabular-nums}
+  .spark{display:flex;gap:2px;margin-top:10px;height:20px;align-items:flex-end}
+  .spark i{flex:1;min-width:2px;background:var(--ok);border-radius:1px;opacity:.85}
+  .spark i.bad{background:var(--bad)} .spark i.none{background:var(--line)}
+  .empty{color:var(--dim);font-size:13px;padding:10px 0}
+  .actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+  .actions button{font:12px inherit;cursor:pointer;background:var(--panel2);
+    color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 10px}
+  .actions button:hover{border-color:var(--accent)}
+  .actions button.danger{color:var(--bad);border-color:#5f2220}
+  .err{color:var(--bad);font-size:12px;margin-top:8px}
+  footer{color:var(--dim);font-size:12px;padding:8px 16px;text-align:center}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>gpu dashboard</h1>
+  <span class="pill" id="status"><span class="dot"></span>connecting…</span>
+  <span class="pill" style="margin-left:auto" id="clock"></span>
+</header>
+<main>
+  <h2>GPUs</h2>
+  <div class="grid" id="gpus"></div>
+  <h2>Proxies &amp; services</h2>
+  <div class="grid" id="proxies"></div>
+</main>
+<footer>read-only · reads local state only · <span id="count"></span></footer>
+
+<script>
+"use strict";
+var REFRESH_MS = 5000;
+
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+
+function fmtIdle(sec){
+  if(sec==null) return "—";
+  sec=Math.max(0,Math.floor(sec));
+  if(sec<60) return sec+"s";
+  var m=Math.floor(sec/60); if(m<60) return m+"m";
+  var h=Math.floor(m/60); return h+"h"+(m%60)+"m";
+}
+function fmtUsd(n){ return n==null?"—":"$"+Number(n).toFixed(3); }
+
+function reach(row, probes){
+  var ep = row.endpoint;
+  if(!ep) return {cls:"dim", label:"no endpoint"};
+  var p = probes && probes[ep];
+  if(!p || p.last_ok==null) return {cls:"dim", label:"probing…", p:p};
+  if(p.last_ok) return {cls:"ok", label:"reachable", p:p};
+  var e110 = p.errno110_in_window>0;
+  return {cls: e110?"warn":"bad", label: e110?"timeouts":"unreachable", p:p};
+}
+
+function spark(p){
+  if(!p || !p.window || !p.window.length) return "";
+  var w = p.window.slice(-40);
+  return '<div class="spark">'+w.map(function(x){
+    return '<i class="'+(x.ok?"":"bad")+'"></i>'; }).join("")+'</div>';
+}
+
+var CONTROL = false;
+var LOCAL = null;
+
+function actionBar(row, kinds){
+  // Only the dashboard's own project can be acted on, so only its card gets
+  // buttons. Values go in data-* attributes (HTML-escaped), never a JS string.
+  if(!CONTROL || !row.project || row.project !== LOCAL) return "";
+  return '<div class="actions">'+kinds.map(function(a){
+    var danger = (a==="destroy"||a==="stop") ? "danger" : "";
+    return '<button class="'+danger+'" data-action="'+esc(a)+'" data-project="'+
+      esc(row.project)+'">'+esc(a)+'</button>';
+  }).join("")+'</div>';
+}
+
+function gpuCard(row, probes){
+  if(row.error){
+    return '<div class="card"><div class="top"><div><div class="name">'+esc(row.project)+
+      '</div><div class="model">'+esc(row.dir)+'</div></div>'+
+      '<span class="badge bad">state unknown</span></div>'+
+      '<div class="err">'+esc(row.error)+'</div></div>';
+  }
+  var r = reach(row, probes);
+  return '<div class="card"><div class="top"><div>'+
+    '<div class="name">'+esc(row.project)+'</div>'+
+    '<div class="model">'+esc(row.model||"—")+'</div></div>'+
+    '<span class="badge '+r.cls+'">'+esc(r.label)+'</span></div>'+
+    '<div class="kv">'+
+      '<span class="k">state</span><span class="v">'+esc(row.state||"—")+'</span>'+
+      '<span class="k">endpoint</span><span class="v">'+esc(row.endpoint||"—")+'</span>'+
+      '<span class="k">$/h</span><span class="v">'+fmtUsd(row.hourly_cost_usd)+'</span>'+
+      '<span class="k">session</span><span class="v">'+fmtUsd(row.session_cost_usd)+'</span>'+
+      '<span class="k">idle</span><span class="v">'+fmtIdle(row.idle_seconds)+'</span>'+
+    '</div>'+ spark(r.p) + actionBar(row, ["stop","destroy","lock"]) +'</div>';
+}
+
+function doAction(action, project){
+  if(!window.confirm("Run \""+action+"\" on project \""+project+"\"? This cannot be undone.")) return;
+  fetch("/api/control/"+encodeURIComponent(action), {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({project:project, confirm:true})
+  }).then(function(r){ return r.json().then(function(b){ return {ok:r.ok, b:b}; }); })
+    .then(function(x){
+      if(!x.ok) alert(action+" failed: "+(x.b && x.b.error || "error"));
+      tick();
+    }).catch(function(e){ alert(String(e)); });
+}
+
+function proxyCard(row, probes){
+  var r = reach(row, probes);
+  return '<div class="card"><div class="top"><div>'+
+    '<div class="name">'+esc(row.project||row.name||"proxy")+'</div>'+
+    '<div class="model">'+esc(row.listen||row.endpoint||"")+'</div></div>'+
+    '<span class="badge '+r.cls+'">'+esc(r.label)+'</span></div>'+
+    (row.service!=null?'<div class="kv"><span class="k">service</span><span class="v">'+
+      esc(row.service)+'</span></div>':'')+ spark(r.p) +
+    actionBar(row, ["restart-proxy"]) +'</div>';
+}
+
+function setStatus(ok, msg){
+  var el=document.getElementById("status");
+  el.innerHTML='<span class="dot '+(ok?"ok":"bad")+'"></span>'+esc(msg);
+}
+
+function render(d){
+  CONTROL = d.control===true;
+  LOCAL = d.project||null;
+  var probes=d.probes||{};
+  var gpus=d.instances||[];
+  var gEl=document.getElementById("gpus");
+  gEl.innerHTML = gpus.length ? gpus.map(function(r){return gpuCard(r,probes);}).join("")
+    : '<div class="empty">No GPUs in local state.</div>';
+  var px=d.proxies||[];
+  var pEl=document.getElementById("proxies");
+  pEl.innerHTML = px.length ? px.map(function(r){return proxyCard(r,probes);}).join("")
+    : '<div class="empty">No proxies reported.</div>';
+  document.getElementById("count").textContent =
+    gpus.length+" GPU(s), "+px.length+" proxy(ies)";
+  document.getElementById("clock").textContent =
+    "updated "+new Date().toLocaleTimeString();
+}
+
+function tick(){
+  fetch("/api/state",{headers:{"Accept":"application/json"}})
+    .then(function(r){ if(!r.ok) throw new Error("HTTP "+r.status); return r.json(); })
+    .then(function(d){ setStatus(true,"live"); render(d); })
+    .catch(function(e){ setStatus(false,String(e.message||e)); });
+}
+document.addEventListener("click", function(ev){
+  var b = ev.target.closest && ev.target.closest("button[data-action]");
+  if(b) doAction(b.getAttribute("data-action"), b.getAttribute("data-project"));
+});
+tick();
+setInterval(tick, REFRESH_MS);
+</script>
+</body>
+</html>

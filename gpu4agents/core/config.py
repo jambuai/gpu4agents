@@ -343,6 +343,34 @@ class GatewayConfig(_Base):
         return (host or "127.0.0.1", int(port))
 
 
+class DashboardConfig(_Base):
+    """A read-only control-plane web UI: a host-wide status page over loopback.
+
+    Shows every GPU, proxy and service this host can see (from the sweep
+    registry + each project's state + gateway liveness) and runs a background
+    reachability watch. Bound to 127.0.0.1 by default; a non-loopback bind
+    requires a token (enforced at start) so the fleet is never served open.
+    """
+
+    enabled: bool = False
+    listen: str = "127.0.0.1:8137"
+    watch_interval: str = "15s"
+    history: str = "20m"
+    token_required_off_loopback: bool = True
+    control_enabled: bool = False  # phase 3: expose mutating routes
+    options: dict[str, Any] = Field(default_factory=dict)
+
+    _v_watch = _duration("watch_interval")
+    _v_history = _duration("history")
+
+    @property
+    def listen_host_port(self) -> tuple[str, int]:
+        host, _, port = self.listen.rpartition(":")
+        if not port.isdigit():
+            raise ValueError(f"dashboard.listen must be host:port, got {self.listen!r}")
+        return (host or "127.0.0.1", int(port))
+
+
 class QueueHealthCheck(_Base):
     command: Optional[str] = None  # None = built-in CUDA check
     min_free_vram_gb: Optional[float] = None
@@ -457,6 +485,7 @@ class RuntimeConfig(_Base):
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     workload: WorkloadConfig = Field(default_factory=WorkloadConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     queue: Optional[QueueConfig] = None
 
     # Populated by the loader; not part of the YAML document.
