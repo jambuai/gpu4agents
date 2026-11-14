@@ -175,23 +175,35 @@ function showLogs(project){
 }
 
 function showOffers(){
-  openPanel("rent a GPU", "<p>loading offers…</p>");
-  fetch("/api/offers").then(function(r){ return r.json(); }).then(function(d){
-    var offers = d.offers||[];
-    if(d.error){ document.getElementById("panel-body").innerHTML="<pre>"+esc(d.error)+"</pre>"; return; }
-    var target = CONTROLLABLE[0]||"";
-    var sel = CONTROLLABLE.length>1 ? '<p>rent into: <select id="rent-target">'+
-      CONTROLLABLE.map(function(p){return '<option>'+esc(p)+'</option>';}).join("")+'</select></p>' :
-      '<p>rent into: <b>'+esc(target)+'</b></p>';
-    var rows = offers.map(function(o){
-      return '<tr><td>'+esc(o.gpu)+'</td><td class="num">'+esc(o.vram_gb)+'GB</td>'+
-        '<td class="num">$'+Number(o.hourly_cost_usd).toFixed(3)+'/h</td>'+
-        '<td>'+esc(o.region||"")+'</td>'+
-        '<td><button data-rent="'+esc(o.id)+'">rent</button></td></tr>';
-    }).join("");
-    document.getElementById("panel-body").innerHTML = sel +
-      '<table><tr><th>GPU</th><th>VRAM</th><th>$/h</th><th>region</th><th></th></tr>'+rows+'</table>';
-  }).catch(function(e){ document.getElementById("panel-body").innerHTML="<pre>"+esc(String(e))+"</pre>"; });
+  if(!CONTROLLABLE.length){ openPanel("rent a GPU", "<pre>no projects to rent into</pre>"); return; }
+  var sel = '<p>rent into: <select id="rent-target">'+
+    CONTROLLABLE.map(function(p){return '<option>'+esc(p)+'</option>';}).join("")+
+    '</select> <span class="pill">offers match this project\'s requirements</span></p>';
+  openPanel("rent a GPU", sel+'<div id="offers-box"><p>loading offers…</p></div>');
+  loadOffersFor(CONTROLLABLE[0]);
+}
+
+function loadOffersFor(project){
+  var box = document.getElementById("offers-box");
+  if(box) box.innerHTML = "<p>loading offers for "+esc(project)+"…</p>";
+  fetch("/api/offers?project="+encodeURIComponent(project)).then(function(r){ return r.json(); })
+    .then(function(d){
+      var box = document.getElementById("offers-box");
+      if(!box) return;
+      if(d.error){ box.innerHTML = "<pre>"+esc(d.error)+"</pre>"; return; }
+      var offers = d.offers||[];
+      if(!offers.length){ box.innerHTML = "<p>no offers match this project under its budget.</p>"; return; }
+      var rows = offers.map(function(o){
+        return '<tr><td>'+esc(o.gpu)+'</td><td class="num">'+esc(o.vram_gb)+'GB</td>'+
+          '<td class="num">$'+Number(o.hourly_cost_usd).toFixed(3)+'/h</td>'+
+          '<td>'+esc(o.region||"")+'</td>'+
+          '<td><button data-rent="'+esc(o.id)+'">rent</button></td></tr>';
+      }).join("");
+      box.innerHTML = '<table><tr><th>GPU</th><th>VRAM</th><th>$/h</th><th>region</th><th></th></tr>'+rows+'</table>';
+    }).catch(function(e){
+      var box = document.getElementById("offers-box");
+      if(box) box.innerHTML = "<pre>"+esc(String(e))+"</pre>";
+    });
 }
 
 function rentOffer(offerId){
@@ -248,7 +260,7 @@ function render(d){
   var gpus=d.instances||[];
   var gEl=document.getElementById("gpus");
   gEl.innerHTML = gpus.length ? gpus.map(function(r){return gpuCard(r,probes);}).join("")
-    : '<div class="empty">No GPUs in local state.</div>';
+    : '<div class="empty">No live GPUs.</div>';
   var px=d.proxies||[];
   var pEl=document.getElementById("proxies");
   pEl.innerHTML = px.length ? px.map(function(r){return proxyCard(r,probes);}).join("")
@@ -273,6 +285,9 @@ document.addEventListener("click", function(ev){
   if(rent){ rentOffer(rent.getAttribute("data-rent")); return; }
   if(t.id==="rentbtn") showOffers();
   if(t.id==="closepanel" || t.id==="overlay") closePanel();
+});
+document.addEventListener("change", function(ev){
+  if(ev.target.id==="rent-target") loadOffersFor(ev.target.value);
 });
 tick();
 setInterval(tick, REFRESH_MS);

@@ -84,6 +84,19 @@ def test_select_instances_includes_error_rows():
     assert {r["project"] for r in picked} == {"a", "b"}
 
 
+def test_live_project_paths_drops_missing(tmp_path):
+    # Dead registry entries (ephemeral job dirs, deleted projects) must not
+    # appear as controllable/rentable targets.
+    from gpu4agents.dashboard.collect import live_project_paths
+
+    a = tmp_path / "a" / "gpu.yaml"
+    a.parent.mkdir(parents=True)
+    a.write_text("gpu_runtime: {}\n")
+    missing = tmp_path / "gone" / "gpu.yaml"
+    out = live_project_paths([a, missing])
+    assert out == [a]
+
+
 def test_reconcile_marks_gone_when_not_live():
     # The truth is the provider's live instance list; a local state.json that
     # still names a dead instance is a ghost and must be marked gone.
@@ -358,15 +371,16 @@ def test_logs_and_offers_routes():
     provider = lambda: {"instances": [], "projects": [], "proxies": []}  # noqa: E731
     watch = ReachabilityWatch(interval_s=15, history_s=300)
     server = DashboardServer(cfg, provider, watch, TokenGate(None), log=lambda _m: None,
-                             logs_fn=lambda p: f"logs for {p}", offers_fn=lambda: [{"id": "1"}])
+                             logs_fn=lambda p: f"logs for {p}",
+                             offers_fn=lambda project: [{"id": "1", "for": project}])
     threading.Thread(target=server.serve_forever, daemon=True).start()
     time.sleep(0.2)
     base = f"http://{cfg.listen}"
     try:
         r = httpx.get(f"{base}/api/logs?project=x", timeout=5)
         assert r.status_code == 200 and r.text == "logs for x"
-        o = httpx.get(f"{base}/api/offers", timeout=5)
-        assert o.status_code == 200 and o.json()["offers"][0]["id"] == "1"
+        o = httpx.get(f"{base}/api/offers?project=deepseek-qwen", timeout=5)
+        assert o.status_code == 200 and o.json()["offers"][0]["for"] == "deepseek-qwen"
     finally:
         server.stop()
 

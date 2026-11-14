@@ -44,8 +44,8 @@ def live_ids(run: Runner = _default_run) -> Optional[set]:
         return None
 
 
-def offers(run: Runner = _default_run) -> list[dict[str, Any]]:
-    code, out, err = run(["--json", "offers"], None, 60.0)
+def offers(cwd: Optional[str] = None, run: Runner = _default_run) -> list[dict[str, Any]]:
+    code, out, err = run(["--json", "offers"], cwd, 60.0)
     if code != 0:
         raise RuntimeError(err or out or "offers failed")
     data = json.loads(out or "{}")

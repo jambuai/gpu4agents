@@ -69,7 +69,7 @@ def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None],
                  control_enabled: bool = False, actions: Optional[dict] = None,
                  project_dirs: Optional[dict] = None,
                  logs_fn: Optional[Callable[[str], str]] = None,
-                 offers_fn: Optional[Callable[[], list]] = None) -> type[BaseHTTPRequestHandler]:
+                 offers_fn: Optional[Callable[..., list]] = None) -> type[BaseHTTPRequestHandler]:
     actions = actions or {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -116,7 +116,7 @@ def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None],
             if path == "/api/state":
                 state = build_state(provider, watch, time.time())
                 state["control"] = control_enabled
-                state["controllable"] = sorted(project_dirs) if project_dirs else []
+                state["controllable"] = list(project_dirs) if project_dirs else []
                 log(f"GET /api/state -> 200 ({len(state.get('projects', []))} projects)")
                 return self._send(200, json.dumps(state).encode(), "application/json", extra)
             if path == "/api/logs":
@@ -131,8 +131,9 @@ def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None],
             if path == "/api/offers":
                 if offers_fn is None:
                     return self._send(404, b'{"error":"offers unavailable"}', "application/json")
+                project = parse_qs(query).get("project", [None])[0]
                 try:
-                    data = json.dumps({"offers": offers_fn()}).encode()
+                    data = json.dumps({"offers": offers_fn(project), "project": project}).encode()
                 except Exception as exc:  # noqa: BLE001
                     data = json.dumps({"error": str(exc)}).encode()
                 return self._send(200, data, "application/json", extra)
@@ -186,7 +187,7 @@ class DashboardServer:
                  log: Callable[[str], None] = lambda _m: None,
                  actions: Optional[dict] = None, project_dirs: Optional[dict] = None,
                  logs_fn: Optional[Callable[[str], str]] = None,
-                 offers_fn: Optional[Callable[[], list]] = None) -> None:
+                 offers_fn: Optional[Callable[..., list]] = None) -> None:
         host, port = config.listen_host_port
         guard_bind(host, gate.token, required=config.token_required_off_loopback)
         self._log = log

@@ -27,7 +27,7 @@ from ..core.errors import JambuError
 from ..core.sweep import ProjectRegistry
 from ..dashboard import ops
 from ..dashboard.auth import TokenGate
-from ..dashboard.collect import project_snapshots, reconcile, select_instances
+from ..dashboard.collect import live_project_paths, project_snapshots, reconcile, select_instances
 from ..dashboard.probe import ReachabilityWatch
 from ..dashboard.server import DashboardServer
 from ..dashboard import service as svc
@@ -49,8 +49,24 @@ def _project_paths(context) -> list[Path]:
 
 
 def _project_index(context) -> dict:
-    """Map each known project's name to its directory (for control targeting)."""
-    return {Path(p).parent.name: str(Path(p).parent) for p in _project_paths(context)}
+    """Map each real project's name to its directory, this project first.
+
+    Only configs that still exist on disk are included (dead registry entries
+    are dropped), and the dashboard's own project is listed first so it is the
+    sensible default target for rent/control — not whatever sorts first.
+    """
+    try:
+        own_name = Path(context.config().project_dir).name
+    except Exception:  # noqa: BLE001 - no loadable project is fine
+        own_name = None
+    index: dict[str, str] = {}
+    for p in live_project_paths(_project_paths(context)):
+        index[p.parent.name] = str(p.parent)
+    # reorder: this project first, so it is the default rent/control target
+    if own_name and own_name in index:
+        index = {own_name: index[own_name],
+                 **{k: v for k, v in index.items() if k != own_name}}
+    return index
 
 
 def _state_provider(context, with_creds: bool):
@@ -133,7 +149,9 @@ def start_command(ctx: typer.Context) -> None:
         actions = _build_actions(context)
         project_dirs = _project_index(context)
         logs_fn = lambda project: ops.logs(_project_index(context).get(project, "."))  # noqa: E731
-        offers_fn = ops.offers
+        # offers match the selected project's own requirements (run in its dir)
+        offers_fn = lambda project: ops.offers(  # noqa: E731
+            cwd=_project_index(context).get(project) if project else None)
         context.echo("! dashboard.control_enabled is true: live control (rent/stop/destroy) — token + confirm required")
     if not cfg.enabled:
         context.echo("! dashboard.enabled is false in gpu.yaml; starting anyway because you asked")

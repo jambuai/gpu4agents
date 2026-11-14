@@ -14,6 +14,13 @@ from typing import Any, Iterable, Optional
 from ..core.state import StateStore
 
 
+def live_project_paths(paths: Iterable[Path]) -> list[Path]:
+    """Keep only project config paths that still exist on disk, dropping dead
+    registry entries (ephemeral job dirs, deleted projects) so they never show
+    up as a controllable or rentable target."""
+    return [Path(p) for p in paths if Path(p).is_file()]
+
+
 def reconcile(projects: list[dict[str, Any]], live_ids: Optional[set]) -> list[dict[str, Any]]:
     """Overlay provider truth on local state so the page never shows a ghost.
 
