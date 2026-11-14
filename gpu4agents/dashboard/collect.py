@@ -14,6 +14,14 @@ from typing import Any, Iterable
 from ..core.state import StateStore
 
 
+def select_instances(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The GPU-centric view the page renders: rows that have an instance, plus
+    error rows (a project whose state could not be read still deserves a cell).
+    A project with no instance and no error (destroyed) is not a GPU to show.
+    """
+    return [r for r in projects if r.get("instance_id") or r.get("error")]
+
+
 def project_snapshots(config_paths: Iterable[Path], now: float) -> list[dict[str, Any]]:
     """One read-only row per project config path (a ``gpu.yaml``).
 

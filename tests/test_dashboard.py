@@ -70,6 +70,20 @@ def test_corrupt_state_becomes_error_row(tmp_path):
     assert "error" in snap
 
 
+def test_select_instances_includes_error_rows():
+    # The page renders GPUs from `instances`; an error row must surface there,
+    # not vanish because it has no instance_id.
+    from gpu4agents.dashboard.collect import select_instances
+
+    rows = [
+        {"project": "a", "instance_id": "i-1"},
+        {"project": "b", "error": "corrupt"},
+        {"project": "c"},  # destroyed/no instance: not a GPU to show
+    ]
+    picked = select_instances(rows)
+    assert {r["project"] for r in picked} == {"a", "b"}
+
+
 # --- Task 3: reachability watch --------------------------------------------
 
 def test_probe_records_failure_window():
@@ -231,13 +245,14 @@ def test_service_slug_per_project(tmp_path):
 
 # --- Task 8: control actions (phase 3) -------------------------------------
 
-def _boot_control(cfg, actions, gate):
+def _boot_control(cfg, actions, gate, local_project="p"):
     from gpu4agents.dashboard.probe import ReachabilityWatch
     from gpu4agents.dashboard.server import DashboardServer
 
     watch = ReachabilityWatch(interval_s=15, history_s=300)
     provider = lambda: {"instances": [], "projects": [], "proxies": []}  # noqa: E731
-    server = DashboardServer(cfg, provider, watch, gate, log=lambda _m: None, actions=actions)
+    server = DashboardServer(cfg, provider, watch, gate, log=lambda _m: None,
+                             actions=actions, local_project=local_project)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     time.sleep(0.2)
     return server
@@ -267,6 +282,31 @@ def test_control_requires_token_and_confirm():
                        content=json.dumps({"project": "p", "confirm": True}), headers=hdr, timeout=5)
         assert r.status_code == 200
         assert calls == [("stop", "p")]
+    finally:
+        server.stop()
+
+
+def test_control_rejects_foreign_project():
+    # The dashboard controls only its own project; a card for another project
+    # must not be able to act on the local one (the host-wide view shows many).
+    from gpu4agents.core.config import DashboardConfig
+    from gpu4agents.dashboard.auth import TokenGate
+
+    calls = []
+    actions = {"destroy": lambda project: calls.append(project)}
+    cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}", control_enabled=True)
+    server = _boot_control(cfg, actions, TokenGate("T"), local_project="local")
+    base = f"http://{cfg.listen}"
+    hdr = {"Authorization": "Bearer T", "Content-Type": "application/json"}
+    try:
+        r = httpx.post(f"{base}/api/control/destroy",
+                       content=json.dumps({"project": "other", "confirm": True}), headers=hdr, timeout=5)
+        assert r.status_code == 409
+        assert calls == []  # the foreign target was refused, nothing ran
+        r2 = httpx.post(f"{base}/api/control/destroy",
+                        content=json.dumps({"project": "local", "confirm": True}), headers=hdr, timeout=5)
+        assert r2.status_code == 200
+        assert calls == ["local"]
     finally:
         server.stop()
 

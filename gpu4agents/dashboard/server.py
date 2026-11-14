@@ -66,7 +66,8 @@ _CONTROL_PREFIX = "/api/control/"
 
 
 def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None],
-                 control_enabled: bool = False, actions: Optional[dict] = None) -> type[BaseHTTPRequestHandler]:
+                 control_enabled: bool = False, actions: Optional[dict] = None,
+                 local_project: Optional[str] = None) -> type[BaseHTTPRequestHandler]:
     actions = actions or {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -113,6 +114,7 @@ def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None],
             if path == "/api/state":
                 state = build_state(provider, watch, time.time())
                 state["control"] = control_enabled
+                state["project"] = local_project  # which card may show action buttons
                 log(f"GET /api/state -> 200 ({len(state.get('projects', []))} projects)")
                 return self._send(200, json.dumps(state).encode(), "application/json", extra)
             if path == "/":
@@ -139,6 +141,13 @@ def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None],
             if not (isinstance(body, dict) and body.get("confirm") is True):
                 return self._send(400, b'{"error":"confirm required"}', "application/json")
             project = body.get("project")
+            # This dashboard controls only its own project; refuse a foreign
+            # target so a host-wide card can never act on the wrong machine.
+            if local_project is not None and project != local_project:
+                payload = json.dumps({
+                    "error": f"this dashboard controls only project {local_project!r}, not {project!r}"
+                }).encode()
+                return self._send(409, payload, "application/json")
             log(f"POST /api/control/{action} project={project!r} -> running")
             try:
                 result = actions[action](project)
@@ -155,12 +164,13 @@ class DashboardServer:
     def __init__(self, config: DashboardConfig, provider: Callable[[], dict],
                  watch: ReachabilityWatch, gate: TokenGate,
                  log: Callable[[str], None] = lambda _m: None,
-                 actions: Optional[dict] = None) -> None:
+                 actions: Optional[dict] = None, local_project: Optional[str] = None) -> None:
         host, port = config.listen_host_port
         guard_bind(host, gate.token, required=config.token_required_off_loopback)
         self._log = log
         handler = make_handler(provider, watch, gate, log,
-                               control_enabled=config.control_enabled, actions=actions)
+                               control_enabled=config.control_enabled, actions=actions,
+                               local_project=local_project)
         self._httpd = ThreadingHTTPServer((host, port), handler)
         self._httpd.daemon_threads = True
         self.host, self.port = host, port

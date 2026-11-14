@@ -72,8 +72,8 @@
 "use strict";
 var REFRESH_MS = 5000;
 
-function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g, function(c){
-  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]; }); }
+function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+  return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 
 function fmtIdle(sec){
   if(sec==null) return "—";
@@ -102,13 +102,16 @@ function spark(p){
 }
 
 var CONTROL = false;
+var LOCAL = null;
 
 function actionBar(row, kinds){
-  if(!CONTROL) return "";
-  var p = esc(row.project||"");
+  // Only the dashboard's own project can be acted on, so only its card gets
+  // buttons. Values go in data-* attributes (HTML-escaped), never a JS string.
+  if(!CONTROL || !row.project || row.project !== LOCAL) return "";
   return '<div class="actions">'+kinds.map(function(a){
-    var danger = (a==="destroy"||a==="stop") ? " danger" : "";
-    return '<button class="'+danger.trim()+'" onclick="doAction(\''+esc(a)+'\',\''+p+'\')">'+esc(a)+'</button>';
+    var danger = (a==="destroy"||a==="stop") ? "danger" : "";
+    return '<button class="'+danger+'" data-action="'+esc(a)+'" data-project="'+
+      esc(row.project)+'">'+esc(a)+'</button>';
   }).join("")+'</div>';
 }
 
@@ -163,6 +166,7 @@ function setStatus(ok, msg){
 
 function render(d){
   CONTROL = d.control===true;
+  LOCAL = d.project||null;
   var probes=d.probes||{};
   var gpus=d.instances||[];
   var gEl=document.getElementById("gpus");
@@ -184,6 +188,10 @@ function tick(){
     .then(function(d){ setStatus(true,"live"); render(d); })
     .catch(function(e){ setStatus(false,String(e.message||e)); });
 }
+document.addEventListener("click", function(ev){
+  var b = ev.target.closest && ev.target.closest("button[data-action]");
+  if(b) doAction(b.getAttribute("data-action"), b.getAttribute("data-project"));
+});
 tick();
 setInterval(tick, REFRESH_MS);
 </script>

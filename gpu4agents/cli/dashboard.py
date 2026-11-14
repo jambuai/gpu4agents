@@ -26,7 +26,7 @@ from ..core.durations import parse_duration
 from ..core.errors import JambuError
 from ..core.sweep import ProjectRegistry
 from ..dashboard.auth import TokenGate
-from ..dashboard.collect import project_snapshots
+from ..dashboard.collect import project_snapshots, select_instances
 from ..dashboard.probe import ReachabilityWatch
 from ..dashboard.server import DashboardServer
 from ..dashboard import service as svc
@@ -50,8 +50,7 @@ def _project_paths(context) -> list[Path]:
 def _state_provider(context):
     def provider() -> dict:
         projects = project_snapshots(_project_paths(context), time.time())
-        instances = [r for r in projects if r.get("instance_id")]
-        return {"instances": instances, "projects": projects, "proxies": []}
+        return {"instances": select_instances(projects), "projects": projects, "proxies": []}
 
     return provider
 
@@ -120,8 +119,10 @@ def start_command(ctx: typer.Context) -> None:
         context.echo("! dashboard.control_enabled is true: mutating routes are live (token + confirm required)")
     if not cfg.enabled:
         context.echo("! dashboard.enabled is false in gpu.yaml; starting anyway because you asked")
+    local_project = Path(context.config().project_dir).name
     try:
-        server = DashboardServer(cfg, provider, watch, gate, log=context.echo, actions=actions)
+        server = DashboardServer(cfg, provider, watch, gate, log=context.echo,
+                                 actions=actions, local_project=local_project)
     except (OSError, ValueError) as exc:
         err_console.print(f"error: {exc}")
         raise typer.Exit(1) from exc
