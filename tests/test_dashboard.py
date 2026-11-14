@@ -64,3 +64,29 @@ def test_corrupt_state_becomes_error_row(tmp_path):
     [snap] = project_snapshots([cfg], now=0.0)
     assert snap["project"] == "proj-b"
     assert "error" in snap
+
+
+# --- Task 3: reachability watch --------------------------------------------
+
+def test_probe_records_failure_window():
+    from gpu4agents.dashboard.probe import ReachabilityWatch
+
+    w = ReachabilityWatch(interval_s=15, history_s=300)
+    w.record("http://e", (True, 10.0, None), ts=1000.0)
+    w.record("http://e", (False, None, "[Errno 110] Connection timed out"), ts=1005.0)
+    w.record("http://e", (True, 12.0, None), ts=1010.0)
+    snap = w.snapshot("http://e")
+    assert snap["failures_in_window"] == 1
+    assert snap["errno110_in_window"] == 1
+    assert snap["last_ok"] is True
+    assert snap["last_connect_ms"] == 12.0
+
+
+def test_window_trims_old():
+    from gpu4agents.dashboard.probe import ReachabilityWatch
+
+    w = ReachabilityWatch(interval_s=15, history_s=100)
+    w.record("http://e", (True, 10.0, None), ts=1000.0)
+    w.record("http://e", (True, 11.0, None), ts=1200.0)  # 200s later → first drops
+    snap = w.snapshot("http://e")
+    assert len(snap["window"]) == 1
