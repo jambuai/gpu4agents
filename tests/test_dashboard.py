@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import socket
+import threading
+import time
 
+import httpx
 import pytest
 
 from gpu4agents.core.config import DashboardConfig, RuntimeConfig
@@ -90,3 +94,75 @@ def test_window_trims_old():
     w.record("http://e", (True, 11.0, None), ts=1200.0)  # 200s later → first drops
     snap = w.snapshot("http://e")
     assert len(snap["window"]) == 1
+
+
+# --- Task 4: server + token gate -------------------------------------------
+
+def _free_port() -> int:
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def _boot(cfg, provider, gate):
+    from gpu4agents.dashboard.probe import ReachabilityWatch
+    from gpu4agents.dashboard.server import DashboardServer
+
+    watch = ReachabilityWatch(interval_s=15, history_s=300)
+    server = DashboardServer(cfg, provider, watch, gate, log=lambda _m: None)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    time.sleep(0.2)
+    return server
+
+
+def test_token_gate_accepts_bearer_and_cookie_rejects_absent():
+    from gpu4agents.dashboard.auth import TokenGate
+
+    gate = TokenGate("SEKRET")
+    assert gate.check({}, "") is False
+    assert gate.check({"Authorization": "Bearer SEKRET"}, "") is True
+    assert gate.check({}, "token=SEKRET") is True
+    assert gate.check({"Cookie": "gpu_dash=SEKRET"}, "") is True
+    assert gate.check({"Authorization": "Bearer nope"}, "") is False
+
+
+def test_api_state_shape():
+    from gpu4agents.core.config import DashboardConfig
+    from gpu4agents.dashboard.auth import TokenGate
+
+    cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}")
+    provider = lambda: {  # noqa: E731
+        "instances": [],
+        "projects": [{"project": "p", "endpoint": "http://x", "model": "m"}],
+        "proxies": [],
+    }
+    server = _boot(cfg, provider, TokenGate(None))
+    try:
+        r = httpx.get(f"http://{cfg.listen}/api/state", timeout=5)
+        assert r.status_code == 200
+        body = r.json()
+        assert {"instances", "projects", "proxies", "probes", "generated_at"} <= set(body)
+        assert "api_key" not in json.dumps(body)
+    finally:
+        server.stop()
+
+
+def test_api_state_requires_token_when_set():
+    from gpu4agents.core.config import DashboardConfig
+    from gpu4agents.dashboard.auth import TokenGate
+
+    cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}")
+    provider = lambda: {"instances": [], "projects": [], "proxies": []}  # noqa: E731
+    server = _boot(cfg, provider, TokenGate("T"))
+    base = f"http://{cfg.listen}"
+    try:
+        assert httpx.get(f"{base}/api/state", timeout=5).status_code == 401
+        assert httpx.get(f"{base}/api/state", headers={"Authorization": "Bearer T"},
+                         timeout=5).status_code == 200
+        r = httpx.get(f"{base}/api/state?token=T", timeout=5)
+        assert r.status_code == 200
+        assert "gpu_dash=T" in r.headers.get("set-cookie", "")
+    finally:
+        server.stop()
