@@ -13,13 +13,13 @@ from ..core.errors import JambuError
 from . import account
 from . import agent as agent_cli
 from . import inspect as inspect_cli
-from . import _common, gateway, job, lifecycle, providers, run, setup, status, validate
+from . import _common, dashboard, gateway, job, lifecycle, providers, run, setup, status, validate
 from . import queue as queue_cli
 from ._common import Context, err_console, get_context, print_json
 
 # The MCP server speaks JSON-RPC on stdio and the agent reads its tools' results;
 # `ls` and `sweep` report stopped machines themselves.
-QUIET_COMMANDS = ("mcp", "ls", "sweep", "gateway", "queue")
+QUIET_COMMANDS = ("mcp", "ls", "sweep", "gateway", "dashboard", "queue")
 # "queue" is quiet here because `gpu queue run` is long-running and logs its own events; the
 # other queue commands warn from the queue group's own callback (cli/queue.py).
 
@@ -97,6 +97,7 @@ app.command("sweep")(account.sweep_command)
 app.command("mcp")(agent_cli.mcp_command)
 app.add_typer(agent_cli.agent_app, name="agent")
 app.add_typer(gateway.gateway_app, name="gateway")
+app.add_typer(dashboard.dashboard_app, name="dashboard")
 
 
 @app.command("endpoint")

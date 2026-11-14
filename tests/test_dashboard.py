@@ -166,3 +166,15 @@ def test_api_state_requires_token_when_set():
         assert "gpu_dash=T" in r.headers.get("set-cookie", "")
     finally:
         server.stop()
+
+
+# --- Task 5: CLI -----------------------------------------------------------
+
+def test_cli_dashboard_start_help():
+    from typer.testing import CliRunner
+
+    from gpu4agents.cli.dashboard import dashboard_app
+
+    res = CliRunner().invoke(dashboard_app, ["--help"])
+    assert res.exit_code == 0
+    assert "start" in res.output
