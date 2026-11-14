@@ -178,3 +178,30 @@ def test_cli_dashboard_start_help():
     res = CliRunner().invoke(dashboard_app, ["--help"])
     assert res.exit_code == 0
     assert "start" in res.output
+
+
+# --- Task 6: full page + non-loopback bind gate ----------------------------
+
+def test_non_loopback_without_token_refuses():
+    from gpu4agents.dashboard.server import guard_bind
+
+    with pytest.raises(ValueError):
+        guard_bind("0.0.0.0", None, required=True)
+    guard_bind("0.0.0.0", "T", required=True)     # a token makes it ok
+    guard_bind("127.0.0.1", None, required=True)  # loopback is always ok
+
+
+def test_page_served_and_selfcontained():
+    import re
+
+    from gpu4agents.core.config import DashboardConfig
+    from gpu4agents.dashboard.auth import TokenGate
+
+    cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}")
+    server = _boot(cfg, lambda: {"instances": [], "projects": [], "proxies": []}, TokenGate(None))
+    try:
+        html = httpx.get(f"http://{cfg.listen}/", timeout=5).text
+        assert "<" in html and "gpu dashboard" in html.lower()
+        assert not re.search(r'(src|href)\s*=\s*["\']https?://', html)
+    finally:
+        server.stop()

@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import urlsplit
 
@@ -19,15 +20,23 @@ from ..core.config import DashboardConfig
 from .auth import TokenGate
 from .probe import ReachabilityWatch
 
-# A minimal placeholder page; Phase 2 replaces it with the full UI asset.
-_MINIMAL_PAGE = (
-    "<!doctype html><meta charset=utf-8><title>gpu dashboard</title>"
-    "<body><h1>gpu dashboard</h1>"
-    "<pre id=out>loading…</pre>"
-    "<script>fetch('/api/state').then(r=>r.json())"
-    ".then(d=>{document.getElementById('out').textContent="
-    "JSON.stringify(d,null,2)});</script>"
-)
+_LOOPBACK = {"127.0.0.1", "localhost", "::1", ""}
+# The self-contained page, read once at import; no external resources.
+_PAGE = (Path(__file__).parent / "page.html").read_text(encoding="utf-8")
+
+
+def guard_bind(host: str, token: Optional[str], *, required: bool) -> None:
+    """Refuse to serve the fleet open: a non-loopback bind needs a token.
+
+    Raises ValueError when ``host`` is not loopback, ``required`` is set, and no
+    token is configured. Loopback binds and token-protected binds are allowed.
+    """
+    if required and host not in _LOOPBACK and token is None:
+        raise ValueError(
+            f"refusing to bind {host!r} without a token: it would serve the fleet "
+            "open to the network. Bind 127.0.0.1 and reach it over Tailscale/SSH, "
+            "or set dashboard.options.token."
+        )
 
 
 def build_state(provider: Callable[[], dict], watch: ReachabilityWatch, now: float) -> dict[str, Any]:
@@ -100,7 +109,7 @@ def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None]) -
                 log(f"GET /api/state -> 200 ({len(state.get('projects', []))} projects)")
                 return self._send(200, json.dumps(state).encode(), "application/json", extra)
             if path == "/":
-                return self._send(200, _MINIMAL_PAGE.encode(), "text/html; charset=utf-8", extra)
+                return self._send(200, _PAGE.encode(), "text/html; charset=utf-8", extra)
             self._send(404, b'{"error":"not found"}', "application/json")
 
     return Handler
@@ -111,6 +120,7 @@ class DashboardServer:
                  watch: ReachabilityWatch, gate: TokenGate,
                  log: Callable[[str], None] = lambda _m: None) -> None:
         host, port = config.listen_host_port
+        guard_bind(host, gate.token, required=config.token_required_off_loopback)
         self._log = log
         handler = make_handler(provider, watch, gate, log)
         self._httpd = ThreadingHTTPServer((host, port), handler)
