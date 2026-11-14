@@ -485,6 +485,25 @@ def test_a_restarted_instance_is_guarded_again(agent_factory):
     assert agent.records("lifecycle_guard_triggered")[-1]["reason"] == "idle_timeout"
 
 
+def test_a_restarted_pool_machine_does_not_keep_the_old_sessions_deadline(agent_factory):
+    """A stopped pool machine started again: its old deadline has passed. The first
+    guard tick must not end it before the pool pushes a fresh one."""
+    now = time.time()
+    agent = agent_factory(
+        policy(idle_timeout_s=3_600.0, deadline_enforced=True),
+        created_at=now - 10_000,
+        state=persisted_previous_session(now, session=now - 10_000, deadline_at=now - 5_000),
+        env={"JAMBU_SESSION_STARTED_AT": str(int(now))},
+        startup_grace_s=600.0,
+    )
+    time.sleep(3)  # a few guard ticks (interval 1s)
+    assert agent.client.state()["deadline_at"] is None
+    assert not agent.marker.exists()
+    assert not agent.records("lifecycle_guard_triggered")
+    until = time.time() + 600  # the pool's reconcile pushes a new one
+    assert agent.client.try_request("POST", "/deadline", {"until": until})["deadline_at"] == until
+
+
 def test_a_supervisor_respawn_in_the_same_session_keeps_state(agent_factory):
     now = time.time()
     session = int(now) - 30
@@ -1149,3 +1168,29 @@ def test_the_agent_config_names_the_runtime_files():
         startup_grace_s=900.0, policy=policy(), created_at=0.0,
     )
     assert "runtime_pid_path" not in bare and "runtime" not in bare["logs"]
+
+
+def test_deadline_route_sets_and_reports_the_deadline(agent_factory):
+    agent = agent_factory(policy(idle_timeout_s=3_600.0))
+    agent.client.mark_ready()
+    until = time.time() + 600
+    assert agent.client.try_request("POST", "/deadline", {"until": until}) is not None
+    assert agent.client.state()["deadline_at"] == until
+
+
+def test_deadline_route_refuses_moving_backwards(agent_factory):
+    agent = agent_factory(policy(idle_timeout_s=3_600.0))
+    agent.client.mark_ready()
+    until = time.time() + 600
+    agent.client.try_request("POST", "/deadline", {"until": until})
+    reply = agent.client.try_request("POST", "/deadline", {"until": until - 300})
+    assert reply["deadline_at"] == until
+    assert agent.client.state()["deadline_at"] == until
+
+
+def test_deadline_route_rejects_bad_values(agent_factory):
+    agent = agent_factory(policy(idle_timeout_s=3_600.0))
+    agent.client.mark_ready()
+    for bad in (None, "soon", 0, -5, "inf", "nan"):
+        assert agent.client.try_request("POST", "/deadline", {"until": bad}) is None
+    assert agent.client.state()["deadline_at"] is None

@@ -83,3 +83,33 @@ def write_flat_config(tmp_path: Path):
 @pytest.fixture
 def config(write_config) -> RuntimeConfig:
     return write_config()
+
+
+@pytest.fixture
+def runner(tmp_path):
+    """A live watchdog with the job runner loaded, and a client for it."""
+    from test_watchdog import Agent, policy
+
+    from gpu4agents.core.job import JobClient
+
+    made: list = []
+
+    def _make(pol=None, **kwargs):
+        directory = tmp_path / f"agent{len(made)}"
+        directory.mkdir()
+        env = {
+            "JAMBU_WATCHDOG_EXT": str(directory / "ext"),
+            "JAMBU_JOBS_DIR": str(directory / "jobs"),
+            "JAMBU_JOB_HEARTBEAT_S": "0.3",
+            "JAMBU_JOB_CANCEL_GRACE_S": "1",
+        }
+        env.update(kwargs.pop("env", {}))
+        agent = Agent(directory, pol or policy(idle_timeout_s=600.0), env=env, **kwargs)
+        made.append(agent)
+        client = JobClient(agent.client)
+        client.ensure_runner()
+        return agent, client
+
+    yield _make
+    for agent in made:
+        agent.close()

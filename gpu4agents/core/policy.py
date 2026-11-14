@@ -36,6 +36,7 @@ REASON_IDLE = "idle_timeout"
 REASON_MAX_LIFETIME = "max_lifetime"
 REASON_BUDGET = "budget_exceeded"
 REASON_STOPPED_TTL = "stopped_ttl"
+REASON_DEADLINE = "deadline"
 
 
 @dataclass
@@ -81,6 +82,7 @@ class PolicyConfig:
     # bills. Off by default: nothing on a stopped machine can remove it later,
     # so stopped_ttl would depend on the user's computer running `gpu sweep`.
     keep_disk: bool = False
+    deadline_enforced: bool = False
 
     @classmethod
     def from_dict(cls, data: dict) -> "PolicyConfig":
@@ -108,6 +110,7 @@ class Snapshot:
     session_started_at: Optional[float] = None
     # When the provider last reported the instance stopped (CLI side only).
     stopped_since: Optional[float] = None
+    deadline_at: Optional[float] = None
 
     # -- derived helpers ----------------------------------------------------
 
@@ -228,6 +231,13 @@ def evaluate(snapshot: Snapshot, cfg: PolicyConfig) -> Decision:
         return Decision(ACTION_NONE, "already_terminal", detail)
     if snapshot.provider_state == DESTROYED:
         return Decision(ACTION_NONE, "already_terminal", detail)
+
+    # Queue-mode deadline: ends the machine under work and over a lock.
+    d = snapshot.deadline_at
+    if cfg.deadline_enforced and d is not None and snapshot.now > d:
+        action = _terminal_action(cfg)
+        if action != ACTION_NONE:
+            return Decision(action, REASON_DEADLINE, detail)
 
     # max_lifetime wins over everything except an active lock. Measured per
     # session: a restart is a deliberate new lease, not a forgotten instance.

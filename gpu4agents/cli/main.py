@@ -14,11 +14,14 @@ from . import account
 from . import agent as agent_cli
 from . import inspect as inspect_cli
 from . import _common, gateway, job, lifecycle, providers, run, setup, status, validate
+from . import queue as queue_cli
 from ._common import Context, err_console, get_context, print_json
 
 # The MCP server speaks JSON-RPC on stdio and the agent reads its tools' results;
 # `ls` and `sweep` report stopped machines themselves.
-QUIET_COMMANDS = ("mcp", "ls", "sweep", "gateway")
+QUIET_COMMANDS = ("mcp", "ls", "sweep", "gateway", "queue")
+# "queue" is quiet here because `gpu queue run` is long-running and logs its own events; the
+# other queue commands warn from the queue group's own callback (cli/queue.py).
 
 app = typer.Typer(
     name="gpu",
@@ -78,6 +81,7 @@ app.command(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )(run.run_command)
 app.add_typer(job.job_app, name="job")
+app.add_typer(queue_cli.queue_app, name="queue")
 app.command("status")(status.status_command)
 app.command("logs")(status.logs_command)
 app.command("events")(status.events_command)

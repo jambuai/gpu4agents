@@ -126,6 +126,9 @@ class WatchdogClient:
     def lock(self, ttl_seconds: Optional[float], reason: str = "") -> dict:
         return self._request("POST", "/lock", {"ttl_seconds": ttl_seconds, "reason": reason})
 
+    def set_deadline(self, until: float) -> dict:
+        return self._request("POST", "/deadline", {"until": until})
+
     def unlock(self, reason: str = "manual") -> dict:
         return self._request("POST", "/unlock", {"reason": reason})
 

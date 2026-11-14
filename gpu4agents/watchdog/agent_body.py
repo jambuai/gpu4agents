@@ -146,13 +146,8 @@ def load_state():
         "last_activity": now,
         "starting": True,
         "locked": False,
-        "locked_until": None,
         "workloads": {},
         "terminated": False,
-        "terminated_at": None,
-        "stop_failures": 0,
-        "action_failures": 0,
-        "pending_shutdown": None,
         "session_started_at": None,
     }
     stored = None
@@ -203,6 +198,7 @@ def _new_session(state, session, now):
             "stop_failing_since": None,
             "action_failures": 0,
             "pending_shutdown": None,
+            "deadline_at": None,
         }
     )
     log_event(
@@ -278,6 +274,7 @@ def snapshot(now=None):
             locked_until=_STATE.get("locked_until"),
             provider_state="ready",
             session_started_at=_STATE.get("session_started_at"),
+            deadline_at=_STATE.get("deadline_at"),
         )
 
 
@@ -768,12 +765,10 @@ class Handler(BaseHTTPRequestHandler):
             self._reply(200, state_payload())
             return
         if path == "/events":
-            limit = 100
-            if "limit=" in self.path:
-                try:
-                    limit = int(self.path.split("limit=")[1].split("&")[0])
-                except ValueError:
-                    limit = 100
+            try:
+                limit = int(parse_qs(self.path.partition("?")[2])["limit"][0])
+            except (KeyError, ValueError):
+                limit = 100
             self._reply(200, {"events": read_events(limit)})
             return
         if path == "/logs":
@@ -784,10 +779,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._reply(404, {"error": "unknown log %r" % name})
                 return
             try:
-                count = int((query.get("lines") or [200])[0])
-            except ValueError:
+                count = max(0, min(int(query["lines"][0]), LOG_LINES_MAX))
+            except (KeyError, ValueError):
                 count = 200
-            count = max(0, min(count, LOG_LINES_MAX))
             self._reply(200, {"name": name, "lines": tail_lines(target, count)})
             return
         if self._extended("GET", path):
@@ -836,6 +830,7 @@ def state_payload():
             "runtime_alive": runtime_alive(),
             "locked": snap.lock_active(cfg),
             "locked_until": _STATE.get("locked_until"),
+            "deadline_at": _STATE.get("deadline_at"),
             "terminated": bool(_STATE.get("terminated")),
             "session_started_at": _STATE.get("session_started_at"),
             "session_age_seconds": round(snap.session_age_seconds(), 1),
@@ -977,6 +972,21 @@ def dispatch(path, body):
             save_state()
         log_event("instance_locked", locked_until=until, reason=body.get("reason", ""))
         return 200, {"ok": True, "locked_until": until}
+
+    if path == "/deadline":
+        try:
+            until = float(body.get("until"))
+        except (TypeError, ValueError):
+            until = 0.0
+        if not 0 < until < float("inf"):
+            return 400, {"error": "until must be a finite unix time > 0"}
+        with _LOCK:
+            old = _STATE.get("deadline_at") or 0
+            keep = _STATE["deadline_at"] = max(old, until)
+            save_state()
+        if keep != old:
+            log_event("pool_deadline_extended", deadline_at=keep)
+        return 200, {"ok": True, "deadline_at": keep}
 
     if path == "/unlock":
         with _LOCK:

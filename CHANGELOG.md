@@ -7,6 +7,25 @@ All notable changes to this project. The format follows [Keep a Changelog](https
 ### Added
 - **`gpu gateway`: a managed local endpoint that follows the machine.** Provisioning a model is only half the job - you still have to reach it, and the rented machine's `base_url` changes every time it is re-rented. `gpu gateway start` runs a loopback endpoint (127.0.0.1) that forwards to the current instance, re-reading the endpoint from state so it keeps working across stop/restart. `gpu gateway install` writes a systemd user service (`Type=simple`, `Restart=always`, boot-safe via linger) so the gateway owns its own lifecycle instead of being a hand-run script. Pluggable adapters shape the request per client: `openai`, `anthropic` (drops the client's own credential so a claude.ai OAuth token never reaches the rented machine, injects the instance key, renames the model to the served one) and `none` (transparent), plus a `gateway.plugin` escape hatch mirroring provider plugins. The `anthropic` adapter also normalizes reasoning effort across `reasoning_effort`, `reasoning.effort` and `output_config.effort`, mapping to what the served model accepts, so a client that spells an effort level differently no longer 400s. New `gateway:` section in gpu.yaml; off by default.
 
+## [0.14.0] - 2026-11-12
+
+### Added
+- **Queue mode** for applications that send jobs over the day. A `queue:` section in `gpu.yaml` turns it on; a project without one behaves exactly as 0.13.0. Full guide: [QUEUE.md](QUEUE.md).
+  - `gpu queue submit | status | ls | cancel | retry | pull | pause | resume | drain | audit | stats | run | install-service`, a Python API (`gpu4agents.queue.api`) and the MCP tools `gpu_queue_submit`, `gpu_queue_status`, `gpu_queue_cancel`, `gpu_queue_pull` and `gpu_queue_control`. Every control action is recorded with who did it.
+  - A **coordinator** (`gpu queue run`) opens machines when the oldest queued job has waited `scale_up_after`, within `max_machines` and `max_usd_per_hour`, checks each machine's health, runs jobs back to back on a warm machine, and retires machines that have nothing to do. A second coordinator waits as a standby.
+  - **Retries**: a job whose machine vanished, went silent or failed its health check runs again on another machine, up to `max_attempts`, then fails with every attempt's reason. A retried attempt finds the earlier attempt's outputs in `$JAMBU_PREVIOUS_OUTPUT_DIR`.
+  - **Deadlines instead of lifetimes**: the coordinator moves each machine's deadline in its own watchdog (`POST /deadline`) to cover the job it took. With the coordinator dead, the pool drains to zero by itself.
+  - **Preflight** per job (`timeout`, and the new optional `max_cost_usd` and `min_vram_gb` in `gpujob.yaml`), or your own `module:function`.
+  - **Backends**: `local` (SQLite) and `redis` (Redis 5 or newer, one node), and outputs to a local directory or S3, each checked against a sha256 manifest. Others plug in through [the contract](docs/QUEUE_BACKENDS.md); `QueueBackendContract` is the suite a backend runs. Addresses and keys come from `GPU_QUEUE_URL`, `GPU_OUTPUTS_URL` and `AWS_*` in the environment or `~/.gpu/credentials`, never `gpu.yaml`. `redis` and `boto3` are optional extras (`queue-redis`, `queue-s3`).
+  - **An auditor** (`gpu queue audit`) checks eight invariants (I1 to I8) and repairs what is safe; events, metrics and alert thresholds are in QUEUE.md.
+- `gpu sweep` and the sweep timer cover pool machines, so a dead coordinator still ends in a destroy with finished jobs' outputs saved, and a pool machine is never taken for an orphan.
+- Acceptance guarantees 24 to 31, one for each thing queue mode must never do (docs/ACCEPTANCE.md).
+
+### Notes
+- Set `queue.namespace` when you use Redis: without it the keyspace follows the config fingerprint and changes when the runtime part of `gpu.yaml` changes.
+- After a takeover by a coordinator whose pool is different, a job on a machine it cannot see waits until that attempt's deadline plus a grace before it runs again.
+- Redis Cluster is not supported.
+
 ## [0.13.0] - 2026-11-11
 
 The first real, filmed use of 0.12.0 (an agent making images with SDXL and running a CUDA benchmark) found these. Each is fixed and tested.

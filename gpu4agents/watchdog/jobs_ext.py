@@ -23,7 +23,8 @@ runtime pid (a server that dies while loading ends the startup wait) and its
 log becomes the runtime log (`gpu logs`).
 
 Routes (behind X-Jambu-Token, like every other control route):
-    GET  /jobs                    -> {jobs: [records]}
+    GET  /jobs                    -> {jobs: [records], uploads: {id: {state, age_s}},
+                                      jobs_dir_age_s}
     PUT  /jobs/<id>/bundle        <- tar.gz of the code (optional)
     POST /jobs/<id>/start         -> {command, setup, env, timeout_s, label,
                                       service, digest}
@@ -31,11 +32,25 @@ Routes (behind X-Jambu-Token, like every other control route):
     GET  /jobs/<id>/log?offset=N  -> {data, offset, size, done}
     GET  /jobs/<id>/outputs       -> tar.gz of the output directory
     POST /jobs/<id>/cancel
+    POST /jobs/<id>/refuse        -> {refused: true} or, when it started, {refused:
+                                     false, job: record}
 
 On disk, under JOBS_DIR/<id>/: bundle.tar.gz, src/ (the code, and the job's
 working directory), out/ (outputs), job.log, job.json (the record), and rc
 (the exit code, written by the job's own shell, so a respawned watchdog still
 learns how a job ended).
+
+``GET /jobs`` also names every job that has code on the machine but was never
+started (``uploads``: "uploading" while its bundle is still arriving, "uploaded"
+once it is complete, "empty" for a directory with neither; ``age_s`` is how long
+ago it last changed), and how old the jobs directory is (``jobs_dir_age_s``, from
+a marker written when the runner first finds it). A queue coordinator that takes
+over uses both to tell a run that never started from one still on its way: a
+directory older than the dispatch that holds nothing for the job means the job
+never reached this machine. Before it sends such a job back to the queue it fences
+it with ``POST /jobs/<id>/refuse``: the runner records the id as "refused" and
+deletes its code, so a late upload or start from the coordinator that died gets a
+409 and never runs. A job that did start is returned instead, to be adopted.
 """
 
 # Loaded with exec() into the watchdog's globals. Imported directly (tests,
@@ -58,6 +73,7 @@ if "log_event" not in globals():  # pragma: no cover - only in standalone import
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import tarfile
@@ -82,6 +98,8 @@ _JOB_PROCS = globals().get("_JOB_PROCS") or {}
 _JOB_LOCK = globals().get("_JOB_LOCK") or threading.RLock()
 # A new version of this code retires the monitor threads of the old one.
 _JOB_GENERATION = int(globals().get("_JOB_GENERATION") or 0) + 1
+# When the runner first found this jobs directory (it goes with the directory).
+JOBS_DIR_MARKER = ".jambu-jobs-since"
 
 
 def _job_path(job_id, *parts):
@@ -236,11 +254,45 @@ def job_upload(request, job_id):
             handle.write(chunk)
             remaining -= len(chunk)
     if remaining:
-        os.remove(path + ".part")
+        _remove(path + ".part")
         return 400, {"error": "upload cut short (%d bytes missing)" % remaining}
-    os.replace(path + ".part", path)
+    with _JOB_LOCK:
+        if job_read(job_id) is not None:
+            # Refused (or started) while the code was on its way: it never runs from here.
+            _remove(path + ".part")
+            return 409, {"error": "job %s already started" % job_id}
+        try:
+            os.replace(path + ".part", path)
+        except OSError as exc:
+            _remove(path + ".part")
+            return 500, {"error": "could not store the bundle of job %s: %s" % (job_id, exc)}
     touch("job_upload")
     return 200, {"ok": True, "bytes": length}
+
+
+def _remove(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def job_refuse(job_id):
+    """Fence a job that never started: from now on its upload and start get a 409.
+    A job that did start is returned as it is (the caller adopts it)."""
+    with _JOB_LOCK:
+        record = job_read(job_id)
+        if record is not None and record.get("state") != "refused":
+            return 200, {"ok": True, "refused": False, "job": record}
+        if record is None:
+            os.makedirs(_job_path(job_id), exist_ok=True)
+            record = {"id": job_id, "state": "refused", "refused_at": time.time(), "started_at": None}
+            job_write(record)
+        for name in ("bundle.tar.gz", "bundle.tar.gz.part"):
+            _remove(_job_path(job_id, name))
+        shutil.rmtree(_job_path(job_id, "src"), ignore_errors=True)
+    log_event("job_refused", job_id=job_id)
+    return 200, {"ok": True, "refused": True}
 
 
 def job_start(job_id, body):
@@ -532,6 +584,46 @@ def job_outputs(request, job_id):
         log_event("job_outputs_saved", job_id=job_id, files=signature[0] if signature else 0)
 
 
+def jobs_dir_age():
+    """Seconds since the runner first found the jobs directory (0 for a new one)."""
+    path = os.path.join(JOBS_DIR, JOBS_DIR_MARKER)
+    try:
+        with open(path) as handle:
+            since = float(handle.read().strip())
+    except (OSError, ValueError):
+        since = time.time()
+        try:
+            os.makedirs(JOBS_DIR, exist_ok=True)
+            _atomic_write(path, repr(since))
+        except OSError:
+            pass
+    return max(0.0, time.time() - since)
+
+
+def job_uploads():
+    """Jobs with a directory but no record: code on its way or waiting for a start."""
+    try:
+        names = sorted(os.listdir(JOBS_DIR))
+    except OSError:
+        return {}
+    now, found = time.time(), {}
+    for name in names:
+        if not JOB_ID_PATTERN.match(name) or os.path.exists(_job_path(name, "job.json")):
+            continue
+        for state, path in (
+            ("uploading", _job_path(name, "bundle.tar.gz.part")),
+            ("uploaded", _job_path(name, "bundle.tar.gz")),
+            ("empty", _job_path(name)),
+        ):
+            try:
+                changed = os.stat(path).st_mtime
+            except OSError:
+                continue
+            found[name] = {"state": state, "age_s": round(max(0.0, now - changed), 3)}
+            break
+    return found
+
+
 def job_list():
     try:
         names = sorted(os.listdir(JOBS_DIR))
@@ -548,10 +640,12 @@ def jobs_route(request, method, path, body):
     if len(parts) == 1:
         if method != "GET":
             return False
+        # Uploads first: a job that starts in between then shows up as a record.
+        uploads = job_uploads()
         records = job_list()
         for record in records:
             record["outputs_unsaved"] = outputs_unsaved(record)
-        request._reply(200, {"jobs": records})
+        request._reply(200, {"jobs": records, "uploads": uploads, "jobs_dir_age_s": jobs_dir_age()})
         return True
     job_id = parts[1]
     if not JOB_ID_PATTERN.match(job_id) or len(parts) > 3:
@@ -564,6 +658,8 @@ def jobs_route(request, method, path, body):
         request._reply(*job_start(job_id, body or {}))
     elif (method, action) == ("POST", "cancel"):
         request._reply(*job_cancel(job_id))
+    elif (method, action) == ("POST", "refuse"):
+        request._reply(*job_refuse(job_id))
     elif (method, action) == ("GET", ""):
         request._reply(*job_info(job_id))
     elif (method, action) == ("GET", "log"):
@@ -590,5 +686,6 @@ def jobs_resume():
 
 
 jobs_resume()
+jobs_dir_age()  # the marker, from the first time this runner is loaded
 EXT_ROUTES["jobs"] = jobs_route
 TERMINATE_HOOKS["jobs"] = outputs_guard

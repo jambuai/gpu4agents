@@ -712,3 +712,164 @@ def test_the_module_entrypoint_the_timer_runs_works():
         check=True,
     )
     assert out.stdout.strip() == gpu4agents.__version__
+
+
+# -- queue-mode pool machines --------------------------------------------------
+
+
+def _pool_project(provider, directory, slot="s1", **queue):
+    from dataclasses import replace
+
+    # A stop that keeps billing: a stopped machine is only gone when destroyed.
+    provider.capabilities = replace(
+        provider.capabilities, persistent_disk=True, stop_eliminates_billing=False
+    )
+    config = write_project(
+        directory, queue={"max_machines": 2, **queue}, lifecycle={"stopped_ttl": "1h"}
+    )
+    sweep_mod.ProjectRegistry().register(config.source_path)
+    slot_dir = config.state_dir / "pool" / slot
+    engine = Engine(config, provider=provider, state_dir=slot_dir, slot=slot)
+    state = engine.setup(wait=False)
+    return config, engine, state
+
+
+def _stop_long_ago(engine, hours=3):
+    engine.stop()
+    ran = utc_now() - (hours + 1) * HOUR
+    engine.provider.instances[engine.store.load().instance_id].created_at = ran
+    with engine.store.transaction() as stored:
+        stored.created_at = stored.session_started_at = stored.last_activity = ran
+        stored.stopped_since = utc_now() - hours * HOUR
+
+
+def test_sweep_guards_pool_slots_of_a_registered_project(config, cli_fake, monkeypatch, tmp_path):
+    monkeypatch.chdir(config.project_dir)
+    provider = _seed(cli_fake, config)
+    _, engine, state = _pool_project(provider, tmp_path / "q")
+    _stop_long_ago(engine)
+
+    result, payload = _sweep_json("--apply")
+    assert result.exit_code == 0, result.output
+    assert ("destroy", state.instance_id) in provider.calls
+    pooled = [p for p in payload["projects"] if p["slot"] == "s1"]
+    assert pooled and pooled[0]["decision"]["action"] == "destroy"
+    assert payload["actions"] == []  # the slot is guarded, never swept as an orphan
+
+
+def test_sweep_leaves_pool_actions_to_a_live_coordinator(config, cli_fake, monkeypatch, tmp_path):
+    monkeypatch.chdir(config.project_dir)
+    provider = _seed(cli_fake, config)
+    qconfig, engine, state = _pool_project(provider, tmp_path / "q")
+    _stop_long_ago(engine)
+    monkeypatch.setattr(
+        sweep_mod, "coordinator_status", lambda cfg: "live"
+    )
+    result, payload = _sweep_json("--apply")
+    assert result.exit_code == 0, result.output
+    assert ("destroy", state.instance_id) not in provider.calls
+    pooled = [p for p in payload["projects"] if p["slot"] == "s1"][0]
+    assert pooled["mode"] == "report_only" and pooled["decision"]["action"] == "destroy"
+
+
+def test_an_unreachable_queue_only_acts_on_what_is_overdue(config, cli_fake, monkeypatch, tmp_path):
+    monkeypatch.chdir(config.project_dir)
+    provider = _seed(cli_fake, config)
+    _, engine, state = _pool_project(provider, tmp_path / "q")
+    engine.stop()  # stopped just now: not past stopped_ttl
+    monkeypatch.setattr(sweep_mod, "coordinator_status", lambda cfg: "unreachable")
+    result, payload = _sweep_json("--apply")
+    assert ("destroy", state.instance_id) not in provider.calls
+    assert [p for p in payload["projects"] if p["slot"] == "s1"][0]["mode"] == "past_due_only"
+    _stop_long_ago(engine)
+    _sweep_json("--apply")
+    assert ("destroy", state.instance_id) in provider.calls
+
+
+def test_coordinator_status_reads_the_backend_lease(tmp_path, write_config):
+    cfg = write_config(queue={})
+    assert sweep_mod.coordinator_status(cfg) == "none"
+    cfg.queue.backend = "no.such.module:factory"
+    assert sweep_mod.coordinator_status(cfg) == "unreachable"
+
+
+def test_sweep_pulls_a_pool_job_s_outputs_before_destroying(config, cli_fake, monkeypatch, tmp_path):
+    from dataclasses import replace
+
+    from gpu4agents.core.job import JobRecords
+    from test_job_outputs import FakeJobs, Pinging
+
+    monkeypatch.chdir(config.project_dir)
+    provider = _seed(cli_fake, config)
+    provider.capabilities = replace(
+        provider.capabilities, persistent_disk=True, stop_eliminates_billing=False
+    )
+    qconfig, engine, state = _pool_project(provider, tmp_path / "q")
+    JobRecords(engine.store.dir).save(
+        {"id": "train", "instance_id": state.instance_id, "submitted_at": utc_now(), "state": "running"}
+    )
+    jobs = FakeJobs("train")
+    monkeypatch.setattr(
+        Engine,
+        "_reachable_jobs",
+        lambda self, s: jobs if InstanceState(s.state).is_billable_compute else None,
+    )
+    monkeypatch.setattr(Engine, "beacon", lambda self, s: Pinging())
+    _stop_long_ago(engine)
+
+    result, payload = _sweep_json("--apply")
+    assert result.exit_code == 0, result.output
+    calls = provider.calls
+    assert calls.index(("start", state.instance_id)) < calls.index(("destroy", state.instance_id))
+    assert (qconfig.project_dir / "gpu-outputs" / "train" / "model.txt").read_text() == "trained"
+
+
+def test_stopped_billing_warning_counts_pool_machines(config, cli_fake, monkeypatch, tmp_path):
+    from dataclasses import replace
+
+    provider = _seed(cli_fake, config)
+    provider.capabilities = replace(
+        provider.capabilities, persistent_disk=True, stop_eliminates_billing=False
+    )
+    _, engine, state = _pool_project(provider, tmp_path / "q")
+    _stop_long_ago(engine)
+    with engine.store.transaction() as stored:
+        stored.instance.stopped_hourly_cost_usd = 0.05
+    found = sweep_mod.stopped_and_billing()
+    assert [(f["slot"], f["instance_id"], f["overdue"]) for f in found] == [("s1", state.instance_id, True)]
+
+
+def test_a_pool_machine_is_not_an_orphan_when_its_project_cannot_be_guarded(
+    config, cli_fake, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(config.project_dir)
+    provider = _seed(cli_fake, config)
+    qconfig, engine, state = _pool_project(provider, tmp_path / "q")
+    provider.instances[state.instance_id].label = "jambu-model-s1-abc123"
+    provider.instances[state.instance_id].created_at = utc_now() - 48 * HOUR
+    qconfig.source_path.write_text("gpu_runtime: [not a mapping")  # config no longer loads
+    result, payload = _sweep_json("--apply")
+    assert ("destroy", state.instance_id) not in provider.calls
+    assert ("stop", state.instance_id) not in provider.calls[1:]
+    assert payload["tracked"] == 1 and payload["actions"] == []
+
+
+def test_a_pool_machine_is_not_an_orphan_when_its_slot_cannot_be_guarded(
+    config, cli_fake, monkeypatch, tmp_path
+):
+    monkeypatch.chdir(config.project_dir)
+    provider = _seed(cli_fake, config)
+    _, engine, state = _pool_project(provider, tmp_path / "q")
+    provider.instances[state.instance_id].label = "jambu-model-s1-abc123"
+    _stop_long_ago(engine)
+
+    def boom(cfg, **kw):
+        if kw.get("slot"):
+            raise sweep_mod.JambuError("slot engine broke")
+        return real(cfg, **kw)
+
+    real = account_cli.make_engine
+    monkeypatch.setattr(account_cli, "make_engine", lambda cfg, echo=None, **kw: boom(cfg, **kw))
+    result, payload = _sweep_json("--apply")
+    assert ("destroy", state.instance_id) not in provider.calls
+    assert payload["tracked"] == 1 and payload["actions"] == []

@@ -467,7 +467,9 @@ def test_init_custom_scaffolds_a_server_that_follows_the_contract(tmp_path, monk
 
 @pytest.fixture
 def runner(tmp_path):
-    from test_jobs import Agent, JobClient, policy
+    from test_watchdog import Agent, policy
+
+    from gpu4agents.core.job import JobClient
 
     made = []
 

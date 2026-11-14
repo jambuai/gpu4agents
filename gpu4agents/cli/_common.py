@@ -162,10 +162,15 @@ def warn_stopped_billing() -> None:
             f"for {format_duration(item['stopped_seconds'])}" if item["stopped_seconds"] is not None else ""
         )
         project = str(Path(item["config"]).parent)
+        ends = (
+            "`gpu sweep --apply` ends it once no coordinator is running"
+            if item.get("slot")
+            else "`gpu destroy` in that directory ends it"
+        )
+        where = f"project {project}" + (f", pool slot {item['slot']}" if item.get("slot") else "")
         line = (
             f"! still billing: {item['provider']} machine {item['instance_id']} is stopped {since}, "
-            f"costing {cost} for its disk (project {project}). "
-            f"`gpu destroy` in that directory ends it"
+            f"costing {cost} for its disk ({where}). {ends}"
         )
         if item["overdue"]:
             line += "; it is past its stopped_ttl"

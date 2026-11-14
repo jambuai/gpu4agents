@@ -91,3 +91,28 @@ gpu_runtime:
 
   workload:
     mode: local
+
+  # Queue mode (optional): present = a pool of machines drains a job queue.
+  # Addresses and credentials stay out of this file: GPU_QUEUE_URL, GPU_OUTPUTS_URL, AWS_*.
+  # queue:
+  #   backend: local            # local | redis | module:factory
+  #   outputs: local            # local | s3 | module:factory
+  #   min_machines: 0
+  #   max_machines: 1
+  #   max_usd_per_hour: 2.00
+  #   scale_up_after: 30s
+  #   jobs_per_machine: 1
+  #   max_attempts: 3
+  #   unresponsive_after: 5m
+  #   max_machine_lifetime: 6h
+  #   tick: 5s
+  #   preflight: mypkg.checks:preflight
+  #   health_check:
+  #     command: null           # null = built-in CUDA check
+  #     min_free_vram_gb: 16
+  #     timeout: 2m
+  #     between_jobs: true
+  #   defaults:
+  #     timeout: 1h
+  #     max_cost_usd: 5.00
+  #     deadline_margin: 10m

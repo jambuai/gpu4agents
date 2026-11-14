@@ -12,7 +12,7 @@ from dataclasses import replace
 
 import pytest
 from fakes import FakeProvider
-from test_jobs import runner, wait_done  # noqa: F401 - fixture
+from test_jobs import wait_done
 from test_watchdog import policy
 
 from gpu4agents.core.beacon import WatchdogUnavailable
@@ -33,7 +33,7 @@ BILLING_STOP = policy(idle_timeout_s=2.0, stop_eliminates_billing=False)
 # -- on the machine -------------------------------------------------------------
 
 
-def test_unsaved_results_turn_an_idle_destroy_into_a_stop(runner):  # noqa: F811
+def test_unsaved_results_turn_an_idle_destroy_into_a_stop(runner):
     agent, client = runner(BILLING_STOP, interval_s=0.5, stop_keeps_disk=True)
     client.start("train", {"command": WRITES_A_RESULT})
     assert wait_done(client, "train")["outputs_unsaved"] is True
@@ -43,7 +43,7 @@ def test_unsaved_results_turn_an_idle_destroy_into_a_stop(runner):  # noqa: F811
     assert agent.records("outputs_kept")[-1]["job_ids"] == ["train"]
 
 
-def test_downloaded_results_let_the_machine_be_destroyed(runner, tmp_path):  # noqa: F811
+def test_downloaded_results_let_the_machine_be_destroyed(runner, tmp_path):
     agent, client = runner(
         replace(BILLING_STOP, idle_timeout_s=4.0), interval_s=0.5, stop_keeps_disk=True
     )
@@ -58,14 +58,14 @@ def test_downloaded_results_let_the_machine_be_destroyed(runner, tmp_path):  # n
     assert "outputs_kept" not in agent.event_names()
 
 
-def test_a_job_without_results_does_not_hold_anything(runner):  # noqa: F811
+def test_a_job_without_results_does_not_hold_anything(runner):
     agent, client = runner(BILLING_STOP, interval_s=0.5, stop_keeps_disk=True)
     client.start("noop", {"command": "true"})
     assert wait_done(client, "noop")["outputs_unsaved"] is False
     assert agent.wait_for_marker(timeout=20)["action"] == "destroy"
 
 
-def test_where_a_stop_would_wipe_the_disk_an_idle_machine_waits_for_the_download(runner):  # noqa: F811
+def test_where_a_stop_would_wipe_the_disk_an_idle_machine_waits_for_the_download(runner):
     # No persistent disk (Lambda, a RunPod pod without a volume): keep it up a while.
     agent, client = runner(
         BILLING_STOP, interval_s=0.5, env={"JAMBU_OUTPUTS_HOLD_S": "4"}
