@@ -294,6 +294,55 @@ class WorkloadConfig(_Base):
     sync: bool = False
 
 
+class ReasoningEffortPolicy(_Base):
+    """How to reconcile a client's reasoning-effort value with what the served model accepts.
+
+    Self-hosted servers vary: some want ``xhigh/medium/low`` and reject ``high``,
+    some use the OpenAI ``high/medium/low``. Left at its no-op default the gateway
+    forwards the value untouched; a project whose model has a different vocabulary
+    sets ``map``/``supported`` here (in its own gpu.yaml, not in the tool).
+    """
+
+    map: dict[str, str] = Field(default_factory=dict)       # e.g. {"high": "xhigh"}
+    supported: list[str] = Field(default_factory=list)      # empty = do not filter
+    on_unsupported: str = "keep"                            # keep | drop | error
+
+    @field_validator("on_unsupported")
+    @classmethod
+    def _choice(cls, v: str) -> str:
+        if v not in ("keep", "drop", "error"):
+            raise ValueError("on_unsupported must be keep, drop or error")
+        return v
+
+
+class GatewayConfig(_Base):
+    """A managed local gateway: a stable 127.0.0.1 endpoint that follows the machine.
+
+    It runs on the user's own host, forwards to the current instance's endpoint
+    (re-read from state as it changes across re-rents) and applies an adapter that
+    shapes requests for a given client: drop the client's own credentials, inject
+    the instance key, rename the model to the served one, normalize reasoning effort.
+    """
+
+    enabled: bool = False
+    adapter: str = "openai"                                 # openai | anthropic | none | <plugin>
+    listen: str = "127.0.0.1:8080"
+    model_rewrite: bool = True                              # rewrite request model -> served model
+    inject_key: bool = True                                 # drop incoming auth, inject instance key
+    reasoning_effort: ReasoningEffortPolicy = Field(default_factory=ReasoningEffortPolicy)
+    # An adapter that does not ship with gpu4agents: "./gateway/acme.py:AcmeAdapter"
+    # (a file, relative to the config file) or "acme_pkg.gw:AcmeAdapter" (a module).
+    plugin: Optional[str] = None
+    options: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def listen_host_port(self) -> tuple[str, int]:
+        host, _, port = self.listen.rpartition(":")
+        if not port.isdigit():
+            raise ValueError(f"gateway.listen must be host:port, got {self.listen!r}")
+        return (host or "127.0.0.1", int(port))
+
+
 class RuntimeConfig(_Base):
     """The whole parsed gpu-runtime config (gpu.yaml's gpu_runtime: section, or a legacy config.yml)."""
 
@@ -306,6 +355,7 @@ class RuntimeConfig(_Base):
     health: HealthConfig = Field(default_factory=HealthConfig)
     budget: BudgetConfig = Field(default_factory=BudgetConfig)
     workload: WorkloadConfig = Field(default_factory=WorkloadConfig)
+    gateway: GatewayConfig = Field(default_factory=GatewayConfig)
 
     # Populated by the loader; not part of the YAML document.
     source_path: Optional[Path] = Field(default=None, exclude=True)

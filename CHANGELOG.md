@@ -2,6 +2,11 @@
 
 All notable changes to this project. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **`gpu gateway`: a managed local endpoint that follows the machine.** Provisioning a model is only half the job - you still have to reach it, and the rented machine's `base_url` changes every time it is re-rented. `gpu gateway start` runs a loopback endpoint (127.0.0.1) that forwards to the current instance, re-reading the endpoint from state so it keeps working across stop/restart. `gpu gateway install` writes a systemd user service (`Type=simple`, `Restart=always`, boot-safe via linger) so the gateway owns its own lifecycle instead of being a hand-run script. Pluggable adapters shape the request per client: `openai`, `anthropic` (drops the client's own credential so a claude.ai OAuth token never reaches the rented machine, injects the instance key, renames the model to the served one) and `none` (transparent), plus a `gateway.plugin` escape hatch mirroring provider plugins. The `anthropic` adapter also normalizes reasoning effort across `reasoning_effort`, `reasoning.effort` and `output_config.effort`, mapping to what the served model accepts, so a client that spells an effort level differently no longer 400s. New `gateway:` section in gpu.yaml; off by default.
+
 ## [0.13.0] - 2026-11-11
 
 The first real, filmed use of 0.12.0 (an agent making images with SDXL and running a CUDA benchmark) found these. Each is fixed and tested.
