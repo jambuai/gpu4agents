@@ -143,7 +143,8 @@ def test_api_state_shape():
         r = httpx.get(f"http://{cfg.listen}/api/state", timeout=5)
         assert r.status_code == 200
         body = r.json()
-        assert {"instances", "projects", "proxies", "probes", "generated_at"} <= set(body)
+        assert {"instances", "projects", "proxies", "probes", "generated_at", "control"} <= set(body)
+        assert body["control"] is False  # read-only by default
         assert "api_key" not in json.dumps(body)
     finally:
         server.stop()
@@ -226,3 +227,61 @@ def test_service_slug_per_project(tmp_path):
     b = svc.unit_name(tmp_path / "proj-b")
     assert a != b
     assert a == svc.unit_name(tmp_path / "proj-a")
+
+
+# --- Task 8: control actions (phase 3) -------------------------------------
+
+def _boot_control(cfg, actions, gate):
+    from gpu4agents.dashboard.probe import ReachabilityWatch
+    from gpu4agents.dashboard.server import DashboardServer
+
+    watch = ReachabilityWatch(interval_s=15, history_s=300)
+    provider = lambda: {"instances": [], "projects": [], "proxies": []}  # noqa: E731
+    server = DashboardServer(cfg, provider, watch, gate, log=lambda _m: None, actions=actions)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    time.sleep(0.2)
+    return server
+
+
+def test_control_requires_token_and_confirm():
+    from gpu4agents.core.config import DashboardConfig
+    from gpu4agents.dashboard.auth import TokenGate
+
+    calls = []
+    actions = {"stop": lambda project: calls.append(("stop", project)) or {"stopped": project}}
+    cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}", control_enabled=True)
+    server = _boot_control(cfg, actions, TokenGate("T"))
+    base = f"http://{cfg.listen}"
+    hdr = {"Authorization": "Bearer T", "Content-Type": "application/json"}
+    try:
+        # no token → 401, nothing called
+        assert httpx.post(f"{base}/api/control/stop",
+                          content=json.dumps({"project": "p", "confirm": True}),
+                          headers={"Content-Type": "application/json"}, timeout=5).status_code == 401
+        # token but no confirm → 400
+        assert httpx.post(f"{base}/api/control/stop",
+                          content=json.dumps({"project": "p"}), headers=hdr, timeout=5).status_code == 400
+        assert calls == []
+        # token + confirm → 200, action called once
+        r = httpx.post(f"{base}/api/control/stop",
+                       content=json.dumps({"project": "p", "confirm": True}), headers=hdr, timeout=5)
+        assert r.status_code == 200
+        assert calls == [("stop", "p")]
+    finally:
+        server.stop()
+
+
+def test_control_disabled_returns_404():
+    from gpu4agents.core.config import DashboardConfig
+    from gpu4agents.dashboard.auth import TokenGate
+
+    cfg = DashboardConfig(listen=f"127.0.0.1:{_free_port()}", control_enabled=False)
+    server = _boot_control(cfg, {"stop": lambda project: None}, TokenGate("T"))
+    base = f"http://{cfg.listen}"
+    try:
+        r = httpx.post(f"{base}/api/control/stop",
+                       content=json.dumps({"project": "p", "confirm": True}),
+                       headers={"Authorization": "Bearer T", "Content-Type": "application/json"}, timeout=5)
+        assert r.status_code == 404
+    finally:
+        server.stop()

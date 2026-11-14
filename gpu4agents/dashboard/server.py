@@ -62,7 +62,13 @@ def build_state(provider: Callable[[], dict], watch: ReachabilityWatch, now: flo
     }
 
 
-def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None]) -> type[BaseHTTPRequestHandler]:
+_CONTROL_PREFIX = "/api/control/"
+
+
+def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None],
+                 control_enabled: bool = False, actions: Optional[dict] = None) -> type[BaseHTTPRequestHandler]:
+    actions = actions or {}
+
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         server_version = "gpu4agents-dashboard"
@@ -106,11 +112,41 @@ def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None]) -
                 extra.append(("Set-Cookie", gate.cookie_header(token)))
             if path == "/api/state":
                 state = build_state(provider, watch, time.time())
+                state["control"] = control_enabled
                 log(f"GET /api/state -> 200 ({len(state.get('projects', []))} projects)")
                 return self._send(200, json.dumps(state).encode(), "application/json", extra)
             if path == "/":
                 return self._send(200, _PAGE.encode(), "text/html; charset=utf-8", extra)
             self._send(404, b'{"error":"not found"}', "application/json")
+
+        def do_POST(self) -> None:
+            parts = urlsplit(self.path)
+            path, query = parts.path, parts.query
+            # Mutating routes exist only when control is enabled; otherwise 404.
+            if not (control_enabled and path.startswith(_CONTROL_PREFIX)):
+                return self._send(404, b'{"error":"not found"}', "application/json")
+            if not gate.check(self._headers_dict(), query):
+                return self._unauthorized()
+            action = path[len(_CONTROL_PREFIX):]
+            if action not in actions:
+                return self._send(404, b'{"error":"unknown action"}', "application/json")
+            length = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(length) if length else b""
+            try:
+                body = json.loads(raw or b"{}")
+            except ValueError:
+                return self._send(400, b'{"error":"bad json"}', "application/json")
+            if not (isinstance(body, dict) and body.get("confirm") is True):
+                return self._send(400, b'{"error":"confirm required"}', "application/json")
+            project = body.get("project")
+            log(f"POST /api/control/{action} project={project!r} -> running")
+            try:
+                result = actions[action](project)
+            except Exception as exc:  # noqa: BLE001 - surface the action's failure as 500
+                payload = json.dumps({"error": str(exc)}).encode()
+                return self._send(500, payload, "application/json")
+            payload = json.dumps({"ok": True, "action": action, "project": project, "result": result}).encode()
+            self._send(200, payload, "application/json")
 
     return Handler
 
@@ -118,11 +154,13 @@ def make_handler(provider, watch, gate: TokenGate, log: Callable[[str], None]) -
 class DashboardServer:
     def __init__(self, config: DashboardConfig, provider: Callable[[], dict],
                  watch: ReachabilityWatch, gate: TokenGate,
-                 log: Callable[[str], None] = lambda _m: None) -> None:
+                 log: Callable[[str], None] = lambda _m: None,
+                 actions: Optional[dict] = None) -> None:
         host, port = config.listen_host_port
         guard_bind(host, gate.token, required=config.token_required_off_loopback)
         self._log = log
-        handler = make_handler(provider, watch, gate, log)
+        handler = make_handler(provider, watch, gate, log,
+                               control_enabled=config.control_enabled, actions=actions)
         self._httpd = ThreadingHTTPServer((host, port), handler)
         self._httpd.daemon_threads = True
         self.host, self.port = host, port

@@ -71,6 +71,37 @@ def _read_token(cfg, project_dir: Optional[Path]) -> Optional[str]:
     return None
 
 
+def _build_actions(context) -> dict:
+    """Phase-3 control actions, wired to THIS project's engine only.
+
+    Mutating another project would need that project's own engine and
+    credentials in the service environment; that larger surface is deferred, so
+    control acts on the project the dashboard runs in. Enabling control means
+    the service process can stop/destroy a GPU and therefore needs provider
+    credentials — a deliberate choice, off by default.
+    """
+    def stop(_project):
+        return context.engine().stop(reason="dashboard")
+
+    def destroy(_project):
+        return context.engine().destroy(reason="dashboard")
+
+    def lock(_project):
+        engine = context.engine()
+        return engine.lock(engine.config.lock_default_ttl_s, reason="dashboard")
+
+    def restart_proxy(_project):
+        import subprocess
+
+        from ..gateway import service as gw_svc
+
+        unit = gw_svc.unit_name(context.config().project_dir) + ".service"
+        subprocess.run(["systemctl", "--user", "restart", unit], check=True)
+        return {"restarted": unit}
+
+    return {"stop": stop, "destroy": destroy, "lock": lock, "restart-proxy": restart_proxy}
+
+
 @dashboard_app.command("start")
 def start_command(ctx: typer.Context) -> None:
     """Run the dashboard in the foreground (blocks). This is what the service runs."""
@@ -84,10 +115,13 @@ def start_command(ctx: typer.Context) -> None:
         history_s=parse_duration(cfg.history) or 1200.0,
     )
     watch.start(lambda: [r["endpoint"] for r in provider()["projects"] if r.get("endpoint")])
+    actions = _build_actions(context) if cfg.control_enabled else None
+    if cfg.control_enabled:
+        context.echo("! dashboard.control_enabled is true: mutating routes are live (token + confirm required)")
     if not cfg.enabled:
         context.echo("! dashboard.enabled is false in gpu.yaml; starting anyway because you asked")
     try:
-        server = DashboardServer(cfg, provider, watch, gate, log=context.echo)
+        server = DashboardServer(cfg, provider, watch, gate, log=context.echo, actions=actions)
     except (OSError, ValueError) as exc:
         err_console.print(f"error: {exc}")
         raise typer.Exit(1) from exc
