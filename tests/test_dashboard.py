@@ -138,10 +138,12 @@ def test_ops_live_ids_parses_and_tolerates_failure():
     from gpu4agents.dashboard import ops
 
     def ok(args, cwd=None, timeout=0):
+        # `gpu --json ls` keys the id as "instance_id" (not "id").
         return (0, json.dumps({"provider": "vast",
-                               "instances": [{"id": "60128336", "state": "running"}, {"id": 77}]}), "")
+                               "instances": [{"instance_id": "60697697", "state": "ready"},
+                                             {"instance_id": 77}]}), "")
 
-    assert ops.live_ids(run=ok) == {"60128336", "77"}
+    assert ops.live_ids(run=ok) == {"60697697", "77"}
 
     def fail(args, cwd=None, timeout=0):
         return (2, "", "no credentials")

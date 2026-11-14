@@ -39,7 +39,13 @@ def live_ids(run: Runner = _default_run) -> Optional[set]:
         if code != 0:
             return None
         data = json.loads(out or "{}")
-        return {str(i["id"]) for i in data.get("instances", []) if i.get("id") is not None}
+        # `gpu --json ls` keys the id as "instance_id"; tolerate "id" too.
+        ids = set()
+        for inst in data.get("instances", []):
+            iid = inst.get("instance_id", inst.get("id"))
+            if iid is not None:
+                ids.add(str(iid))
+        return ids
     except Exception:  # noqa: BLE001 - unverifiable is None, never a crash
         return None
 
