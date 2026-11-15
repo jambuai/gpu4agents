@@ -143,10 +143,11 @@ class ModelConfig(_Base):
 
 
 class RuntimeConfigSection(_Base):
-    # vllm: chat models. hf: any other Hugging Face model (images, speech,
-    # transcription, embeddings, any pipeline). custom: a server the agent
-    # writes (runtime.service_dir, SERVING.md). none: bare machine for jobs.
-    engine: Literal["vllm", "hf", "custom", "none"] = "vllm"
+    # vllm: chat models (safetensors). llama: GGUF chat models via
+    # llama-server (OpenAI-native). hf: any other Hugging Face model (images,
+    # speech, transcription, embeddings, any pipeline). custom: a server the
+    # agent writes (runtime.service_dir, SERVING.md). none: bare machine for jobs.
+    engine: Literal["vllm", "llama", "hf", "custom", "none"] = "vllm"
     port: int = 8000
     context_length: Optional[int] = 16384
     dtype: str = "auto"
@@ -201,6 +202,14 @@ class RuntimeConfigSection(_Base):
     # custom: the directory holding the server (gpujob.yaml + code), relative
     # to the project.
     service_dir: Optional[str] = None
+
+    # llama engine: the GGUF quant tag to pull from the repo (model.id is the
+    # GGUF repo), e.g. "Q5_K_XL" -> llama-server -hf <id>:Q5_K_XL. n_gpu_layers
+    # None offloads every layer to the GPU; llama_args is the escape hatch for
+    # any llama-server flag this schema doesn't model (flattened like vllm_args).
+    quant: Optional[str] = None
+    n_gpu_layers: Optional[int] = None
+    llama_args: dict[str, Any] = Field(default_factory=dict)
 
 
 class LockConfig(_Base):
