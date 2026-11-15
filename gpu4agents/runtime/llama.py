@@ -70,7 +70,14 @@ class LlamaRuntime(ModelRuntime):
         return LOG_PATH
 
     def env(self) -> dict[str, str]:
-        return {"HF_HOME": "/workspace/hf", "HUGGING_FACE_HUB_CACHE": "/workspace/hf/hub"}
+        # llama.cpp's `-hf` downloader caches under LLAMA_CACHE (not the HF Hub
+        # cache dirs) and reads HF_TOKEN for gated repos (injected like vLLM's).
+        # Point the cache at the big /workspace volume so a re-rent reuses it.
+        return {
+            "LLAMA_CACHE": "/workspace/llama-cache",
+            "HF_HOME": "/workspace/hf",
+            "HUGGING_FACE_HUB_CACHE": "/workspace/hf/hub",
+        }
 
     def _n_gpu_layers(self) -> int:
         n = self.config.runtime.n_gpu_layers
@@ -111,10 +118,13 @@ class LlamaRuntime(ModelRuntime):
             [
                 *THREAD_CAPS,
                 "L=$1; c=",
+                # The image's binary is /app/llama-server and /app is NOT on
+                # PATH; resolve it (fall back to the known absolute path).
+                "LS=$(command -v llama-server || echo /app/llama-server)",
                 "trap '[ -n \"$c\" ] && kill $c; exit 143' TERM INT",
                 f"for i in $(seq 0 {NETWORK_RESTARTS}); do",
                 "  n=$(wc -l < $L)",
-                f"  llama-server {args} & c=$!",
+                f'  "$LS" {args} & c=$!',
                 "  wait $c; r=$?",
                 f"  tail -n +$((n + 1)) $L | tail -40 | grep -qE {shlex.quote(HOST_NETWORK_FAILURE_PATTERN)} || exit $r",
                 f"  [ $i -lt {NETWORK_RESTARTS} ] || exit $r",

@@ -101,7 +101,14 @@ def _assistant_blocks(content: list) -> dict:
                 "function": {"name": b.get("name", ""),
                              "arguments": json.dumps(b.get("input", {}))},
             })
-    msg: dict = {"role": "assistant", "content": "\n".join(text_parts) if text_parts else None}
+    if text_parts:
+        content: Optional[str] = "\n".join(text_parts)
+    else:
+        # No text: null is only legal alongside tool_calls; otherwise (e.g. an
+        # assistant turn that was only a dropped thinking block) use "" so an
+        # OpenAI backend does not reject a content:null message with no calls.
+        content = None if tool_calls else ""
+    msg: dict = {"role": "assistant", "content": content}
     if tool_calls:
         msg["tool_calls"] = tool_calls
     return msg
@@ -284,6 +291,10 @@ class AnthropicOpenAIAdapter(GatewayAdapter):
         except ValueError:
             return status, out_headers, iter([raw])
         out_headers["Content-Type"] = "application/json"
+        # Some backends return HTTP 200 with an {"error": ...} body; surface it
+        # as an Anthropic error rather than an empty end_turn message.
+        if isinstance(resp, dict) and resp.get("error") and not resp.get("choices"):
+            return status, out_headers, iter([_error_envelope(raw)])
         return status, out_headers, iter([json.dumps(chat_to_message(resp)).encode()])
 
 
@@ -369,6 +380,7 @@ def openai_sse_to_anthropic(chunks: Iterable[bytes]) -> Iterator[bytes]:
     started = False
     finish_reason = "stop"
     output_tokens = 0
+    input_tokens = 0
 
     for chunk in _iter_sse_data(chunks):
         if chunk is None:  # [DONE]
@@ -383,8 +395,11 @@ def openai_sse_to_anthropic(chunks: Iterable[bytes]) -> Iterator[bytes]:
             yield _event("ping", {"type": "ping"})
 
         usage = chunk.get("usage")
-        if isinstance(usage, dict) and usage.get("completion_tokens") is not None:
-            output_tokens = usage["completion_tokens"]
+        if isinstance(usage, dict):
+            if usage.get("completion_tokens") is not None:
+                output_tokens = usage["completion_tokens"]
+            if usage.get("prompt_tokens") is not None:
+                input_tokens = usage["prompt_tokens"]
 
         for choice in chunk.get("choices") or []:
             delta = choice.get("delta") or {}
@@ -415,7 +430,7 @@ def openai_sse_to_anthropic(chunks: Iterable[bytes]) -> Iterator[bytes]:
     yield _event("message_delta", {
         "type": "message_delta",
         "delta": {"stop_reason": STOP_REASON.get(finish_reason, "end_turn"), "stop_sequence": None},
-        "usage": {"output_tokens": output_tokens}})
+        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens}})
     yield _event("message_stop", {"type": "message_stop"})
 
 

@@ -301,3 +301,50 @@ def test_stream_reassembles_events_split_across_chunks():
                     if n == "content_block_delta" and d["delta"]["type"] == "text_delta")
     assert text == "Hello"
     assert [n for n, _ in events][-1] == "message_stop"
+
+
+# --- review fixes: assistant content fallback, stream usage, 200-error -----
+
+def test_assistant_with_only_unknown_blocks_gets_empty_string_content():
+    # e.g. an extended-thinking replay: assistant message with only a thinking
+    # block. OpenAI backends reject content:null with no tool_calls -> use "".
+    out = messages_to_chat({
+        "model": "m", "max_tokens": 1,
+        "messages": [{"role": "assistant", "content": [
+            {"type": "thinking", "thinking": "hmm"}]}],
+    })
+    assert out["messages"][0] == {"role": "assistant", "content": ""}
+
+
+def test_assistant_tool_use_only_keeps_null_content():
+    # with tool_calls, null content is legal and must be preserved
+    out = messages_to_chat({
+        "model": "m", "max_tokens": 1,
+        "messages": [{"role": "assistant", "content": [
+            {"type": "tool_use", "id": "t", "name": "x", "input": {}}]}],
+    })
+    assert out["messages"][0]["content"] is None
+    assert out["messages"][0]["tool_calls"][0]["id"] == "t"
+
+
+def test_stream_message_delta_carries_input_tokens():
+    chunks = _sse(
+        {"id": "c", "model": "m", "choices": [{"index": 0, "delta": {"content": "x"}, "finish_reason": None}]},
+        {"id": "c", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+        {"id": "c", "choices": [], "usage": {"prompt_tokens": 42, "completion_tokens": 1}},
+    )
+    events = _parse_anthropic_sse(b"".join(openai_sse_to_anthropic(iter(chunks))))
+    msg_delta = [d for n, d in events if n == "message_delta"][0]
+    assert msg_delta["usage"]["input_tokens"] == 42
+    assert msg_delta["usage"]["output_tokens"] == 1
+
+
+def test_nonstream_200_with_error_body_becomes_anthropic_error():
+    a = _adapter()
+    req = json.dumps({"stream": False}).encode()
+    body = json.dumps({"error": {"message": "boom", "type": "server_error"}}).encode()
+    status, headers, chunks = a.translate_response(req, 200, {"Content-Type": "application/json"},
+                                                   iter([body]))
+    out = json.loads(b"".join(chunks))
+    assert out["type"] == "error"
+    assert out["error"]["message"] == "boom"

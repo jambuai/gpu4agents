@@ -138,3 +138,19 @@ def test_llama_engine_task_is_chat(write_config):
                        model={"id": "peculiar-ragdoll/Cyber-Tiel-Coder-35B-A3B-GGUF"})
     engine = Engine(cfg, provider=FakeProvider(cfg, CredentialResolver(cfg.project_dir)))
     assert engine._task() == "chat"
+
+
+# --- review fixes: boot PATH + cache dir -----------------------------------
+
+def test_llama_launcher_invokes_resolvable_binary():
+    # The image's llama-server lives at /app and /app is NOT on PATH, so a bare
+    # `llama-server` is command-not-found. The launcher must resolve it.
+    script = _runtime(quant="Q5_K_XL").launcher_script()
+    assert "/app/llama-server" in script          # absolute fallback present
+    assert "command -v llama-server" in script    # or picked up if on PATH
+
+
+def test_llama_env_sets_llama_cache_dir():
+    # llama.cpp's -hf downloader caches under LLAMA_CACHE, not HF_HOME.
+    env = _runtime(quant="Q5_K_XL").env()
+    assert env.get("LLAMA_CACHE", "").startswith("/workspace")
