@@ -216,3 +216,88 @@ def test_adapter_upstream_error_becomes_anthropic_error():
     assert status == 400
     assert out["type"] == "error"
     assert out["error"]["message"] == "bad"
+
+
+# --- Task 5: streaming OpenAI SSE -> Anthropic events ----------------------
+
+from gpu4agents.gateway.anthropic_openai import openai_sse_to_anthropic  # noqa: E402
+
+
+def _parse_anthropic_sse(raw: bytes):
+    """-> list of (event_name, data_dict) from an Anthropic SSE byte stream."""
+    events = []
+    for block in raw.split(b"\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+        name = None
+        data = None
+        for line in block.split(b"\n"):
+            if line.startswith(b"event:"):
+                name = line[6:].strip().decode()
+            elif line.startswith(b"data:"):
+                data = json.loads(line[5:].strip())
+        events.append((name, data))
+    return events
+
+
+def _sse(*objs):
+    return [f"data: {json.dumps(o)}\n\n".encode() for o in objs] + [b"data: [DONE]\n\n"]
+
+
+def test_stream_text_produces_anthropic_event_sequence():
+    chunks = _sse(
+        {"id": "c1", "model": "m", "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]},
+        {"id": "c1", "choices": [{"index": 0, "delta": {"content": "Hel"}, "finish_reason": None}]},
+        {"id": "c1", "choices": [{"index": 0, "delta": {"content": "lo"}, "finish_reason": None}]},
+        {"id": "c1", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+        {"id": "c1", "choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 2}},
+    )
+    events = _parse_anthropic_sse(b"".join(openai_sse_to_anthropic(iter(chunks))))
+    names = [n for n, _ in events]
+    assert names[0] == "message_start"
+    assert "content_block_start" in names
+    assert names[-1] == "message_stop"
+    assert names[-2] == "message_delta"
+    # the text deltas reassemble
+    text = "".join(d["delta"]["text"] for n, d in events
+                    if n == "content_block_delta" and d["delta"]["type"] == "text_delta")
+    assert text == "Hello"
+    msg_delta = [d for n, d in events if n == "message_delta"][0]
+    assert msg_delta["delta"]["stop_reason"] == "end_turn"
+    assert msg_delta["usage"]["output_tokens"] == 2
+
+
+def test_stream_tool_call_with_fragmented_arguments():
+    chunks = _sse(
+        {"id": "c2", "model": "m", "choices": [{"index": 0, "delta": {"tool_calls": [
+            {"index": 0, "id": "call_1", "type": "function",
+             "function": {"name": "bash", "arguments": ""}}]}, "finish_reason": None}]},
+        {"choices": [{"index": 0, "delta": {"tool_calls": [
+            {"index": 0, "function": {"arguments": '{"cmd":'}}]}, "finish_reason": None}]},
+        {"choices": [{"index": 0, "delta": {"tool_calls": [
+            {"index": 0, "function": {"arguments": '"ls"}'}}]}, "finish_reason": None}]},
+        {"choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
+    )
+    events = _parse_anthropic_sse(b"".join(openai_sse_to_anthropic(iter(chunks))))
+    starts = [d for n, d in events if n == "content_block_start"]
+    assert starts[0]["content_block"] == {"type": "tool_use", "id": "call_1", "name": "bash", "input": {}}
+    partial = "".join(d["delta"]["partial_json"] for n, d in events
+                      if n == "content_block_delta" and d["delta"]["type"] == "input_json_delta")
+    assert partial == '{"cmd":"ls"}'
+    msg_delta = [d for n, d in events if n == "message_delta"][0]
+    assert msg_delta["delta"]["stop_reason"] == "tool_use"
+
+
+def test_stream_reassembles_events_split_across_chunks():
+    full = b"".join(_sse(
+        {"id": "c3", "model": "m", "choices": [{"index": 0, "delta": {"content": "Hello"}, "finish_reason": None}]},
+        {"id": "c3", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]},
+    ))
+    # chop the byte stream into tiny pieces, splitting events mid-line
+    pieces = [full[i:i + 7] for i in range(0, len(full), 7)]
+    events = _parse_anthropic_sse(b"".join(openai_sse_to_anthropic(iter(pieces))))
+    text = "".join(d["delta"]["text"] for n, d in events
+                    if n == "content_block_delta" and d["delta"]["type"] == "text_delta")
+    assert text == "Hello"
+    assert [n for n, _ in events][-1] == "message_stop"

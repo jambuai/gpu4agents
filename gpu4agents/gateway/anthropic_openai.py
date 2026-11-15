@@ -287,9 +287,136 @@ class AnthropicOpenAIAdapter(GatewayAdapter):
         return status, out_headers, iter([json.dumps(chat_to_message(resp)).encode()])
 
 
-# Streaming translation lives in Task 5; defined there.
-def openai_sse_to_anthropic(chunks: Iterable[bytes]) -> Iterator[bytes]:  # pragma: no cover
-    raise NotImplementedError("streaming translation is implemented in Task 5")
+def _event(name: str, data: dict) -> bytes:
+    return f"event: {name}\ndata: {json.dumps(data)}\n\n".encode()
+
+
+def _iter_sse_data(chunks: Iterable[bytes]) -> Iterator[Optional[dict]]:
+    """Yield the parsed JSON of each ``data:`` line in an OpenAI SSE stream,
+    reassembling lines split across chunk boundaries. ``None`` marks ``[DONE]``."""
+    buf = b""
+    for chunk in chunks:
+        buf += chunk
+        while b"\n" in buf:
+            line, buf = buf.split(b"\n", 1)
+            line = line.strip()
+            if not line.startswith(b"data:"):
+                continue
+            payload = line[5:].strip()
+            if payload == b"[DONE]":
+                yield None
+                return
+            try:
+                yield json.loads(payload)
+            except ValueError:
+                continue
+    # a trailing data line with no final newline
+    line = buf.strip()
+    if line.startswith(b"data:"):
+        payload = line[5:].strip()
+        if payload and payload != b"[DONE]":
+            try:
+                yield json.loads(payload)
+            except ValueError:
+                pass
+
+
+class _Blocks:
+    """Tracks the single open Anthropic content block and emits the start/stop
+    events as the OpenAI stream moves between text and each tool call."""
+
+    def __init__(self):
+        self.next_index = 0
+        self.open_index: Optional[int] = None
+        self.open_kind: Optional[str] = None  # "text" | "tool"
+        self.tool_index: dict[int, int] = {}  # openai tool index -> anthropic index
+
+    def _close(self) -> Iterator[bytes]:
+        if self.open_index is not None:
+            yield _event("content_block_stop", {"type": "content_block_stop", "index": self.open_index})
+            self.open_index = None
+            self.open_kind = None
+
+    def text(self) -> Iterator[bytes]:
+        if self.open_kind != "text":
+            yield from self._close()
+            self.open_index = self.next_index
+            self.next_index += 1
+            self.open_kind = "text"
+            yield _event("content_block_start", {
+                "type": "content_block_start", "index": self.open_index,
+                "content_block": {"type": "text", "text": ""}})
+
+    def tool(self, oai_index: int, call_id: str, name: str) -> Iterator[bytes]:
+        if oai_index in self.tool_index:
+            return
+        yield from self._close()
+        self.open_index = self.next_index
+        self.tool_index[oai_index] = self.open_index
+        self.next_index += 1
+        self.open_kind = "tool"
+        yield _event("content_block_start", {
+            "type": "content_block_start", "index": self.open_index,
+            "content_block": {"type": "tool_use", "id": call_id, "name": name, "input": {}}})
+
+    def close_all(self) -> Iterator[bytes]:
+        yield from self._close()
+
+
+def openai_sse_to_anthropic(chunks: Iterable[bytes]) -> Iterator[bytes]:
+    """OpenAI chat.completions SSE -> the Anthropic Messages event stream."""
+    blocks = _Blocks()
+    started = False
+    finish_reason = "stop"
+    output_tokens = 0
+
+    for chunk in _iter_sse_data(chunks):
+        if chunk is None:  # [DONE]
+            break
+        if not started:
+            started = True
+            yield _event("message_start", {"type": "message_start", "message": {
+                "id": chunk.get("id") or "msg_translated", "type": "message",
+                "role": "assistant", "model": chunk.get("model", ""), "content": [],
+                "stop_reason": None, "stop_sequence": None,
+                "usage": {"input_tokens": 0, "output_tokens": 0}}})
+            yield _event("ping", {"type": "ping"})
+
+        usage = chunk.get("usage")
+        if isinstance(usage, dict) and usage.get("completion_tokens") is not None:
+            output_tokens = usage["completion_tokens"]
+
+        for choice in chunk.get("choices") or []:
+            delta = choice.get("delta") or {}
+            text = delta.get("content")
+            if text:
+                yield from blocks.text()
+                yield _event("content_block_delta", {
+                    "type": "content_block_delta", "index": blocks.open_index,
+                    "delta": {"type": "text_delta", "text": text}})
+            for call in delta.get("tool_calls") or []:
+                oai_index = call.get("index", 0)
+                fn = call.get("function") or {}
+                yield from blocks.tool(oai_index, call.get("id", ""), fn.get("name", ""))
+                args = fn.get("arguments")
+                if args:
+                    yield _event("content_block_delta", {
+                        "type": "content_block_delta", "index": blocks.tool_index[oai_index],
+                        "delta": {"type": "input_json_delta", "partial_json": args}})
+            if choice.get("finish_reason"):
+                finish_reason = choice["finish_reason"]
+
+    if not started:  # empty upstream stream: still emit a well-formed message
+        yield _event("message_start", {"type": "message_start", "message": {
+            "id": "msg_translated", "type": "message", "role": "assistant", "model": "",
+            "content": [], "stop_reason": None, "stop_sequence": None,
+            "usage": {"input_tokens": 0, "output_tokens": 0}}})
+    yield from blocks.close_all()
+    yield _event("message_delta", {
+        "type": "message_delta",
+        "delta": {"stop_reason": STOP_REASON.get(finish_reason, "end_turn"), "stop_sequence": None},
+        "usage": {"output_tokens": output_tokens}})
+    yield _event("message_stop", {"type": "message_stop"})
 
 
 register("anthropic-openai", lambda: AnthropicOpenAIAdapter)
