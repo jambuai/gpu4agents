@@ -214,3 +214,56 @@ def test_gateway_forwards_rewrites_and_follows_endpoint():
         server.stop()
         up1.shutdown()
         up2.shutdown()
+
+
+# --- Task 3: adapters can rewrite the path and translate the response -------
+
+from gpu4agents.gateway.base import GatewayAdapter  # noqa: E402
+
+
+class _PathAndBodyAdapter(GatewayAdapter):
+    """Rewrites /a -> /b and prefixes the streamed response body."""
+
+    name = "stub"
+
+    def rewrite_request(self, headers, body, upstream):
+        return headers, body
+
+    def target_path(self, path):
+        return "/b" if path == "/a" else path
+
+    def translate_response(self, request_body, status, headers, chunks):
+        def gen():
+            yield b"TRANSLATED:"
+            for c in chunks:
+                yield c
+        return status, {**headers, "Content-Type": "text/plain"}, gen()
+
+
+def test_default_adapter_is_response_passthrough():
+    # the built-in anthropic adapter must not touch the path or the body
+    a = get_adapter(GatewayConfig(adapter="anthropic"))
+    assert a.target_path("/v1/messages") == "/v1/messages"
+    status, headers, chunks = a.translate_response(b"{}", 200, {"X": "y"}, iter([b"hello"]))
+    assert status == 200 and headers == {"X": "y"} and b"".join(chunks) == b"hello"
+
+
+def test_gateway_lets_adapter_rewrite_path_and_translate_body():
+    up, url = _start_upstream("echo")
+    current = {"endpoint": url, "api_key": "K", "model": "m"}
+    cfg = GatewayConfig(adapter="none", listen=f"127.0.0.1:{_free_port()}")
+    source = EndpointSource(lambda: dict(current, base_url=url + "/v1"), ttl=0.0)
+    server = GatewayServer(cfg, _PathAndBodyAdapter(cfg), source)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    time.sleep(0.2)
+    try:
+        r = httpx.post(f"http://{cfg.listen}/a",
+                       headers={"Content-Type": "application/json"},
+                       content=b'{"x":1}', timeout=10)
+        assert r.content.startswith(b"TRANSLATED:")   # response body was translated
+        seen = json.loads(r.content[len(b"TRANSLATED:"):])
+        assert seen["seen_path"] == "/b"              # path was rewritten /a -> /b
+        assert seen["tag"] == "echo"
+    finally:
+        server.stop()
+        up.shutdown()
