@@ -30,7 +30,7 @@ def _free_port() -> int:
 # --- adapters --------------------------------------------------------------
 
 def test_builtin_adapters_registered():
-    assert adapter_names() == ["anthropic", "none", "openai"]
+    assert adapter_names() == ["anthropic", "anthropic-openai", "none", "openai"]
 
 
 def test_anthropic_drops_client_creds_and_injects_key():
