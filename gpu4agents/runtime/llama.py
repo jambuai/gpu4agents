@@ -35,10 +35,12 @@ LAUNCHER_PATH = "/opt/jambu/llama-run.sh"
 
 # Pinned by digest (never `latest`): the official CUDA server build. The tag is
 # kept for readability; the digest is what actually resolves. Overridable with
-# compute.image.
+# compute.image. Keep this recent: an older build rejects newer GGUF model
+# architectures at load ("unknown model architecture", e.g. qwen35moe). To bump
+# it, resolve the live digest of the server-cuda tag and pin that.
 DEFAULT_IMAGE = (
     "ghcr.io/ggml-org/llama.cpp:server-cuda"
-    "@sha256:12e60fd68be91f313e19e009a350f504385d63017897e50af80898ca25308b41"
+    "@sha256:22bd49f4cf68236a63c5a187d7d1867ffb08472611ddfbf0392b6842a1b30d44"
 )
 
 # llama.cpp CUDA wheels run back to Pascal (6.1); its server images are built
