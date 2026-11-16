@@ -176,3 +176,25 @@ Each plan produces working, tested software on its own (TDD throughout).
   with test fixtures (captured from a real Claude Code request + a real
   llama-server response).
 - Whether the Anthropic adapter is a new name or a mode of `anthropic`.
+
+## Validation (live, 2026-11-16)
+
+Validated end to end against the real model
+`peculiar-ragdoll/Cyber-Tiel-Coder-35B-A3B-GGUF:Q5_K_XL` on a rented GPU
+(Quadro RTX 8000 48GB):
+
+- **llama engine serves it (OpenAI):** `/v1/models` lists the model;
+  `/v1/chat/completions` returns a correct answer with `finish_reason: stop`
+  and usage. Two bugs the first boot surfaced were fixed: the launcher now
+  resolves `/app/llama-server` (not on PATH), and the image is pinned to a
+  current `server-cuda` build (an older digest rejected the `qwen35moe`
+  architecture at load).
+- **Anthropic over OpenAI (gateway, `anthropic-openai`):** through the gateway
+  at `/v1/messages`,
+  - non-streaming → an Anthropic `message` (text block, `stop_reason:
+    end_turn`, usage), client key dropped and instance key injected;
+  - streaming → the full Anthropic event sequence (`message_start`, `ping`,
+    `content_block_start`, `content_block_delta`×N, `content_block_stop`,
+    `message_delta`, `message_stop`);
+  - tool call → `stop_reason: tool_use` with a `tool_use` block and parsed
+    JSON input (`{"cmd": "ls -la"}`).
