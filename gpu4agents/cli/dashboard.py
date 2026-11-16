@@ -25,8 +25,9 @@ import typer
 from ..core.durations import parse_duration
 from ..core.errors import JambuError
 from ..core.sweep import ProjectRegistry
+from ..dashboard import ops
 from ..dashboard.auth import TokenGate
-from ..dashboard.collect import project_snapshots, select_instances
+from ..dashboard.collect import live_project_paths, project_snapshots, reconcile, select_instances
 from ..dashboard.probe import ReachabilityWatch
 from ..dashboard.server import DashboardServer
 from ..dashboard import service as svc
@@ -47,9 +48,36 @@ def _project_paths(context) -> list[Path]:
     return paths
 
 
-def _state_provider(context):
+def _project_index(context) -> dict:
+    """Map each real project's name to its directory, this project first.
+
+    Only configs that still exist on disk are included (dead registry entries
+    are dropped), and the dashboard's own project is listed first so it is the
+    sensible default target for rent/control — not whatever sorts first.
+    """
+    try:
+        own_name = Path(context.config().project_dir).name
+    except Exception:  # noqa: BLE001 - no loadable project is fine
+        own_name = None
+    index: dict[str, str] = {}
+    for p in live_project_paths(_project_paths(context)):
+        index[p.parent.name] = str(p.parent)
+    # reorder: this project first, so it is the default rent/control target
+    if own_name and own_name in index:
+        index = {own_name: index[own_name],
+                 **{k: v for k, v in index.items() if k != own_name}}
+    return index
+
+
+def _state_provider(context, with_creds: bool):
+    """Build the host-wide state. With credentials, reconcile local state
+    against the provider's live instance list so a ghost (a project whose
+    state.json still names a dead instance) is marked gone, not shown running.
+    """
     def provider() -> dict:
         projects = project_snapshots(_project_paths(context), time.time())
+        live = ops.live_ids() if with_creds else None
+        reconcile(projects, live)
         return {"instances": select_instances(projects), "projects": projects, "proxies": []}
 
     return provider
@@ -71,34 +99,35 @@ def _read_token(cfg, project_dir: Optional[Path]) -> Optional[str]:
 
 
 def _build_actions(context) -> dict:
-    """Phase-3 control actions, wired to THIS project's engine only.
-
-    Mutating another project would need that project's own engine and
-    credentials in the service environment; that larger surface is deferred, so
-    control acts on the project the dashboard runs in. Enabling control means
-    the service process can stop/destroy a GPU and therefore needs provider
-    credentials — a deliberate choice, off by default.
+    """Control actions, each targeting the named project by its own directory
+    via the `gpu` CLI (so every provider works and the action runs the exact
+    terminal code path). A project the host does not know raises, which the
+    server turns into a 409. Enabling control means the service process shells
+    `gpu setup/stop/destroy` and therefore needs provider credentials.
     """
-    def stop(_project):
-        return context.engine().stop(reason="dashboard")
+    def _dir_for(body: dict) -> str:
+        name = body.get("project")
+        d = _project_index(context).get(name)
+        if not d:
+            raise RuntimeError(f"unknown project {name!r}")
+        return d
 
-    def destroy(_project):
-        return context.engine().destroy(reason="dashboard")
-
-    def lock(_project):
-        engine = context.engine()
-        return engine.lock(engine.config.lock_default_ttl_s, reason="dashboard")
-
-    def restart_proxy(_project):
+    def restart_proxy(body: dict) -> dict:
         import subprocess
 
         from ..gateway import service as gw_svc
 
-        unit = gw_svc.unit_name(context.config().project_dir) + ".service"
+        unit = gw_svc.unit_name(Path(_dir_for(body))) + ".service"
         subprocess.run(["systemctl", "--user", "restart", unit], check=True)
         return {"restarted": unit}
 
-    return {"stop": stop, "destroy": destroy, "lock": lock, "restart-proxy": restart_proxy}
+    return {
+        "stop": lambda b: ops.stop(_dir_for(b)),
+        "destroy": lambda b: ops.destroy(_dir_for(b)),
+        "lock": lambda b: ops.lock(_dir_for(b)),
+        "rent": lambda b: ops.rent(_dir_for(b), b.get("offer_id")),
+        "restart-proxy": restart_proxy,
+    }
 
 
 @dashboard_app.command("start")
@@ -107,22 +136,29 @@ def start_command(ctx: typer.Context) -> None:
     context = get_context(ctx)
     cfg = context.config().dashboard
     host, port = cfg.listen_host_port
-    provider = _state_provider(context)
+    with_creds = cfg.control_enabled
+    provider = _state_provider(context, with_creds)
     gate = TokenGate(_read_token(cfg, context.config().project_dir))
     watch = ReachabilityWatch(
         interval_s=parse_duration(cfg.watch_interval) or 15.0,
         history_s=parse_duration(cfg.history) or 1200.0,
     )
     watch.start(lambda: [r["endpoint"] for r in provider()["projects"] if r.get("endpoint")])
-    actions = _build_actions(context) if cfg.control_enabled else None
+    actions = project_dirs = logs_fn = offers_fn = None
     if cfg.control_enabled:
-        context.echo("! dashboard.control_enabled is true: mutating routes are live (token + confirm required)")
+        actions = _build_actions(context)
+        project_dirs = _project_index(context)
+        logs_fn = lambda project: ops.logs(_project_index(context).get(project, "."))  # noqa: E731
+        # offers match the selected project's own requirements (run in its dir)
+        offers_fn = lambda project: ops.offers(  # noqa: E731
+            cwd=_project_index(context).get(project) if project else None)
+        context.echo("! dashboard.control_enabled is true: live control (rent/stop/destroy) — token + confirm required")
     if not cfg.enabled:
         context.echo("! dashboard.enabled is false in gpu.yaml; starting anyway because you asked")
-    local_project = Path(context.config().project_dir).name
     try:
         server = DashboardServer(cfg, provider, watch, gate, log=context.echo,
-                                 actions=actions, local_project=local_project)
+                                 actions=actions, project_dirs=project_dirs,
+                                 logs_fn=logs_fn, offers_fn=offers_fn)
     except (OSError, ValueError) as exc:
         err_console.print(f"error: {exc}")
         raise typer.Exit(1) from exc
