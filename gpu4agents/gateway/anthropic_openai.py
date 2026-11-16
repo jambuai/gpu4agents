@@ -264,8 +264,13 @@ class AnthropicOpenAIAdapter(GatewayAdapter):
         return headers, json.dumps(openai).encode()
 
     def target_path(self, path: str) -> str:
-        if path.rstrip("/").endswith("/v1/messages"):
-            return path.replace("/v1/messages", "/v1/chat/completions")
+        # Claude Code calls /v1/messages?beta=true, so match the path portion
+        # (ignoring the query string) and preserve the query on the rewrite.
+        base, sep, query = path.partition("?")
+        stripped = base.rstrip("/")
+        if stripped.endswith("/v1/messages"):
+            new_base = stripped[: -len("/v1/messages")] + "/v1/chat/completions"
+            return new_base + (sep + query if sep else "")
         return path
 
     def translate_response(self, request_body, status, headers, chunks):
