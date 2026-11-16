@@ -66,6 +66,40 @@ class GatewayAdapter(ABC):
         """
         raise NotImplementedError
 
+    # -- optional protocol translation (default: passthrough) ---------------
+    #
+    # These let an adapter serve one wire protocol on top of a backend that
+    # speaks another. The built-in request-only adapters leave both at the
+    # identity, so the gateway forwards the path verbatim and streams the
+    # response straight through, exactly as before.
+
+    def target_path(self, path: str) -> str:
+        """The upstream path to forward to (default: unchanged).
+
+        An Anthropic-over-OpenAI adapter rewrites e.g. ``/v1/messages`` to
+        ``/v1/chat/completions`` here.
+        """
+        return path
+
+    def translate_response(
+        self,
+        request_body: bytes,
+        status: int,
+        headers: dict[str, str],
+        chunks: "Iterable[bytes]",
+    ) -> "tuple[int, dict[str, str], Iterable[bytes]]":
+        """Transform the upstream response before it reaches the client.
+
+        ``chunks`` is an iterator of raw upstream body bytes; return the
+        client-facing ``(status, headers, chunk-iterator)``. The returned
+        iterator is consumed inside the upstream stream context, so a
+        translator may be a generator that reads ``chunks`` lazily. Default:
+        identity — the response streams through untouched. ``request_body`` is
+        the already-rewritten request, so a translator can read the stream flag
+        and model without carrying state between the two calls.
+        """
+        return status, headers, chunks
+
 
 # --- registry -------------------------------------------------------------
 

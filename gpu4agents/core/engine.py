@@ -1251,7 +1251,7 @@ class Engine:
 
     def _task(self) -> Optional[str]:
         engine = self.config.runtime.engine
-        if engine == "vllm":
+        if engine in ("vllm", "llama"):
             return "chat"
         if engine == "hf":
             return self.config.model.task

@@ -141,12 +141,15 @@ How the model runs. Independent from where it runs.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `engine` | `vllm` | `vllm` (chat models), `hf` (any other Hugging Face model, gpu's own OpenAI-compatible server), `custom` (a server you write, in `service_dir`) or `none` (bare compute for jobs, start nothing). `hf` and `custom` are deployed after boot: changing the model or the server code redeploys on the same machine at the next `gpu setup`. See [SERVING.md](../SERVING.md). |
+| `engine` | `vllm` | `vllm` (chat models, safetensors), `llama` (GGUF chat models via `llama-server`, OpenAI-native — for models that ship only as GGUF), `hf` (any other Hugging Face model, gpu's own OpenAI-compatible server), `custom` (a server you write, in `service_dir`) or `none` (bare compute for jobs, start nothing). `hf` and `custom` are deployed after boot: changing the model or the server code redeploys on the same machine at the next `gpu setup`. See [SERVING.md](../SERVING.md). |
 | `port` | `8000` | Container port the server listens on; published publicly. |
-| `context_length` | `16384` | `--max-model-len`. |
-| `dtype` | `auto` | vLLM dtype. |
-| `gpu_memory_utilization` | `0.90` | Fraction of VRAM vLLM may claim. |
-| `tensor_parallel_size` | `compute.gpu.count` | Shards across GPUs. |
+| `context_length` | `16384` | vLLM `--max-model-len`; llama `--ctx-size`. |
+| `dtype` | `auto` | vLLM dtype (vLLM only). |
+| `gpu_memory_utilization` | `0.90` | Fraction of VRAM vLLM may claim (vLLM only). |
+| `tensor_parallel_size` | `compute.gpu.count` | Shards across GPUs (vLLM only). |
+| `quant` | – | `llama`: the GGUF quant tag to pull from `model.id` (the GGUF repo), e.g. `Q5_K_XL` → `llama-server -hf <id>:Q5_K_XL`. Required for the llama engine. |
+| `n_gpu_layers` | – | `llama`: layers to offload to the GPU (`--n-gpu-layers`). Unset offloads all of them. |
+| `llama_args` | `{}` | `llama`: structured escape hatch for any `llama-server` flag this schema doesn't model (same `{flag: value}` flattening as `vllm_args`, e.g. `{flash_attn: true}` → `--flash-attn`). |
 | `api_key` | generated | The key the model endpoint requires. Unset, `setup` generates a random one per instance; `gpu env` prints it. |
 | `vllm_args` | `{}` | Structured escape hatch for any vLLM flag this schema doesn't model: `{flag: value}` → `--flag value` (`true`/`false` → a bare/negated flag, a dict or list → JSON-encoded). Applied before `extra_args`. See [`docs/CHOOSING_A_MODEL.md`](CHOOSING_A_MODEL.md#dynamic--un-modeled-vllm-flags). |
 | `extra_args` | `[]` | Raw argv appended verbatim, last, for anything `vllm_args` can't express. |
@@ -183,7 +186,21 @@ agent framework works against the instance gpu provisioned.
 (`vLLM :8000 (model, tools=hermes)`). If no parser is active for a model you
 expect to call tools, set `runtime.tool_call_parser` explicitly.
 
-## `lifecycle`
+## `gateway`
+
+A managed loopback endpoint (`127.0.0.1`) that follows the rented machine, so a
+client points at one stable URL while `gpu` re-rents underneath. An **adapter**
+shapes each request for one kind of client:
+
+| `adapter` | For |
+| --- | --- |
+| `none` | A client that already sends the right key and model: forward unchanged. |
+| `openai` | OpenAI-wire clients: drop the client's key, inject the instance key, rename the model, normalize reasoning effort. |
+| `anthropic` | Claude Code and other Anthropic-wire clients against a backend that **serves `/v1/messages` natively** (vLLM): same as `openai` plus it drops the Anthropic auth headers. The path and body pass through. |
+| `anthropic-openai` | Claude Code against an **OpenAI-only backend** (the `llama` engine, or vLLM's OpenAI routes): translates the Anthropic `/v1/messages` request to OpenAI `/v1/chat/completions` and the response back — non-streaming and SSE, including tool calls and token usage. Use this to run Claude Code against a GGUF model. |
+
+`anthropic` assumes the backend speaks Anthropic; `anthropic-openai` does the
+full protocol translation, so it is the one to pair with `engine: llama`.
 
 The cost protection. See [the safety invariant](#safety-invariant).
 

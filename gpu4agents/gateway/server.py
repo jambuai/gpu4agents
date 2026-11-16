@@ -82,19 +82,22 @@ def make_handler(config: GatewayConfig, adapter: GatewayAdapter, source: Endpoin
                     return self._error(503, "no endpoint; run `gpu setup` first")
                 headers = {k: v for k, v in self.headers.items() if k.lower() not in HOP}
                 headers, out = adapter.rewrite_request(headers, body, up)
-                url = up.endpoint.rstrip("/") + self.path
+                url = up.endpoint.rstrip("/") + adapter.target_path(self.path)
                 try:
                     with httpx.Client(timeout=httpx.Timeout(600.0, connect=15.0)) as client:
                         with client.stream(self.command, url, content=out, headers=headers) as resp:
+                            status, out_headers, chunks = adapter.translate_response(
+                                out, resp.status_code, dict(resp.headers), resp.iter_raw(65536)
+                            )
                             log(f"{self.command} {self.path} -> {resp.status_code}")
-                            self.send_response(resp.status_code)
-                            for k, v in resp.headers.items():
+                            self.send_response(status)
+                            for k, v in out_headers.items():
                                 if k.lower() not in HOP:
                                     self.send_header(k, v)
                             self.send_header("Transfer-Encoding", "chunked")
                             self.send_header("Connection", "close")
                             self.end_headers()
-                            for chunk in resp.iter_raw(65536):
+                            for chunk in chunks:
                                 if chunk:
                                     self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
                                     self.wfile.flush()

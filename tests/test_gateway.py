@@ -30,7 +30,7 @@ def _free_port() -> int:
 # --- adapters --------------------------------------------------------------
 
 def test_builtin_adapters_registered():
-    assert adapter_names() == ["anthropic", "none", "openai"]
+    assert adapter_names() == ["anthropic", "anthropic-openai", "none", "openai"]
 
 
 def test_anthropic_drops_client_creds_and_injects_key():
@@ -214,3 +214,168 @@ def test_gateway_forwards_rewrites_and_follows_endpoint():
         server.stop()
         up1.shutdown()
         up2.shutdown()
+
+
+# --- Task 3: adapters can rewrite the path and translate the response -------
+
+from gpu4agents.gateway.base import GatewayAdapter  # noqa: E402
+
+
+class _PathAndBodyAdapter(GatewayAdapter):
+    """Rewrites /a -> /b and prefixes the streamed response body."""
+
+    name = "stub"
+
+    def rewrite_request(self, headers, body, upstream):
+        return headers, body
+
+    def target_path(self, path):
+        return "/b" if path == "/a" else path
+
+    def translate_response(self, request_body, status, headers, chunks):
+        def gen():
+            yield b"TRANSLATED:"
+            for c in chunks:
+                yield c
+        return status, {**headers, "Content-Type": "text/plain"}, gen()
+
+
+def test_default_adapter_is_response_passthrough():
+    # the built-in anthropic adapter must not touch the path or the body
+    a = get_adapter(GatewayConfig(adapter="anthropic"))
+    assert a.target_path("/v1/messages") == "/v1/messages"
+    status, headers, chunks = a.translate_response(b"{}", 200, {"X": "y"}, iter([b"hello"]))
+    assert status == 200 and headers == {"X": "y"} and b"".join(chunks) == b"hello"
+
+
+def test_gateway_lets_adapter_rewrite_path_and_translate_body():
+    up, url = _start_upstream("echo")
+    current = {"endpoint": url, "api_key": "K", "model": "m"}
+    cfg = GatewayConfig(adapter="none", listen=f"127.0.0.1:{_free_port()}")
+    source = EndpointSource(lambda: dict(current, base_url=url + "/v1"), ttl=0.0)
+    server = GatewayServer(cfg, _PathAndBodyAdapter(cfg), source)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    time.sleep(0.2)
+    try:
+        r = httpx.post(f"http://{cfg.listen}/a",
+                       headers={"Content-Type": "application/json"},
+                       content=b'{"x":1}', timeout=10)
+        assert r.content.startswith(b"TRANSLATED:")   # response body was translated
+        seen = json.loads(r.content[len(b"TRANSLATED:"):])
+        assert seen["seen_path"] == "/b"              # path was rewritten /a -> /b
+        assert seen["tag"] == "echo"
+    finally:
+        server.stop()
+        up.shutdown()
+
+
+# --- Task 6: end to end - serve Anthropic over a fake OpenAI backend --------
+
+def _anthropic_events(raw: bytes):
+    out = []
+    for block in raw.split(b"\n\n"):
+        block = block.strip()
+        if not block:
+            continue
+        name = data = None
+        for line in block.split(b"\n"):
+            if line.startswith(b"event:"):
+                name = line[6:].strip().decode()
+            elif line.startswith(b"data:"):
+                data = json.loads(line[5:].strip())
+        out.append((name, data))
+    return out
+
+
+class _OpenAIChat(BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass
+
+    def do_POST(self):
+        n = int(self.headers.get("Content-Length") or 0)
+        body = json.loads(self.rfile.read(n) or b"{}")
+        self.server.seen_path = self.path          # type: ignore[attr-defined]
+        self.server.seen_body = body               # type: ignore[attr-defined]
+        if body.get("stream"):
+            sse = (
+                b'data: {"id":"x","model":"m","choices":[{"index":0,"delta":{"content":"Hi"},"finish_reason":null}]}\n\n'
+                b'data: {"id":"x","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\n'
+                b'data: {"id":"x","choices":[],"usage":{"prompt_tokens":4,"completion_tokens":1}}\n\n'
+                b'data: [DONE]\n\n'
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(sse)))
+            self.end_headers()
+            self.wfile.write(sse)
+        else:
+            payload = json.dumps({
+                "id": "chatcmpl-x", "model": "m",
+                "choices": [{"message": {"role": "assistant", "content": "Hi there"},
+                             "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 4, "completion_tokens": 2},
+            }).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+
+def _start_openai_chat():
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), _OpenAIChat)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd, f"http://127.0.0.1:{httpd.server_address[1]}"
+
+
+def _run_gateway(adapter_name):
+    up, url = _start_openai_chat()
+    cfg = GatewayConfig(adapter=adapter_name, listen=f"127.0.0.1:{_free_port()}")
+    source = EndpointSource(lambda: {"endpoint": url, "base_url": url + "/v1",
+                                     "api_key": "KEY", "model": "served/Model"}, ttl=0.0)
+    server = GatewayServer(cfg, get_adapter(cfg), source)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    time.sleep(0.2)
+    return up, server, cfg
+
+
+def test_e2e_anthropic_over_openai_nonstreaming():
+    up, server, cfg = _run_gateway("anthropic-openai")
+    try:
+        r = httpx.post(f"http://{cfg.listen}/v1/messages",
+                       headers={"x-api-key": "LEAK", "Content-Type": "application/json"},
+                       content=json.dumps({"model": "claude-x", "max_tokens": 16,
+                                           "messages": [{"role": "user", "content": "hi"}]}).encode(),
+                       timeout=10)
+        msg = r.json()
+        assert msg["type"] == "message"
+        assert msg["content"] == [{"type": "text", "text": "Hi there"}]
+        assert msg["usage"] == {"input_tokens": 4, "output_tokens": 2}
+        # the backend saw an OpenAI chat request at the rewritten path
+        assert up.seen_path == "/v1/chat/completions"
+        assert up.seen_body["model"] == "served/Model"      # renamed
+        assert up.seen_body["messages"][-1] == {"role": "user", "content": "hi"}
+    finally:
+        server.stop()
+        up.shutdown()
+
+
+def test_e2e_anthropic_over_openai_streaming():
+    up, server, cfg = _run_gateway("anthropic-openai")
+    try:
+        with httpx.stream("POST", f"http://{cfg.listen}/v1/messages",
+                          headers={"Content-Type": "application/json"},
+                          content=json.dumps({"model": "claude-x", "max_tokens": 16, "stream": True,
+                                              "messages": [{"role": "user", "content": "hi"}]}).encode(),
+                          timeout=10) as resp:
+            raw = b"".join(resp.iter_raw())
+        events = _anthropic_events(raw)
+        names = [n for n, _ in events]
+        assert names[0] == "message_start" and names[-1] == "message_stop"
+        text = "".join(d["delta"]["text"] for n, d in events
+                        if n == "content_block_delta" and d["delta"]["type"] == "text_delta")
+        assert text == "Hi"
+        assert up.seen_body["stream"] is True
+    finally:
+        server.stop()
+        up.shutdown()
