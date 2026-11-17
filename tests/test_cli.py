@@ -640,3 +640,23 @@ def test_runpod_and_lambda_are_built_in_names():
             assert "built in" in str(exc)
         else:
             raise AssertionError(f"{name} must be refused")
+
+
+def test_init_scaffolds_project_skeleton(tmp_path, monkeypatch):
+    # `gpu init` lays down a reusable project skeleton: CLAUDE.md (agent rules,
+    # incl. where files go) + scripts/ (code) + work/ (outputs).
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(app, ["init", "--model", "org/model"]).exit_code == 0
+    assert (tmp_path / "CLAUDE.md").is_file()
+    assert (tmp_path / "scripts").is_dir()
+    assert (tmp_path / "work").is_dir()
+    text = (tmp_path / "CLAUDE.md").read_text()
+    assert "scripts/" in text and "work/" in text          # documents file placement
+    assert "org/model" in text                              # names the served model
+
+
+def test_init_does_not_clobber_an_existing_claude_md(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "CLAUDE.md").write_text("MINE\n")
+    assert runner.invoke(app, ["init", "--model", "org/model"]).exit_code == 0
+    assert (tmp_path / "CLAUDE.md").read_text() == "MINE\n"

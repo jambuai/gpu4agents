@@ -11,6 +11,7 @@ import typer
 
 from ..core.errors import JambuError
 from . import account
+from . import claude as claude_cli
 from . import agent as agent_cli
 from . import inspect as inspect_cli
 from . import _common, dashboard, gateway, job, lifecycle, providers, run, setup, status, validate
@@ -94,6 +95,7 @@ app.command("adopt")(lifecycle.adopt_command)
 app.command("login")(account.login_command)
 app.command("ls")(account.ls_command)
 app.command("sweep")(account.sweep_command)
+app.command("claude")(claude_cli.claude_command)
 app.command("mcp")(agent_cli.mcp_command)
 app.add_typer(agent_cli.agent_app, name="agent")
 app.add_typer(gateway.gateway_app, name="gateway")

@@ -217,6 +217,8 @@ def init_command(
             "HF_TOKEN=\n"
         )
         console.print(Text(f"+ wrote {env_example}", style="green"))
+    if not flat:
+        _scaffold_project(Path.cwd(), engine, model)
     if plugin and not (Path.cwd() / plugin.split(":")[0]).is_file():
         console.print(
             Text(f"! {provider} is not built in: run `gpu providers new {provider}` and fill in the adapter", style="yellow")
@@ -263,6 +265,37 @@ def detect_serving(model: str, model_given: bool) -> tuple[str, Optional[str], O
             "serve it with your own server (gpu init --engine custom, SERVING.md)"
         )
     return engine, task, sized, note
+
+
+_CLAUDE_MD_TEMPLATE = """# {model} — served by gpu4agents
+
+This project serves **{model}** behind a stable local endpoint.
+
+## Run
+- `gpu setup` provisions the GPU and serves the model.
+- `gpu claude` launches Claude Code wired to it (model + context from gpu.yaml).
+- `gpu destroy` stops billing when you are done.
+
+## Where files go
+- **`scripts/`** — code you write (helpers, one-off tools).
+- **`work/`** — outputs and artifacts (results, data, reports, logs).
+- Keep the project root clean: never scatter files in the root or in `/tmp`.
+"""
+
+
+def _scaffold_project(directory: Path, engine: str, model: str) -> None:
+    """A reusable project skeleton: scripts/ (code), work/ (outputs) and a
+    starter CLAUDE.md that tells an agent where files go. Non-destructive."""
+    for sub in ("scripts", "work"):
+        d = directory / sub
+        if not d.exists():
+            d.mkdir(parents=True, exist_ok=True)
+            (d / ".gitkeep").write_text("")
+            console.print(Text(f"+ wrote {sub}/", style="green"))
+    claude_md = directory / "CLAUDE.md"
+    if not claude_md.exists():
+        claude_md.write_text(_CLAUDE_MD_TEMPLATE.format(model=model or "the model"))
+        console.print(Text(f"+ wrote {claude_md.name}", style="green"))
 
 
 def scaffold_server(directory: Path) -> None:
