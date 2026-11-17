@@ -348,3 +348,20 @@ def test_nonstream_200_with_error_body_becomes_anthropic_error():
     out = json.loads(b"".join(chunks))
     assert out["type"] == "error"
     assert out["error"]["message"] == "boom"
+
+
+# --- fix: Claude Code sends /v1/messages?beta=true (query string) -----------
+
+def test_target_path_rewrites_with_query_string():
+    # Claude Code always calls /v1/messages?beta=true; the query must not break
+    # the rewrite, and it must be preserved on the rewritten path.
+    a = _adapter()
+    assert a.target_path("/v1/messages?beta=true") == "/v1/chat/completions?beta=true"
+    assert a.target_path("/v1/messages/?beta=true") == "/v1/chat/completions?beta=true"
+
+
+def test_target_path_plain_and_other_unchanged():
+    a = _adapter()
+    assert a.target_path("/v1/messages") == "/v1/chat/completions"
+    assert a.target_path("/v1/models") == "/v1/models"
+    assert a.target_path("/v1/models?x=1") == "/v1/models?x=1"
