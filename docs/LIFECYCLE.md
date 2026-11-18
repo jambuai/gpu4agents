@@ -101,7 +101,11 @@ Inference traffic is counted on the instance only. When the watchdog is enabled 
 
 ## A machine that vanished
 
-A destroyed machine leaves nothing to ask: the provider forgets it, and its watchdog went with it. When the CLI next finds the machine missing, it replays this project's own rules (`idle_timeout`, `max_lifetime`, the session budget) on what it last knew. If they called for a destroy by now (on a provider where a stop bills and without `keep_disk`), it records `instance_destroyed` with that `reason`, `by: watchdog` and `inferred: true`, and `state_reconciled` carries `likely_reason`, e.g. `idle_timeout (watchdog)`. Otherwise `likely_reason` is `unknown`: the provider console, another tool, the host, or an account out of credit.
+A destroyed machine leaves nothing to ask: the provider forgets it, and its watchdog went with it. When the CLI next finds the machine missing, all it has observed is that: the event says `reason: unknown`, `by: unknown`. It then replays this project's own rules (`idle_timeout`, `max_lifetime`, the session budget) forward from the last moment the machine was known to exist (`last_seen`) and takes the first one that came due. If that rule calls for a destroy (on a provider where a stop bills and without `keep_disk`), it records `instance_destroyed` with `likely_reason: <rule>`, `likely_by: watchdog`, `due_at` and `inferred: true`, and `state_reconciled` carries `likely_reason`, e.g. `idle_timeout (watchdog, due 2026-11-15T18:11:42Z at the earliest)`. Otherwise `likely_reason` is `unknown`: the provider console, another tool, the host, or an account out of credit.
+
+The end time is not observed either, so the session is billed until that rule's `due_at`, or until `last_seen` when no rule was due, never until the moment a command finally noticed (that could be days later). `state_reconciled` also carries `cost_if_ran_until_now_usd`, the worst case; the provider's billing has the real figure.
+
+When the provider cannot be asked (no API key, an outage), `gpu status` shows the last saved state with a red `STALE` line, and `--json` has `reconciled: false`, `stale_reason` and `last_seen`.
 
 The watchdog's own events (`watchdog_identified`, `instance_idle`, ...) used to reach the local log only on a later command. `gpu setup` now fetches them as soon as the machine is ready, so a machine that goes while nobody runs gpu still has the record that it was guarded.
 

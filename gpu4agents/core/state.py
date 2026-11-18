@@ -150,6 +150,10 @@ class RuntimeState:
     # When the instance was first observed STOPPED; drives lifecycle.stopped_ttl
     # on providers where a stopped instance still bills (storage).
     stopped_since: Optional[float] = None
+    # The last time the provider confirmed the instance exists. When it later
+    # vanishes unseen, billing is closed from here, not from the moment some
+    # command finally noticed (days later, without a provider key).
+    last_seen: Optional[float] = None
     # The key the model server demands (vLLM --api-key): runtime.api_key, or
     # one generated per instance so a public endpoint is never open to anyone.
     api_key: Optional[str] = None
@@ -226,11 +230,16 @@ class RuntimeState:
         for record in finished[:-keep] if len(finished) > keep else []:
             self.workloads.pop(record.id, None)
 
-    def clear_instance(self, state: str = InstanceState.DESTROYED.value) -> None:
+    def clear_instance(
+        self, state: str = InstanceState.DESTROYED.value, ended_at: Optional[float] = None
+    ) -> None:
         # Close out any open billable period and freeze the final total into
         # session_cost_usd (the historical record of the finished session)
         # before resetting the counters for whatever instance comes next.
-        self.mark_billable(False)
+        # ``ended_at``: when billing stopped, if earlier than now.
+        if ended_at is not None and self.running_since is not None:
+            ended_at = max(ended_at, self.running_since)
+        self.mark_billable(False, now=ended_at)
         if self.hourly_cost_usd:
             self.session_cost_usd = round(self.hourly_cost_usd * self.billed_seconds / 3600.0, 4)
         self.instance_id = None
@@ -246,6 +255,7 @@ class RuntimeState:
         self.running_since = None
         self.session_started_at = None
         self.stopped_since = None
+        self.last_seen = None
         for record in self.workloads.values():
             if record.state in ("running", "queued"):
                 record.state = "failed"
@@ -274,6 +284,7 @@ class RuntimeState:
             "running_since": to_iso(self.running_since),
             "session_started_at": to_iso(self.session_started_at),
             "stopped_since": to_iso(self.stopped_since),
+            "last_seen": to_iso(self.last_seen),
             "api_key": self.api_key,
             "instance": self.instance.to_dict() if self.instance else None,
             "workloads": {k: v.to_dict() for k, v in self.workloads.items()},
@@ -302,6 +313,7 @@ class RuntimeState:
             running_since=from_iso(data.get("running_since")),
             session_started_at=from_iso(data.get("session_started_at")),
             stopped_since=from_iso(data.get("stopped_since")),
+            last_seen=from_iso(data.get("last_seen")),
             api_key=data.get("api_key"),
             instance=Instance.from_dict(instance_data) if instance_data else None,
             workloads={

@@ -74,6 +74,16 @@ def _render(payload: dict) -> None:
         ("guard", _guard(decision, payload)),
     ]
     console.print(kv_table("Runtime", rows))
+    if payload.get("instance_id") and not payload.get("busy") and payload.get("reconciled") is False:
+        seen = fmt_time(payload.get("last_seen")) or "unknown"
+        console.print(
+            Text(
+                f"STALE: {payload.get('stale_reason')}. This is the last saved state "
+                f"(provider last saw the machine {seen}); it may have kept billing or be "
+                "gone. Fix the provider access (gpu login --check) and run gpu status again.",
+                style="bold red",
+            )
+        )
 
     workloads = [w for w in payload.get("workloads", []) if w["state"] in ("running", "queued")]
     recent = sorted(
