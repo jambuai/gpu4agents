@@ -470,10 +470,101 @@ def _vanished(write_config, idle_for_s, **lifecycle):
 def test_a_machine_gone_after_its_idle_timeout_is_recorded_as_the_watchdogs_doing(write_config):
     engine, events = _vanished(write_config, idle_for_s=40 * 60)
     [destroyed] = [r for r in events if r["event"] == "instance_destroyed"]
-    assert destroyed["reason"] == "idle_timeout"
-    assert destroyed["by"] == "watchdog" and destroyed["inferred"] is True
+    # Only "missing at the provider" is observed; the rule is a likely cause.
+    assert destroyed["reason"] == "unknown" and destroyed["by"] == "unknown"
+    assert destroyed["likely_reason"] == "idle_timeout"
+    assert destroyed["likely_by"] == "watchdog" and destroyed["inferred"] is True
     [reconciled] = [r for r in events if r["event"] == "state_reconciled"]
-    assert reconciled["likely_reason"] == "idle_timeout (watchdog)"
+    assert reconciled["likely_reason"].startswith("idle_timeout (watchdog, due ")
+
+
+def test_a_machine_found_gone_days_later_is_blamed_on_the_first_rule_and_billed_until_then(
+    write_config,
+):
+    """qwensploit-27b, 2026-11-15: no provider key for two days, then the
+    reconcile found the machine gone. It blamed max_lifetime (the rule that
+    applies *now*) and billed all 55 h ($65) although Vast charged 1.4 h."""
+    config = write_config(
+        lifecycle={"idle_timeout": "30m", "max_lifetime": "6h"},
+        budget={"max_session_cost_usd": 5.0},
+    )
+    engine = billing_engine(config)
+    engine.setup(wait=False)
+    now = utc_now()
+    created = now - 55 * HOUR
+    with engine.store.transaction() as stored:
+        stored.state = "ready"
+        stored.starting = False
+        stored.created_at = created
+        stored.session_started_at = created
+        stored.running_since = created
+        stored.billed_seconds = 0.0
+        stored.hourly_cost_usd = 1.1733
+        stored.last_activity = created + 12 * 60  # runtime_ready
+        stored.last_seen = created + 12 * 60
+        stored.watchdog.last_contact = created + 26
+    engine.provider.instances.clear()
+    state = engine.reconcile()
+    events = engine.events.tail(limit=50)
+    [destroyed] = [r for r in events if r["event"] == "instance_destroyed"]
+    assert destroyed["likely_reason"] == "idle_timeout"
+    [reconciled] = [r for r in events if r["event"] == "state_reconciled"]
+    assert "max_lifetime" not in reconciled["likely_reason"]
+    # Billed until the idle rule was due (42 min), not until today.
+    assert state.session_cost_usd == pytest.approx(1.1733 * 42 / 60, abs=0.05)
+    assert reconciled["cost_if_ran_until_now_usd"] == pytest.approx(1.1733 * 55, abs=0.1)
+    assert reconciled["ended_by"]
+
+
+def test_a_machine_gone_with_no_rule_due_is_billed_until_it_was_last_seen(write_config):
+    config = write_config(lifecycle={"idle_timeout": "3h", "max_lifetime": "6h"})
+    engine = billing_engine(config)
+    engine.setup(wait=False)
+    now = utc_now()
+    with engine.store.transaction() as stored:
+        stored.state = "ready"
+        stored.starting = False
+        stored.created_at = now - 2 * HOUR
+        stored.session_started_at = now - 2 * HOUR
+        stored.running_since = now - 2 * HOUR
+        stored.billed_seconds = 0.0
+        stored.hourly_cost_usd = 1.0
+        stored.last_activity = now - HOUR - 60
+        stored.last_seen = now - HOUR
+    engine.provider.instances.clear()
+    state = engine.reconcile()
+    assert state.session_cost_usd == pytest.approx(1.0, abs=0.02)
+
+
+def test_a_reconcile_stamps_when_the_provider_last_saw_the_machine(config):
+    engine = billing_engine(config)
+    engine.setup(wait=False)
+    before = utc_now()
+    state = engine.reconcile()
+    assert state.last_seen is not None and state.last_seen >= before - 1
+
+
+def test_status_says_it_is_stale_when_the_provider_cannot_be_asked(config, monkeypatch):
+    from gpu4agents.core.errors import ProviderError
+
+    engine = billing_engine(config)
+    engine.setup(wait=False)
+    engine.reconcile()
+
+    def fail(instance):
+        raise ProviderError("VAST_API_KEY is not set")
+
+    monkeypatch.setattr(engine.provider, "status", fail)
+    payload = engine.status()
+    assert payload["reconciled"] is False
+    assert "VAST_API_KEY is not set" in payload["stale_reason"]
+    assert payload["last_seen"] is not None
+
+    monkeypatch.setattr(_common.Context, "engine", lambda self: engine)
+    monkeypatch.chdir(config.project_dir)
+    result = runner.invoke(app, ["status"])
+    assert result.exit_code == 0, result.output
+    assert "STALE" in result.output
 
 
 def test_a_machine_gone_while_in_use_is_not_blamed_on_the_watchdog(write_config):

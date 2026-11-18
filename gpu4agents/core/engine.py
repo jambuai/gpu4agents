@@ -65,7 +65,7 @@ from .models import (
     is_jambu_label,
 )
 from .hosts import BadHosts
-from .state import RuntimeState, StateStore, WatchdogInfo, utc_now
+from .state import RuntimeState, StateStore, WatchdogInfo, to_iso, utc_now
 
 Echo = Callable[[str], None]
 
@@ -128,6 +128,8 @@ class Engine:
         # Whether the last reconcile read the watchdog's state. Traffic activity
         # lives only on the instance, so without it the local idle clock lies.
         self.watchdog_read = False
+        # Set when the last reconcile could not ask the provider (status is stale).
+        self.provider_error: Optional[str] = None
         # The offer quoted for this setup (pinned with --offer, else the
         # cheapest match when setup searched) and the cheapest last seen.
         self.quote: Optional[dict[str, Any]] = None
@@ -284,13 +286,29 @@ class Engine:
     # reconciliation (spec section 18)
     # ------------------------------------------------------------------
 
-    def _why_missing(self, state: RuntimeState) -> Optional[str]:
-        """The rule that would have had the watchdog destroy this machine by now, if any.
+    @staticmethod
+    def _last_seen(state: RuntimeState) -> Optional[float]:
+        """The latest moment the machine was known to exist."""
+        evidence = [
+            state.last_seen,
+            state.watchdog.last_contact,
+            state.last_activity,
+            state.session_started_at,
+            state.created_at,
+        ]
+        known = [ts for ts in evidence if ts is not None]
+        return max(known) if known else None
+
+    def _why_missing(self, state: RuntimeState) -> Optional[tuple[str, float]]:
+        """The first of this project's rules due after the machine was last seen.
 
         A destroyed machine leaves nothing to ask: the provider forgets it and
-        the watchdog went with it. What can be said is whether this project's
-        own rules (idle_timeout, max_lifetime, the budget) called for a destroy
-        given what was last known. None: they did not, so something else did.
+        the watchdog went with it. What can be said is which rule (idle_timeout,
+        max_lifetime, the budget) the watchdog would have acted on first, and
+        from when, given what was last known. Judging the rules as of *now*
+        blames whichever wins the policy's priority today (max_lifetime, days
+        later), not the one that came due first. Returns (reason, due_at), or
+        None when no rule was due: something else ended it.
         """
         if not self.config.lifecycle.watchdog.enabled or not (
             state.watchdog.installed or state.watchdog.token
@@ -298,13 +316,27 @@ class Engine:
             return None
         if state.state in (InstanceState.STOPPED.value, InstanceState.DESTROYED.value):
             return None
+        since = self._last_seen(state)
+        now = utc_now()
+        if since is None or since > now:
+            return None
+        cfg = self.policy_config(state.hourly_cost_usd)
         snapshot = self.snapshot(state)
         snapshot.provider_state = policy.READY
         snapshot.starting = False
-        decision = policy.evaluate(snapshot, self.policy_config(state.hourly_cost_usd))
-        if decision.action != policy.ACTION_DESTROY:
-            return None
-        return decision.reason
+        # The rules are monotonic in time; a minute is finer than the guard's tick.
+        step = max(60.0, (now - since) / 20000.0)
+        at = since
+        while True:
+            snapshot.now = at
+            decision = policy.evaluate(snapshot, cfg)
+            if decision.action == policy.ACTION_DESTROY:
+                return decision.reason, at
+            if decision.terminates:
+                return None  # only a stop was due: a stopped machine still exists
+            if at >= now:
+                return None
+            at = min(now, at + step)
 
     def reconcile(self, state: Optional[RuntimeState] = None) -> RuntimeState:
         """Merge local state with provider truth. Repairs local state in place."""
@@ -319,6 +351,7 @@ class Engine:
 
     def _reconcile(self, state: RuntimeState) -> RuntimeState:
         self.watchdog_read = False
+        self.provider_error = None
         if not state.instance_id:
             state.state = InstanceState.DESTROYED.value
             return state
@@ -328,34 +361,60 @@ class Engine:
             status = self.provider.status(instance)
         except ProviderError as exc:
             self.events.emit(ev.PROVIDER_ERROR, operation="status", error=str(exc))
-            return state  # keep local state; the API blip is not authoritative
+            # Keep local state (an API blip is not authoritative), but say so:
+            # a cached "ready" must not pass for the provider's answer.
+            self.provider_error = str(exc)
+            return state
 
         previous = state.state
         if not status.exists:
             likely = self._why_missing(state)
             instance_id = state.instance_id
-            state.clear_instance(InstanceState.DESTROYED.value)
+            seen = self._last_seen(state)
+            now = utc_now()
+            upper = (
+                round(state.hourly_cost_usd * state.accrued_billable_seconds(now) / 3600.0, 4)
+                if state.hourly_cost_usd
+                else None
+            )
+            # When it stopped billing is not observed. Best estimate: when the
+            # first rule came due; otherwise the last time it was seen.
+            ended_at = likely[1] if likely else seen
+            state.clear_instance(InstanceState.DESTROYED.value, ended_at=ended_at)
+            if likely:
+                likely_reason = f"{likely[0]} (watchdog, due {to_iso(likely[1])} at the earliest)"
+            else:
+                likely_reason = (
+                    "unknown: not this project's lifecycle rules (the provider console, "
+                    "another tool, the host, or the account out of credit)"
+                )
             self.events.emit(
                 ev.STATE_RECONCILED,
                 previous_state=previous,
                 state=InstanceState.DESTROYED.value,
                 reason="instance missing at provider",
-                likely_reason=f"{likely} (watchdog)" if likely else (
-                    "unknown: not this project's lifecycle rules (the provider console, "
-                    "another tool, the host, or the account out of credit)"
-                ),
+                likely_reason=likely_reason,
+                last_seen=to_iso(seen),
+                ended_by=to_iso(ended_at),
+                session_cost_usd=state.session_cost_usd,
+                cost_if_ran_until_now_usd=upper,
+                note="end time not observed; the provider's billing has the real figure",
             )
             if likely:
                 self.events.emit(
                     ev.INSTANCE_DESTROYED,
                     instance_id=instance_id,
-                    reason=likely,
-                    by="watchdog",
+                    reason="unknown",
+                    by="unknown",
+                    likely_reason=likely[0],
+                    likely_by="watchdog",
+                    due_at=to_iso(likely[1]),
                     inferred=True,
                 )
             return state
 
         current = status.instance or instance
+        state.last_seen = utc_now()
         state.instance = current
         state.instance_id = current.id
         state.hourly_cost_usd = status.hourly_cost_usd or state.hourly_cost_usd
@@ -1945,6 +2004,15 @@ class Engine:
             # True while another command (a setup) holds the lock: the state is
             # the one it last saved, not freshly asked of the provider.
             "busy": busy,
+            # False when the provider could not be asked: everything above is
+            # the last saved state, and the cost stops at that moment.
+            "reconciled": not busy and not (state.instance_id and self.provider_error),
+            "stale_reason": (
+                f"provider not reachable: {self.provider_error}"
+                if state.instance_id and self.provider_error
+                else ("another command holds the lock" if busy else None)
+            ),
+            "last_seen": state.last_seen,
         }
 
     # ------------------------------------------------------------------
