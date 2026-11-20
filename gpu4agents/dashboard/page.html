@@ -124,8 +124,9 @@ var CONTROL = false;
 var CONTROLLABLE = [];
 
 function actionBar(row, kinds){
-  // Buttons appear only in control mode and only for a project this host can
-  // resolve. Values go in data-* attributes (HTML-escaped), never a JS string.
+  // Buttons appear only in control mode and only for a project in CONTROLLABLE
+  // (the server's project_dirs: the projects this host manages). Values go in
+  // data-* attributes (HTML-escaped), never a JS string.
   if(!CONTROL || !row.project || CONTROLLABLE.indexOf(row.project) < 0) return "";
   return '<div class="actions">'+kinds.map(function(a){
     var danger = (a==="destroy"||a==="stop") ? "danger" : "";

@@ -11,12 +11,16 @@ Contract with the CLI (all routes require ``X-Jambu-Token``):
     GET  /state               -> snapshot + current policy decision
     GET  /events?limit=N      -> structured events recorded on the instance
     GET  /logs?name=X&lines=N -> tail of a configured log (runtime|onstart|watchdog)
+    POST /identify            -> {instance_id, hourly_cost_usd, policy}: who this
+                                 machine is, its price and policy overrides
     POST /activity            -> generic activity mark
     POST /ready               -> model server finished starting
+    POST /starting            -> model server is (re)starting
     POST /workload/start      -> {id, label}
     POST /workload/heartbeat  -> {id}
     POST /workload/end        -> {id, returncode, state}
     POST /lock                -> {ttl_seconds|until|null}
+    POST /deadline            -> {until}: raise the pool deadline (never lowers it)
     POST /unlock
     POST /shutdown            -> {action: stop|destroy, reason}
     POST /extend              -> {name, source}: load more routes (see below)

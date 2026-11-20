@@ -131,8 +131,8 @@ which source each number comes from.
 | `id` | *required* | HuggingFace repo id. Optional with `runtime.engine: none` or `custom`. |
 | `revision` | – | Pin a commit/branch/tag. |
 | `hf_token_env` | `HF_TOKEN` | Env var holding the HF token for gated models. |
-| `trust_remote_code` | `false` | Pass `--trust-remote-code` to the runtime. |
-| `served_name` | – | Name the model is served under (`--served-model-name`). |
+| `trust_remote_code` | `false` | Let the model run its own code from the Hub. vLLM gets `--trust-remote-code`; the `hf` server gets `JAMBU_TRUST_REMOTE_CODE=1`. The `llama` engine ignores it. |
+| `served_name` | – | Name the model is served under. vLLM gets `--served-model-name`; `hf` and `custom` get it as `JAMBU_SERVED_NAME` (default: `model.id`). The `llama` engine ignores it. |
 | `task` | `auto` | With `runtime.engine: hf`: `chat`, `embeddings`, `image`, `transcription`, `speech` or `pipeline`, which picks the OpenAI routes ([SERVING.md](../SERVING.md)). `auto` reads the model card's `pipeline_tag` when the server starts; `gpu init` writes the card's answer. |
 
 ## `runtime`
@@ -144,7 +144,7 @@ How the model runs. Independent from where it runs.
 | `engine` | `vllm` | `vllm` (chat models, safetensors), `llama` (GGUF chat models via `llama-server`, OpenAI-native — for models that ship only as GGUF), `hf` (any other Hugging Face model, gpu's own OpenAI-compatible server), `custom` (a server you write, in `service_dir`) or `none` (bare compute for jobs, start nothing). `hf` and `custom` are deployed after boot: changing the model or the server code redeploys on the same machine at the next `gpu setup`. See [SERVING.md](../SERVING.md). |
 | `port` | `8000` | Container port the server listens on; published publicly. |
 | `context_length` | `16384` | vLLM `--max-model-len`; llama `--ctx-size`. |
-| `dtype` | `auto` | vLLM dtype (vLLM only). |
+| `dtype` | `auto` | Weight dtype. vLLM gets `--dtype`; the `hf` server reads it as `JAMBU_DTYPE`. The `llama` engine ignores it. |
 | `gpu_memory_utilization` | `0.90` | Fraction of VRAM vLLM may claim (vLLM only). |
 | `tensor_parallel_size` | `compute.gpu.count` | Shards across GPUs (vLLM only). |
 | `quant` | – | `llama`: the GGUF quant tag to pull from `model.id` (the GGUF repo), e.g. `Q5_K_XL` → `llama-server -hf <id>:Q5_K_XL`. Required for the llama engine. |
@@ -206,7 +206,7 @@ The cost protection. See [the safety invariant](#safety-invariant).
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `max_lifetime` | `6h` | Hard ceiling on instance age. `null` = unbounded. |
+| `max_lifetime` | `6h` | Hard ceiling on how long one session runs, measured from the session start (creation or the latest restart). A restart gets a new lease. `null` = unbounded. Pool machines use `queue.max_machine_lifetime` instead. |
 | `idle_timeout` | `15m` | Shut down after this long with no activity. `null` = unbounded. |
 | `stopped_ttl` | `24h` | Destroy an instance that has been `STOPPED` this long. A stopped Vast instance no longer bills GPU time but still bills storage. `null` keeps stopped instances forever. Enforced only from your computer (`gpu sweep --install-timer`, which `gpu agent install` offers); `gpu stop` says whether that is set up. |
 | `auto_stop` | `true` | The guard may stop the instance. |
@@ -216,7 +216,7 @@ The cost protection. See [the safety invariant](#safety-invariant).
 | `allow_indefinite_lock` | `false` | Permit `gpu lock` with no TTL. |
 | `heartbeat_interval` | `30s` | How often a running workload reports in. |
 | `heartbeat_grace` | `5m` | Missing heartbeats tolerated before a workload is stale. |
-| `ssh_counts_as_activity` | `false` | An SSH session alone is not useful work. |
+| `ssh_counts_as_activity` | `false` | Accepted but has no effect: nothing reads it, and an SSH session never counts as activity. |
 | `traffic_counts_as_activity` | `true` | Requests served by the model runtime count as activity. The watchdog reads vLLM's `/metrics` on the instance (requests running or waiting, completed requests, prompt tokens), so an endpoint in use by something other than `gpu run` is not idled out. `false` = only workloads, startup and locks count. |
 | `lock.enabled` | `false` | Whether locks are offered in this project. |
 | `lock.default_ttl` | `2h` | TTL used by `gpu lock` with no `--for`. |
@@ -247,7 +247,7 @@ judged by the sweep's own `--orphan-max-age` and `--stopped-ttl` flags. See
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `interval` | `60s` | Probe interval while waiting for the runtime. |
+| `interval` | `60s` | Probe interval while waiting for the runtime, clamped to between 2 s and 30 s, so the default probes every 30 s. |
 | `boot_timeout` | `30m` | How long the machine may take to reach running, mostly the image pull. Past it the host counts as failed and `setup` tries another (`compute.host_attempts`). |
 | `pull_stall_timeout` | `10m` | How long the image pull may go without progress (no new line from the provider, or only retries of a layer) before the host counts as failed and is replaced, without waiting out `boot_timeout`. Healthy pulls measured live showed a new line at least every 8 minutes; stalled ones never recovered. `off` disables it. |
 | `startup_timeout` | `10m` | Once the machine runs, how long the model server may take to answer. Raise it for very large models. |
@@ -260,7 +260,7 @@ A passing health check does not count as activity. A healthy but unused server s
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `max_hourly_cost_usd` | – | Refuse to provision above this hourly price. |
-| `max_session_cost_usd` | – | The remote guard shuts down once the current session's cost (session age x hourly price) passes this. |
+| `max_session_cost_usd` | – | The remote guard shuts down once the current session's cost (session age x hourly price) passes this. The guard learns the price when the CLI calls its `/identify` route after setup; until then it cannot check the cap. Not applied to pool machines (`queue`). |
 
 Override once with `gpu setup --allow-cost-override`.
 

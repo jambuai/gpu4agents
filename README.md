@@ -123,7 +123,7 @@ gpu init --model BAAI/bge-m3               # embeddings -> /v1/embeddings
 gpu setup && eval "$(gpu env)"             # OPENAI_BASE_URL, OPENAI_API_KEY, JAMBU_MODEL_ID
 ```
 
-Requests count as activity, so the machine stays up while clients call it and stops by itself once they stop. Pointing `model.id` at another model and running `gpu setup` again swaps the model on the same GPU, with no new rental. When no built-in server can load a model, `gpu init --engine custom` writes a small server for the agent to fill in, and gpu runs it the same way. [SERVING.md](SERVING.md) has the contract, the routes and the limits.
+Requests count as activity, so the machine stays up while clients call it and stops by itself once they stop. With the `hf` and `custom` engines, pointing `model.id` at another model and running `gpu setup` again swaps the model on the same GPU, with no new rental. With `vllm` and `llama` the model is fixed when the machine is created, so a new `model.id` needs `gpu setup --recreate`, which replaces the machine. When no built-in server can load a model, `gpu init --engine custom` writes a small server for the agent to fill in, and gpu runs it the same way. [SERVING.md](SERVING.md) has the contract, the routes and the limits.
 
 ## Use any GPU provider
 
@@ -187,6 +187,7 @@ A full example is [`gpu.example.yaml`](gpu.example.yaml). `gpu ls` shows every m
 - [Choosing a model](docs/CHOOSING_A_MODEL.md)
 - [How shutdown works](docs/LIFECYCLE.md)
 - [Adding a provider](docs/ADDING_A_PROVIDER.md), and [the steps for an agent](PROVIDERS.md)
+- [Engineering dossier: how it works, what failed and what changed, known limits, each statement cited to the code](docs/engineering/dossier.md)
 
 ## Coming from `jambu-gpu`
 

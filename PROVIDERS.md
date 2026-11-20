@@ -37,7 +37,7 @@ What each part must do:
 | `capabilities` | Declare only what the API supports. Set `stop_eliminates_billing=False` if a stopped machine still bills for disk. |
 | `verify_credentials` | Call an account endpoint with the key the user typed into `gpu login`. Return only safe fields, such as `{"balance_usd": 12.5}`. Never return an email, a name or the key. |
 | `find_offers` | List GPUs for rent that fit `spec.gpu.min_vram_gb`, `spec.gpu.count`, `spec.disk_gb` and `spec.max_hourly_cost_usd`, cheapest first. |
-| `setup` | Rent one machine: image `spec.image`, environment `spec.env`, label `spec.label`, every port in `spec.ports` published, and `spec.onstart` run at boot. That script starts the model server and the watchdog. |
+| `setup` | Rent one machine: image `spec.image`, environment `spec.env`, label `spec.label`, every port in `spec.ports` published (the model port and, when the watchdog is on, its port; the built-in adapters build the same list from the config in `_wanted_ports()`), and `spec.onstart` run at boot. That script starts the model server and the watchdog. |
 | `status`, `_to_instance` | Map the provider's states onto `InstanceState` and its published ports onto `endpoints["model"]` and `endpoints["watchdog"]`. |
 | `stop`, `destroy` | Succeed when the machine is already stopped or gone. |
 | `list_instances` | Return only machines whose label starts with `jambu-`. Never touch anything else in the account. |

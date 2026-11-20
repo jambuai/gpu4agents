@@ -19,5 +19,6 @@ GPU for Agents (`gpu4agents`, the `gpu` command) lets a coding agent rent a clou
 - [The skill (SKILL.md)](https://raw.githubusercontent.com/jambuai/gpu4agents/main/skills/gpu4agents/SKILL.md): rules, commands, monitoring, exit codes
 - [Agents guide](https://github.com/jambuai/gpu4agents/blob/main/docs/AGENTS.md)
 - [Provider contract](https://github.com/jambuai/gpu4agents/blob/main/docs/ADDING_A_PROVIDER.md)
+- [Engineering dossier](https://github.com/jambuai/gpu4agents/blob/main/docs/engineering/dossier.md): how each mechanism works, design decisions, past failures and fixes, known limits, each statement cited to the code at a pinned commit
 - [Integration contract for apps](https://github.com/jambuai/gpu4agents/blob/main/docs/INTEGRATION.md)
 - [Source](https://github.com/jambuai/gpu4agents)

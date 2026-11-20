@@ -25,7 +25,7 @@ providers_app = typer.Typer(
 def providers_callback(ctx: typer.Context) -> None:
     """List available providers and what each one can do.
 
-    Vast.ai is built in. Any other provider plugs in through the provider
+    Vast.ai, RunPod and Lambda are built in. Any other provider plugs in through the provider
     contract: `gpu providers new NAME` writes the adapter to fill in.
     """
     if ctx.invoked_subcommand is None:

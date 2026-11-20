@@ -137,14 +137,24 @@ from the container's own environment (as the Vast adapter does with
 `VAST_CONTAINERLABEL`), or rely on the CLI's `/identify` call. Support both if you
 can, so the guard works even if the CLI never reconnects.
 
-Return `None` only if the provider genuinely cannot self-terminate; users then have
-to run `gpu guard` externally, and `validate` will warn.
+Return `None` only if the provider genuinely cannot self-terminate. With
+`lifecycle.watchdog.enabled: true` (the default), `setup` then refuses to rent and
+raises `UnsupportedCapabilityError`. Users must set `lifecycle.watchdog.enabled: false`
+to proceed; shutdown then depends on the CLI staying alive (or on `gpu guard` run
+externally), and `validate` warns that the watchdog is disabled.
 
 ## 5. Publish the ports
 
-`ComputeSpec.ports` lists the container ports the core needs published. Map them to
-`Instance.endpoints` under the names `model` and `watchdog`. Without a published
+`ComputeSpec.ports` lists the container ports the core needs published: the
+runtime's ports plus `lifecycle.watchdog.port` when the watchdog is enabled. Map them
+to `Instance.endpoints` under the names `model` and `watchdog`. Without a published
 watchdog port the remote guard is unreachable.
+
+The built-in adapters (Vast, RunPod, Lambda) do not read `spec.ports`. Each builds
+its own list in `_wanted_ports()` from `runtime.port` (named `model`, skipped when
+`runtime.engine` is `none`) and `lifecycle.watchdog.port` (named `watchdog`), and uses
+the same names to map `endpoints`. Either way works; what matters is that both ports
+are published and named.
 
 ## 6. Register it (built-in adapters only)
 
@@ -166,8 +176,10 @@ def load_builtin_providers():
 
 Copy `tests/test_vast_provider.py` and swap the mocked payloads. `tests/test_engine.py`
 drives the whole engine through `tests/fakes.py::FakeProvider` with no core
-changes, and `test_the_core_never_branches_on_a_provider_name` fails the build if
-`core/` learns a provider's name.
+changes. `test_the_core_never_branches_on_a_provider_name` is a narrow guard: it
+fails only if a file under `core/` contains `== "vast"`, `== 'vast'` or
+`name == "vast"`. It does not catch other provider names or other forms of
+comparison, so keep `core/` free of provider names by review as well.
 
 Then test against the real API without renting (`gpu validate`, `gpu offers`),
 and once with a small model (`gpu setup`, `gpu status`, `gpu destroy --yes`).

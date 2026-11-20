@@ -248,7 +248,7 @@
         <div class="grid3">
           <div class="card em"><div class="k">Controllable</div><h4>Limits in a file</h4><p><code>gpu.yaml</code> sets the hourly price cap, the session budget and the maximum lifetime. The agent can't go past them without editing the file you can read.</p></div>
           <div class="card em"><div class="k">Auditable</div><h4>Every step logged</h4><p>Each rent, start, idle period, stop and refusal is one JSON line in <code>events.jsonl</code>, with the reason. <code>gpu events</code> reads it.</p></div>
-          <div class="card em"><div class="k">Watched from inside</div><h4>A watchdog on the GPU</h4><p>The machine checks itself every 60 seconds and calls the provider to stop itself after 15 idle minutes, even if your laptop is closed.</p></div>
+          <div class="card em"><div class="k">Watched from inside</div><h4>A watchdog on the GPU</h4><p>The machine checks itself every 60 seconds by default and calls the provider to stop itself after 15 idle minutes, even if your laptop is closed.</p></div>
         </div>
         <h3>Two planes</h3>
         <div class="tbl"><table>
@@ -520,7 +520,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
         <p class="sub">The CLI process can't be in charge of shutdown: close the laptop and a local timer dies while the GPU keeps billing. So <code>setup</code> installs a watchdog on the machine itself, and the machine stops itself.</p>
         <div class="grid2">
           <div class="card"><div class="k">Where it runs</div><h4>Inside the rented machine</h4><p>A small HTTP service on port 8777, started by the boot script before the model server, inside a bash respawn loop. If it crashes, the loop starts it again 5 seconds later.</p></div>
-          <div class="card"><div class="k">How often</div><h4>Every 60 seconds</h4><p>It evaluates the same rule as <code>gpu status</code>, from <code>core/policy.py</code>, and reads the model server's <code>/metrics</code> every 15 seconds to see traffic.</p></div>
+          <div class="card"><div class="k">How often</div><h4>Every 60 seconds by default</h4><p>It evaluates the same rule as <code>gpu status</code>, from <code>core/policy.py</code>, and reads the model server's <code>/metrics</code> every 15 seconds to see traffic.</p></div>
           <div class="card"><div class="k">What it can do</div><h4>Stop or destroy its own machine</h4><p>The provider adapter injects two calls, <code>provider_stop</code> and <code>provider_destroy</code>. Nothing else of the provider's API is used from the machine.</p></div>
           <div class="card"><div class="k">What survives</div><h4>State on disk</h4><p><code>/var/lib/jambu/activity.json</code> survives a stop and start. A restart opens a new session with a fresh lease, so a restarted machine isn't killed the moment it boots.</p></div>
         </div>
@@ -764,7 +764,7 @@ conn = ensure_gpu()
           <tr><td>a model none of these load</td><td><code>custom</code></td><td>yours, from a server the agent writes</td></tr>
           <tr><td>no server, only jobs</td><td><code>none</code></td><td>none</td></tr>
         </table></div>
-        <p><code>GET /v1/models</code> lists the model, its task and its routes. Changing the model keeps the machine: edit <code>model.id</code> and run <code>gpu setup</code>, which redeploys on the same GPU. Use models as their licenses and your purpose allow; open models with their own policies are for legitimate work you own, such as research, evaluation, red-teaming your own systems and creative work.</p>
+        <p><code>GET /v1/models</code> lists the model, its task and its routes. With <code>hf</code> and <code>custom</code>, changing the model keeps the machine: edit <code>model.id</code> and run <code>gpu setup</code>, which redeploys on the same GPU. With <code>vllm</code> and <code>llama</code> the model is part of the machine's start command, so <code>gpu setup</code> refuses the change until you add <code>--recreate</code>, which rents a fresh machine. Use models as their licenses and your purpose allow; open models with their own policies are for legitimate work you own, such as research, evaluation, red-teaming your own systems and creative work.</p>
         <h3>The custom server contract</h3>
         <ol class="list">
           <li>Listen on <code>0.0.0.0:$PORT</code>.</li>
@@ -836,7 +836,7 @@ conn = ensure_gpu()
 <span class="p">$ </span>gpu queue audit [--repair]</pre></div>
         </div>
         <p><b>The coordinator can die.</b> Every machine keeps its watchdog and a hard deadline that only the coordinator moves, so a pool with no coordinator drains to zero by itself. A machine with nothing to do for <code>idle_timeout</code> ends, as always. <code>gpu queue run</code> rents GPUs: start it only with the caps decided (<code>max_machines</code>, <code>max_usd_per_hour</code>, each job's <code>timeout</code> and <code>max_cost_usd</code>).</p>
-        <p><b>Retries.</b> A job whose machine vanished, stopped answering for <code>unresponsive_after</code> or failed its health check runs again, up to <code>max_attempts</code>; a job that simply exits non-zero is the job's failure. A retried attempt's <code>run</code> starts with <code>export JAMBU_PREVIOUS_OUTPUT_DIR=...</code>, where the earlier attempt's verified outputs are. <code>pause</code> stops new claims and lets idle machines (<code>min_machines</code> too) time out. <code>drain --now</code> sends running jobs back to the queue (requeued, not failed, and not counted toward <code>max_attempts</code>) and retires every machine after pulling its outputs.</p>
+        <p><b>Retries.</b> A job whose machine vanished or stopped answering for <code>unresponsive_after</code> runs again, up to <code>max_attempts</code>, and so does a job that exited non-zero (not by timeout) on a machine that then failed its health check. A job that exits non-zero on a healthy machine is the job's failure, and a job that succeeded on a machine that then fails the check is delivered as succeeded while the machine is retired. A retried attempt's <code>run</code> starts with <code>export JAMBU_PREVIOUS_OUTPUT_DIR=...</code>, where the earlier attempt's verified outputs are. <code>pause</code> stops new claims and lets idle machines (<code>min_machines</code> too) time out. <code>drain --now</code> sends running jobs back to the queue (requeued, not failed, and not counted toward <code>max_attempts</code>) and retires every machine after pulling its outputs.</p>
         <p><b>Credentials</b> are never in <code>gpu.yaml</code>: <code>GPU_QUEUE_URL</code>, <code>GPU_OUTPUTS_URL</code> and the standard <code>AWS_*</code> come from the environment or <code>~/.gpu/credentials</code>. Redis must be version 5 or newer, one node (Cluster is not supported). Set <code>queue.namespace</code>: the default keyspace follows the config fingerprint and changes when the runtime part of <code>gpu.yaml</code> changes. Job ids are at most 60 characters, and <code>--env</code> values are redacted in status output.</p>
 
         <h3>What is observed</h3>
@@ -1058,6 +1058,7 @@ conn = ensure_gpu()
           <a class="card" href="https://github.com/jambuai/gpu4agents/blob/main/docs/CONFIG.md" rel="noopener" style="text-decoration:none"><div class="k">reference</div><h4>CONFIG.md</h4><p>every <code>gpu.yaml</code> field</p></a>
           <a class="card" href="https://github.com/jambuai/gpu4agents/blob/main/docs/USAGE.md" rel="noopener" style="text-decoration:none"><div class="k">reference</div><h4>USAGE.md</h4><p>every command, the sweep, timers</p></a>
           <a class="card" href="https://github.com/jambuai/gpu4agents/blob/main/docs/ACCEPTANCE.md" rel="noopener" style="text-decoration:none"><div class="k">reference</div><h4>ACCEPTANCE.md</h4><p>the guarantees and the tests that hold them</p></a>
+          <a class="card em" href="https://github.com/jambuai/gpu4agents/blob/main/docs/engineering/dossier.md" rel="noopener" style="text-decoration:none"><div class="k">engineering</div><h4>The engineering dossier</h4><p>how every part works, what broke and what changed, each statement pointing at the lines of code that do it</p></a>
         </div>
       </section>
     </main>

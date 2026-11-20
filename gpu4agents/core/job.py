@@ -120,7 +120,7 @@ def load_manifest(directory: Path) -> JobManifest:
     except yaml.YAMLError as exc:
         raise ConfigError(f"{path}: invalid YAML: {exc}") from exc
     if not isinstance(raw, dict):
-        raise ConfigError(f"{path}: expected a mapping (run, setup, env, timeout, exclude, label)")
+        raise ConfigError(f"{path}: expected a mapping (run, setup, env, timeout, exclude, label, max_cost_usd, min_vram_gb)")
     try:
         return JobManifest.model_validate(raw)
     except (ValidationError, ValueError) as exc:

@@ -401,8 +401,8 @@ def test_logs_route_404_without_fn():
 
 
 def test_control_rejects_foreign_project():
-    # The dashboard controls only its own project; a card for another project
-    # must not be able to act on the local one (the host-wide view shows many).
+    # A control action names its project; one missing from project_dirs (not a
+    # project this host manages) gets 409 and nothing runs, a known one runs.
     from gpu4agents.core.config import DashboardConfig
     from gpu4agents.dashboard.auth import TokenGate
 

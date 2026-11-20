@@ -1,5 +1,5 @@
-"""A per-project local service that runs ``gpu gateway start``: systemd on Linux,
-launchd on macOS.
+"""A per-project local service that runs ``gpu gateway start``: a systemd user unit,
+Linux only (``install_service`` raises NotImplementedError on other platforms).
 
 Unlike the sweep timer (one oneshot for all projects), the gateway is bound to
 one project's model, so its unit is per-project and pins the project directory

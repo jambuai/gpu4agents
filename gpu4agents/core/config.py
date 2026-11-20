@@ -340,7 +340,8 @@ class GatewayConfig(_Base):
     inject_key: bool = True                                 # drop incoming auth, inject instance key
     reasoning_effort: ReasoningEffortPolicy = Field(default_factory=ReasoningEffortPolicy)
     # An adapter that does not ship with gpu4agents: "./gateway/acme.py:AcmeAdapter"
-    # (a file, relative to the config file) or "acme_pkg.gw:AcmeAdapter" (a module).
+    # (a file, resolved against the process working directory, not the config file)
+    # or "acme_pkg.gw:AcmeAdapter" (a module).
     plugin: Optional[str] = None
     options: dict[str, Any] = Field(default_factory=dict)
 
@@ -595,6 +596,10 @@ class RuntimeConfig(_Base):
         the NEW config as if it were live. Confirmed the hard way: flipping
         tool_calling on for an already-provisioned instance did nothing until
         this was fixed - only `--recreate` regenerates the onstart script.
+
+        Known gap: the llama engine's argv is fixed the same way, but its
+        `quant`, `n_gpu_layers` and `llama_args` are not hashed here yet, so
+        changing them on an existing instance needs `--recreate`.
         """
         import hashlib
         import json
