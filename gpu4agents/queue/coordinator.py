@@ -1239,7 +1239,9 @@ class Coordinator:
 
     def _deliver(self, run: _Run, m: Optional[PoolMachine]) -> None:
         """fetch -> health check -> store -> verify -> settle; any delivery problem keeps
-        the job DELIVERING and is tried again next tick, up to MAX_DELIVERY_FAILURES."""
+        the job DELIVERING and is tried again on a later tick. Machine-side failures (fetch,
+        health check) retire the machine after MAX_FETCH_FAILURES; store failures are
+        retried with a backoff capped at STORE_BACKOFF_MAX_S, with no failure limit."""
         if run.fetched is None:
             if m is None:
                 return

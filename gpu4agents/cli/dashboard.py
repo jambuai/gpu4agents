@@ -1,4 +1,4 @@
-"""`gpu dashboard`: a read-only, host-wide status web UI.
+"""`gpu dashboard`: a host-wide status web UI, read-only unless control is enabled.
 
     gpu dashboard start       run the dashboard in the foreground (what the service runs)
     gpu dashboard install     install + enable a systemd user service (auto-restart, boot-safe)
@@ -6,10 +6,14 @@
     gpu dashboard status       is it installed / listening
     gpu dashboard logs         journalctl for the service
 
-The dashboard reads only local state (the project registry + each project's
-.gpu/state.json) and probes endpoint reachability; it never calls a provider
-API and holds no provider credential. Bound to 127.0.0.1 by default; a
-non-loopback bind requires a token (generated on install).
+By default the dashboard reads only local state (the project registry + each
+project's .gpu/state.json) and probes endpoint reachability; it never calls a
+provider API and holds no provider credential. With dashboard.control_enabled it
+also runs the `gpu` CLI: `gpu --json ls` on every state refresh (which calls the
+provider, to mark ghosts) and gpu setup/stop/destroy/lock for control actions,
+so that CLI needs provider credentials. Bound to 127.0.0.1 by default; a
+non-loopback bind requires a token (generated on install) unless
+dashboard.token_required_off_loopback is false.
 """
 
 from __future__ import annotations
@@ -33,7 +37,7 @@ from ..dashboard.server import DashboardServer
 from ..dashboard import service as svc
 from ._common import console, err_console, get_context, print_json
 
-dashboard_app = typer.Typer(help="Read-only control-plane web UI: every GPU, proxy and service this host sees.")
+dashboard_app = typer.Typer(help="Control-plane web UI: every GPU, proxy and service this host sees (read-only unless dashboard.control_enabled).")
 
 _LOOPBACK = {"127.0.0.1", "localhost", "::1", ""}
 
@@ -152,7 +156,7 @@ def start_command(ctx: typer.Context) -> None:
         # offers match the selected project's own requirements (run in its dir)
         offers_fn = lambda project: ops.offers(  # noqa: E731
             cwd=_project_index(context).get(project) if project else None)
-        context.echo("! dashboard.control_enabled is true: live control (rent/stop/destroy) — token + confirm required")
+        context.echo("! dashboard.control_enabled is true: live control (rent/stop/destroy/lock) — each action needs confirm, plus the token if one is configured")
     if not cfg.enabled:
         context.echo("! dashboard.enabled is false in gpu.yaml; starting anyway because you asked")
     try:

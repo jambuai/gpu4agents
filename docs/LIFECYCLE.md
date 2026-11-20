@@ -9,7 +9,7 @@ CLI ──provisions──> instance
                       │     └── watchdog (HTTP :8777, authenticated)
                       │           ├── holds the activity and heartbeat state
                       │           ├── reads vLLM /metrics for inference traffic
-                      │           ├── evaluates the lifecycle policy every 60s
+                      │           ├── evaluates the lifecycle policy every lifecycle.watchdog.interval (60s by default)
                       │           └── calls the provider API to stop or destroy itself
                       └── vLLM :8000
 ```

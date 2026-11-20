@@ -1,9 +1,12 @@
 """The dashboard's loopback HTTP server.
 
-A stdlib ``ThreadingHTTPServer`` that serves a read-only JSON API
-(``/api/state``) and a self-contained HTML page (``/``). It never mutates
-anything and never loads a provider credential; it assembles its state from an
-injected provider plus the reachability watch. The token gate guards every
+A stdlib ``ThreadingHTTPServer`` that serves a JSON API (``/api/state``) and a
+self-contained HTML page (``/``). It is read-only unless control is enabled
+(``dashboard.control_enabled``); then it also accepts ``POST /api/control/<action>``
+(each needs ``confirm: true`` in the body and a project the host manages) and
+runs the injected action. It never loads a provider credential itself; it
+assembles its state from an injected provider plus the reachability watch, and
+the injected actions are what reach a provider. The token gate guards every
 route when a token is set.
 """
 

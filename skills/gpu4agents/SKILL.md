@@ -1,6 +1,6 @@
 ---
 name: gpu4agents
-description: GPU for Agents. Rent a cloud GPU on your own, serve an open-weights model on it behind an OpenAI-compatible API, run experiments or evals, run its own code on the GPU as a job (training, fine-tuning, image/audio/video models, anything that needs CUDA) and bring the outputs back, monitor cost and idle time, and shut it down so the user pays only while it works. Works with Vast.ai out of the box and with any other GPU provider through an adapter you can write. Use when the user wants to run, test, benchmark or compare a HuggingFace model (Qwen, Llama, Mistral, ...) on a GPU, needs an LLM endpoint for an experiment, needs a GPU for code it writes (train a LoRA, generate images or audio, run a CUDA benchmark), asks what GPUs are running or what they cost, wants to use a specific GPU provider, or asks to install or set up GPU for Agents (gpu4agents, the `gpu` command).
+description: GPU for Agents. Rent a cloud GPU on your own, serve an open-weights model on it behind an OpenAI-compatible API, run experiments or evals, run its own code on the GPU as a job (training, fine-tuning, image/audio/video models, anything that needs CUDA) and bring the outputs back, monitor cost and idle time, and shut it down so the user pays only while it works. Vast.ai, RunPod and Lambda are built in; any other GPU provider works through an adapter you can write. Use when the user wants to run, test, benchmark or compare a HuggingFace model (Qwen, Llama, Mistral, ...) on a GPU, needs an LLM endpoint for an experiment, needs a GPU for code it writes (train a LoRA, generate images or audio, run a CUDA benchmark), asks what GPUs are running or what they cost, wants to use a specific GPU provider, or asks to install or set up GPU for Agents (gpu4agents, the `gpu` command).
 ---
 
 # GPU for Agents
@@ -157,7 +157,7 @@ Everything else in this skill (rules, commands, monitoring) works the same with 
 
 ## When something fails
 
-Exit codes are the same for the CLI and the MCP tools (`exit_code` in the error):
+gpu's own failures use these exit codes, the same for the CLI and the MCP tools (`exit_code` in the error). A command you run on the machine is different: `gpu_run` returns that command's own exit code, non-zero included, as `exit_code` in a normal result (not an error), next to `stdout`, `stderr` and `timed_out`, and `gpu run` exits with it. Read it as the command's result, not as a code from this table:
 
 | Code | Meaning | Do |
 | --- | --- | --- |

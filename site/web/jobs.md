@@ -35,7 +35,11 @@ env:                                     # extra environment variables
 timeout: 2h                              # killed after this long (exit 124)
 exclude: [data/raw, "*.ckpt"]            # left out of the upload
 label: lora-qwen-7b
+max_cost_usd: 5                          # queue only: refused if the timeout costs more at the pool's price
+min_vram_gb: 40                          # queue only: refused if the pool's card has less VRAM
 ```
+
+`max_cost_usd` and `min_vram_gb` are read only by the queue ([queue.md](https://gpu4agents.jambu.ai/queue.md)). Its preflight checks them before the job runs: a job whose `timeout` would cost more than `max_cost_usd` at the pool's hourly price, or that needs more VRAM than the pool's card, fails at once and rents nothing. Without `max_cost_usd`, the project's `queue.defaults.max_cost_usd` applies. `gpu job run` on a single machine ignores both; size that machine with `compute.gpu.min_vram_gb` in `gpu.yaml`.
 
 These never upload: `.git`, virtualenvs, `__pycache__`, `node_modules`, `.gpu`, `.env` and `.env.*`, and `gpu-outputs/`. The upload limit is 2 GB. Have the job download large data itself (Hugging Face, a URL) instead of shipping it.
 
