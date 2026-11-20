@@ -346,12 +346,12 @@
         <div class="section-head">
           <span class="eyebrow reveal">Guardrails</span>
           <h2 class="reveal">Limits the agent can't talk its way past.</h2>
-          <p class="lead reveal">They live in <code>gpu.yaml</code> and on the machine, and they work the same with every provider. The agent would have to edit the file to raise them, and the skill tells it to ask you first.</p>
+          <p class="lead reveal">They live in <code>gpu.yaml</code> and on the machine, and they work the same with every provider. The agent would have to edit the file to raise them, and the skill tells it to ask you first. <a href="https://github.com/jambuai/gpu4agents/blob/main/docs/engineering/dossier.md" rel="noopener">Each limit, traced to the code that enforces it.</a></p>
         </div>
         <div class="rows">
           <div class="row reveal-row"><span class="big">15 min</span><div><h4>Idle timeout</h4><p>The watchdog on the machine shuts it down once requests stop. <code>lifecycle.idle_timeout</code></p></div></div>
           <div class="row reveal-row"><span class="big">$/h</span><div><h4>Hourly and session budget</h4><p>Offers above the cap are never rented, and a session that reaches its total stops. <code>budget.max_hourly_cost_usd</code></p></div></div>
-          <div class="row reveal-row"><span class="big">6 h</span><div><h4>Maximum lifetime</h4><p>The machine stops at this age, busy or not. <code>lifecycle.max_lifetime</code></p></div></div>
+          <div class="row reveal-row"><span class="big">6 h</span><div><h4>Maximum lifetime</h4><p>A session shuts down at this age, busy or not. <code>lifecycle.max_lifetime</code></p></div></div>
           <div class="row reveal-row"><span class="big">10 min</span><div><h4>Stalled hosts replaced</h4><p>If the image download stops moving, gpu rents another host instead of waiting 30 minutes. <code>health.pull_stall_timeout</code></p></div></div>
           <div class="row reveal-row"><span class="big">sweep</span><div><h4>Account sweep</h4><p><code>gpu ls</code> shows everything billing, and <code>gpu sweep --install-timer</code> cleans up machines no project owns.</p></div></div>
         </div>

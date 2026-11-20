@@ -13,6 +13,17 @@ All notable changes to this project. The format follows [Keep a Changelog](https
 - **The inferred reason for a vanished machine is the first rule that came due, not whichever rule applies today.** Replaying the rules as of "now" blamed `max_lifetime` for a machine that the idle rule had ended 54 hours earlier. `instance_destroyed` now records what was observed (`reason: unknown`, `by: unknown`) and the inference apart (`likely_reason`, `likely_by`, `due_at`, `inferred: true`).
 - **`gpu status` says when it could not ask the provider.** It showed the cached `ready` and a frozen cost as if current; it now prints a red `STALE` line, and `--json` has `reconciled: false`, `stale_reason` and `last_seen`.
 
+### Documentation
+- **Engineering dossier** ([docs/engineering/dossier.md](docs/engineering/dossier.md)): how each part works (providers, setup and serving, the watchdog and cost caps, jobs and the queue, the agent surfaces), the design decisions, what failed and what changed, the known limits, and where to start reading the code. Every statement cites the lines of code that back it, at a pinned commit. It is linked from the README, the docs site and `llms.txt`.
+- **The docs now say what the code does where the dossier found they did not.**
+  - CONFIG.md: `max_lifetime` counts from the session start, so a restart gets a new lease; `max_session_cost_usd` applies only after `/identify` delivers the price and not to pool machines; `health.interval` is clamped to 30 s; `trust_remote_code`, `served_name` and `dtype` say which engines honour them; `ssh_counts_as_activity` is marked as having no effect.
+  - README and the docs site: changing `model.id` swaps the model in place only with `hf` and `custom`; `vllm` and `llama` need `gpu setup --recreate`.
+  - QUEUE.md: a failed health check sends a job back to the queue only when the job also exited non-zero, not by timeout.
+  - JOBS.md: documents `max_cost_usd` and `min_vram_gb` in `gpujob.yaml` (queue preflight only).
+  - ADDING_A_PROVIDER.md and PROVIDERS.md: what happens when an adapter returns no watchdog spec, where published ports come from, and how narrow the provider-name test is.
+  - The skill: Vast.ai, RunPod and Lambda are all built in, and `gpu_run` returns the command's own exit code in a normal result.
+  - Docstrings and help text: the watchdog's route list, the gateway and dashboard services (Linux only), the dashboard's control mode, `gpu providers`, and the gateway plugin path.
+
 ## [0.14.0] - 2026-11-12
 
 ### Added
