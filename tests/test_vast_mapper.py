@@ -83,6 +83,13 @@ def test_search_query_translates_the_compute_spec():
     # match there; offer_matches below does the real substring filtering).
     assert "gpu_name" not in query
     assert query["type"] == "on-demand"
+    # The name is matched afterwards, so the search reaches past the cheapest few.
+    assert query["limit"] == mapper.NAME_FILTER_SEARCH_LIMIT
+
+
+def test_without_a_name_filter_the_search_keeps_its_limit():
+    spec = ComputeSpec(gpu=GpuSpec(min_vram_gb=24, count=1), disk_gb=80)
+    assert mapper.build_search_query(spec, VastOptions(search_limit=24))["limit"] == 24
 
 
 def test_spot_requests_a_bid_ask():
