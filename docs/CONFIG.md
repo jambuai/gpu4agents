@@ -66,7 +66,7 @@ for why this exists and `gpu profiles` / `gpu inspect-model
 | `min_reliability` | `0.95` | Minimum machine reliability score. |
 | `min_inet_down_mbps` | `500` | Minimum download bandwidth. The vLLM image alone is ~10 GB and a slow pull is the commonest boot failure. For `vllm` and `llama`, `setup` raises it so the model's weights can arrive in about 90 s, up to 5000: 4942 for a 55.6 GB model, 1422 for a 16 GB one. The link is what limits the download: the same 55.6 GB took 494 s on an 864 Mbps host and 52 s on an 8 Gbps one. `0` turns the floor off, the raise included. |
 | `min_cuda` | `12.1` | Floor for the host's `cuda_max_good` (the newest CUDA its driver runs). The search uses the higher of this and `compute.gpu.cuda_min`, and offers are re-checked client-side. |
-| `search_limit` | `24` | How many offers to consider. `compute.gpu.name_filter` is applied to these after the search, so a filter for a card dearer than the 24 cheapest matches nothing until you raise this. |
+| `search_limit` | `24` | How many offers to consider. With `compute.gpu.name_filter` set, the search asks Vast for up to 1000 offers and filters them by name afterwards, because Vast's own name filter only matches the exact name. |
 | `order_by` / `order_dir` | `dph_total` / `asc` | Offer ranking, cheapest first. |
 | `image_login` | – | `-u user -p pass docker.io` for a private image. |
 | `search_filters` | – | Raw extra filters merged into the offer query. |

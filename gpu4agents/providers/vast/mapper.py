@@ -31,6 +31,10 @@ _STATE_MAP = {
 }
 
 
+
+# How many offers to search when a card name filters them afterwards.
+NAME_FILTER_SEARCH_LIMIT = 1000
+
 def map_state(raw: dict[str, Any]) -> InstanceState:
     """Normalize Vast's several overlapping status fields into one state."""
     actual = str(raw.get("actual_status") or "").lower()
@@ -204,7 +208,12 @@ def build_search_query(
         "allocated_storage": float(spec.disk_gb),
         "type": "bid" if spec.spot else "on-demand",
         "order": [[options.order_by, options.order_dir]],
-        "limit": int(options.search_limit),
+        # name_filter is applied to the results, so the search must reach past
+        # the cheapest few: with a limit of 24, "A100" found nothing while 24
+        # cheaper cards existed (2026-11-21: the full match was 119 offers).
+        "limit": max(int(options.search_limit), NAME_FILTER_SEARCH_LIMIT)
+        if spec.gpu.name_filter
+        else int(options.search_limit),
     }
     if options.verified_only:
         query["verified"] = {"eq": True}
