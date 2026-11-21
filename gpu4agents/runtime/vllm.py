@@ -21,7 +21,16 @@ from typing import Any, Optional
 
 from ..core.models import ValidationResult
 from ..core.tool_parsers import guess_tool_call_parser  # noqa: F401 (re-exported)
-from .base import HOST_NETWORK_FAILURE_PATTERN, THREAD_CAPS, ModelRuntime, cuda_from_tag, image_repo, image_tag
+from .base import (
+    FETCH_MODEL_TOKEN,
+    FETCH_WAIT,
+    HOST_NETWORK_FAILURE_PATTERN,
+    THREAD_CAPS,
+    ModelRuntime,
+    cuda_from_tag,
+    image_repo,
+    image_tag,
+)
 
 # vLLM flags gpu already manages explicitly - collided with via
 # runtime.vllm_args, these would fight the config fields meant to control
@@ -212,16 +221,43 @@ class VllmRuntime(ModelRuntime):
         args += list(cfg.runtime.extra_args)
         return args
 
+    def fetches_weights(self) -> bool:
+        # auto leaves vLLM to huggingface_hub, which was faster than the
+        # fetcher in every measurement (docs/engineering/fast-provisioning.md).
+        cfg = self.config
+        return cfg.runtime.fetch == "watchdog" and cfg.lifecycle.watchdog.enabled
+
+    def fetch_request(self) -> Optional[dict]:
+        if not self.fetches_weights():
+            return None
+        cfg = self.config
+        return {"repo": cfg.model.id, "revision": cfg.model.revision or "main", "engine": "vllm"}
+
+    def launcher_args(self) -> str:
+        """The server's argv, quoted; with a fetch, the model is "${D:-<id>}"."""
+        args = self.server_args()
+        if not self.fetches_weights():
+            return " ".join(shlex.quote(a) for a in args)
+        model_id = self.config.model.id
+        args[args.index("--model") + 1] = FETCH_MODEL_TOKEN
+        if not self.config.model.served_name:
+            # A local path would otherwise become the served model name.
+            args += ["--served-model-name", model_id]
+        return " ".join(shlex.quote(a) for a in args).replace(
+            FETCH_MODEL_TOKEN, f'"${{D:-{model_id}}}"'
+        )
+
     def launcher_script(self) -> str:
         """Bash that runs vLLM on the instance: ``bash <file> <python> <log>``.
 
         Its pid is the one the watchdog watches: it lives while the server
         runs or is about to be restarted, and exits with the server's code.
         """
-        args = " ".join(shlex.quote(a) for a in self.server_args())
+        args = self.launcher_args()
         return "\n".join(
             [
                 *THREAD_CAPS,
+                *(FETCH_WAIT if self.fetches_weights() else []),
                 'PY="$1"; L=$2; c=',
                 "trap '[ -n \"$c\" ] && kill $c; exit 143' TERM INT",
                 f"for i in $(seq 0 {NETWORK_RESTARTS}); do",
@@ -248,7 +284,8 @@ class VllmRuntime(ModelRuntime):
         blob = base64.b85encode(zlib.compress(self.launcher_script().encode(), 9)).decode()
         unpack = "import base64,sys,zlib;open(sys.argv[1],'wb').write(zlib.decompress(base64.b85decode(sys.argv[2])))"
         return (
-            f"mkdir -p $(dirname {LOG_PATH}) $(dirname {PID_PATH}) $(dirname {LAUNCHER_PATH}) && {find_python}; "
+            # Their directories come from the boot script's own mkdir.
+            f"{self._fetch_prefix()}{find_python}; "
             f"\"$PY\" -c \"{unpack}\" {LAUNCHER_PATH} '{blob}'; touch {LOG_PATH}; "
             f'nohup bash {LAUNCHER_PATH} "$PY" {LOG_PATH} >> {LOG_PATH} 2>&1 & echo $! > {PID_PATH}'
         )

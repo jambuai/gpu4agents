@@ -76,6 +76,8 @@ def test_search_query_translates_the_compute_spec():
     assert query["num_gpus"] == {"eq": 2}
     assert query["gpu_ram"] == {"gte": 48 * 1024.0}
     assert query["disk_space"] == {"gte": 120.0}
+    # Priced with the disk the instance gets, so the cap and the quote include it.
+    assert query["allocated_storage"] == 120.0
     assert query["dph_total"] == {"lte": 2.5}
     # gpu_name is deliberately NOT sent server-side (Vast only does exact
     # match there; offer_matches below does the real substring filtering).

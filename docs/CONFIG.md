@@ -64,9 +64,9 @@ for why this exists and `gpu profiles` / `gpu inspect-model
 | `runtype` | `ssh_direc ssh_proxy` | Vast container run mode. |
 | `verified_only` | `true` | Only rent verified machines. |
 | `min_reliability` | `0.95` | Minimum machine reliability score. |
-| `min_inet_down_mbps` | `500` | Minimum download bandwidth. The vLLM image alone is ~10 GB and a slow pull is the commonest boot failure; most offers clear 500 at the same price. |
+| `min_inet_down_mbps` | `500` | Minimum download bandwidth. The vLLM image alone is ~10 GB and a slow pull is the commonest boot failure. For `vllm` and `llama`, `setup` raises it so the model's weights can arrive in about 90 s, up to 5000: 4942 for a 55.6 GB model, 1422 for a 16 GB one. The link is what limits the download: the same 55.6 GB took 494 s on an 864 Mbps host and 52 s on an 8 Gbps one. `0` turns the floor off, the raise included. |
 | `min_cuda` | `12.1` | Floor for the host's `cuda_max_good` (the newest CUDA its driver runs). The search uses the higher of this and `compute.gpu.cuda_min`, and offers are re-checked client-side. |
-| `search_limit` | `24` | How many offers to consider. |
+| `search_limit` | `24` | How many offers to consider. `compute.gpu.name_filter` is applied to these after the search, so a filter for a card dearer than the 24 cheapest matches nothing until you raise this. |
 | `order_by` / `order_dir` | `dph_total` / `asc` | Offer ranking, cheapest first. |
 | `image_login` | – | `-u user -p pass docker.io` for a private image. |
 | `search_filters` | – | Raw extra filters merged into the offer query. |
@@ -149,6 +149,7 @@ How the model runs. Independent from where it runs.
 | `tensor_parallel_size` | `compute.gpu.count` | Shards across GPUs (vLLM only). |
 | `quant` | – | `llama`: the GGUF quant tag to pull from `model.id` (the GGUF repo), e.g. `Q5_K_XL` → `llama-server -hf <id>:Q5_K_XL`. Required for the llama engine. |
 | `n_gpu_layers` | – | `llama`: layers to offload to the GPU (`--n-gpu-layers`). Unset offloads all of them. |
+| `fetch` | `auto` | `vllm` and `llama`: who downloads the weights. `watchdog`: the watchdog downloads them before the server starts, over 32 connections, and hands the server a local path (vLLM `--model <dir>` served under `model.id`; llama.cpp `-m <file>`, plus `--mmproj` when the repo has one vision projector). A repo it does not handle (no safetensors or `.bin` at the root, several `mmproj` files, a quant that matches several files) and any failure leave the download to the server. `server`: the server downloads them itself. `auto`: `watchdog` for `llama`, `server` for `vllm`. llama.cpp's `-hf` uses one connection (119 MB/s against the fetcher's 446 MB/s on an 8 Gbps host), while vLLM's `huggingface_hub` with `hf_xet` reached 1065 MB/s there, more than the fetcher. See [fast-provisioning.md](engineering/fast-provisioning.md). The watchdog fetch needs the watchdog. |
 | `llama_args` | `{}` | `llama`: structured escape hatch for any `llama-server` flag this schema doesn't model (same `{flag: value}` flattening as `vllm_args`, e.g. `{flash_attn: true}` → `--flash-attn`). |
 | `api_key` | generated | The key the model endpoint requires. Unset, `setup` generates a random one per instance; `gpu env` prints it. |
 | `vllm_args` | `{}` | Structured escape hatch for any vLLM flag this schema doesn't model: `{flag: value}` → `--flag value` (`true`/`false` → a bare/negated flag, a dict or list → JSON-encoded). Applied before `extra_args`. See [`docs/CHOOSING_A_MODEL.md`](CHOOSING_A_MODEL.md#dynamic--un-modeled-vllm-flags). |
@@ -248,10 +249,12 @@ judged by the sweep's own `--orphan-max-age` and `--stopped-ttl` flags. See
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `interval` | `60s` | Probe interval while waiting for the runtime, clamped to between 2 s and 30 s, so the default probes every 30 s. |
+| `interval` | `2s` | Probe interval while waiting for the runtime, clamped to between 2 s and 30 s. The provider is asked about the machine every 15 s whatever this is. |
 | `boot_timeout` | `30m` | How long the machine may take to reach running, mostly the image pull. Past it the host counts as failed and `setup` tries another (`compute.host_attempts`). |
 | `pull_stall_timeout` | `10m` | How long the image pull may go without progress (no new line from the provider, or only retries of a layer) before the host counts as failed and is replaced, without waiting out `boot_timeout`. Healthy pulls measured live showed a new line at least every 8 minutes; stalled ones never recovered. `off` disables it. |
-| `startup_timeout` | `10m` | Once the machine runs, how long the model server may take to answer. Raise it for very large models. |
+| `fetch_min_mbps` | `200` | When the watchdog downloads the weights (`runtime.fetch`), a weight download slower than this over the last `fetch_slow_timeout` counts as a host failure: the machine is destroyed and replaced, like a stalled image pull. |
+| `fetch_slow_timeout` | `2m` | How long the download may run under `fetch_min_mbps`. `off` disables the check. |
+| `startup_timeout` | `10m` | Once the machine runs, how long the model server may take to answer. When the watchdog downloads the weights it starts counting once they are on disk, so a long download above `fetch_min_mbps` is never cut off by it. Raise it for very large models. |
 | `path` | `/health` | Health path on the model endpoint. |
 
 A passing health check does not count as activity. A healthy but unused server still goes idle.

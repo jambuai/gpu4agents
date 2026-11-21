@@ -211,6 +211,15 @@ class RuntimeConfigSection(_Base):
     n_gpu_layers: Optional[int] = None
     llama_args: dict[str, Any] = Field(default_factory=dict)
 
+    # vllm and llama: who downloads the weights. watchdog: the watchdog
+    # fetches them over 32 connections before the server starts (falling back
+    # to the server's own download when it cannot). server: the server
+    # downloads them itself. auto: watchdog for llama (llama.cpp's -hf uses one
+    # connection: 119 MB/s against 446 MB/s on an 8 Gbps host), server for vLLM
+    # (huggingface_hub with hf_xet reached 1065 MB/s there, the fetcher 439).
+    # The watchdog fetch needs the watchdog.
+    fetch: Literal["auto", "watchdog", "server"] = "auto"
+
 
 class LockConfig(_Base):
     enabled: bool = False
@@ -284,7 +293,9 @@ class LifecycleConfig(_Base):
 
 
 class HealthConfig(_Base):
-    interval: str = "60s"
+    # How often the CLI asks the model server whether it is up while it
+    # starts (clamped to 2-30 s).
+    interval: str = "2s"
     # How long the machine may take to reach running (mostly the image pull).
     boot_timeout: str = "30m"
     # How long that pull may go without progress before the host counts as
@@ -294,10 +305,16 @@ class HealthConfig(_Base):
     # How long the model server may then take to answer its health check.
     startup_timeout: str = "10m"
     path: str = "/health"
+    # A weight fetch slower than fetch_min_mbps over fetch_slow_timeout
+    # counts as a host failure: the machine is replaced, like a stalled
+    # image pull. off disables it.
+    fetch_min_mbps: float = 200.0
+    fetch_slow_timeout: Optional[str] = "2m"
 
     _v_interval = _duration("interval")
     _v_boot = _duration("boot_timeout")
     _v_stall = _duration("pull_stall_timeout")
+    _v_fetch_slow = _duration("fetch_slow_timeout")
     _v_startup = _duration("startup_timeout")
 
 
@@ -561,7 +578,7 @@ class RuntimeConfig(_Base):
 
     @property
     def health_interval_s(self) -> float:
-        return parse_duration(self.health.interval) or 15.0
+        return parse_duration(self.health.interval) or 2.0
 
     @property
     def boot_timeout_s(self) -> float:
@@ -570,6 +587,10 @@ class RuntimeConfig(_Base):
     @property
     def pull_stall_timeout_s(self) -> Optional[float]:
         return parse_duration(self.health.pull_stall_timeout)
+
+    @property
+    def fetch_slow_timeout_s(self) -> Optional[float]:
+        return parse_duration(self.health.fetch_slow_timeout)
 
     @property
     def startup_timeout_s(self) -> float:
@@ -849,7 +870,7 @@ gpu_runtime:
       interval: 60s
 
   health:
-    interval: 60s
+    interval: 2s
     boot_timeout: 30m
     pull_stall_timeout: 10m
     startup_timeout: 10m
@@ -1035,7 +1056,7 @@ lifecycle:
     interval: 60s
 
 health:
-  interval: 60s
+  interval: 2s
   boot_timeout: 30m
   pull_stall_timeout: 10m
   startup_timeout: 10m

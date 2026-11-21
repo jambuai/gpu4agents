@@ -198,6 +198,10 @@ def build_search_query(
         "external": {"eq": False},
         "num_gpus": {"eq": int(spec.gpu.count)},
         "disk_space": {"gte": float(spec.disk_gb)},
+        # Vast prices an offer (dph_total) with this much disk; without it, with
+        # a few GB. The quote, the budget check and the price cap then missed
+        # the disk: an A100 quoted at $1.078/h rented at $1.275/h with 150 GB.
+        "allocated_storage": float(spec.disk_gb),
         "type": "bid" if spec.spot else "on-demand",
         "order": [[options.order_by, options.order_dir]],
         "limit": int(options.search_limit),
@@ -210,7 +214,10 @@ def build_search_query(
     if options.min_reliability:
         query["reliability2"] = {"gte": float(options.min_reliability)}
     if options.min_inet_down_mbps:
-        query["inet_down"] = {"gte": float(options.min_inet_down_mbps)}
+        # Raised for a big model so its weights arrive in minutes; 0 turns
+        # the floor off altogether.
+        floor = max(float(options.min_inet_down_mbps), float(spec.min_download_mbps or 0))
+        query["inet_down"] = {"gte": floor}
     min_cuda = effective_min_cuda(spec, options)
     if min_cuda:
         query["cuda_max_good"] = {"gte": min_cuda}
