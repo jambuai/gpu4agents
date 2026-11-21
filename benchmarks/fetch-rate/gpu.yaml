@@ -1,0 +1,37 @@
+# The weight-fetch benchmark (docs/engineering/fast-provisioning.md).
+# A jobs-only machine on the same vLLM image setup uses on Vast, so the
+# "server's own download" case runs the huggingface_hub vLLM really ships.
+gpu_runtime:
+  version: 1
+
+  provider:
+    name: vast
+    profile: default
+    options:
+      # name_filter is applied after the search: look past the cheapest 24.
+      search_limit: 400
+      min_inet_down_mbps: 2000
+
+  compute:
+    gpu:
+      min_vram_gb: 24
+      count: 1
+    disk_gb: 150
+    image: vastai/vllm:v0.32.0-cuda-13.0
+
+  runtime:
+    engine: none
+
+  lifecycle:
+    max_lifetime: 2h
+    idle_timeout: 10m
+    stopped_ttl: 1h
+    auto_stop: true
+    auto_destroy: true
+    watchdog:
+      enabled: true
+      port: 8777
+
+  budget:
+    max_hourly_cost_usd: 0.50
+    max_session_cost_usd: 1.00

@@ -1,0 +1,118 @@
+{
+ "date": "2026-11-21",
+ "image": "vastai/vllm:v0.32.0-cuda-13.0",
+ "packages": {
+  "huggingface_hub": "2.2.0",
+  "hf_xet": "1.7.0"
+ },
+ "models": {
+  "gguf": "peculiar-ragdoll/Cyber-Tiel-Coder-35B-A3B-GGUF UD-Q5_K_XL + mmproj-BF16 (27.5 GB)",
+  "st": "xtools-at/Qwensploit-V2-27B-CyberSecurity-Qwen3.8 safetensors (55.6 GB)"
+ },
+ "hosts": [
+  {
+   "instance": 61744966,
+   "gpu": "A100 SXM4",
+   "region": "California, US",
+   "inet_down_mbps_advertised": 864,
+   "cpus": 256,
+   "usd_per_hour": 1.275,
+   "results": [
+    {
+     "case": "gguf/fetcher-16",
+     "bytes": 27495353472,
+     "seconds": 315.4,
+     "mb_per_s": 87.2,
+     "workers": 16
+    },
+    {
+     "case": "gguf/fetcher-32",
+     "bytes": 27495353472,
+     "seconds": 235.4,
+     "mb_per_s": 116.8,
+     "workers": 32
+    },
+    {
+     "case": "gguf/single-stream",
+     "bytes": 12050235392,
+     "seconds": 180.0,
+     "mb_per_s": 66.9,
+     "capped": true
+    },
+    {
+     "case": "st/fetcher-32",
+     "bytes": 55583489105,
+     "seconds": 555.9,
+     "mb_per_s": 100.0,
+     "workers": 32
+    },
+    {
+     "case": "st/hf-default",
+     "bytes": 55584856995,
+     "seconds": 494.5,
+     "mb_per_s": 112.4,
+     "exit_code": 0
+    },
+    {
+     "case": "st/hf-xet-high",
+     "bytes": 55584774292,
+     "seconds": 496.8,
+     "mb_per_s": 111.9,
+     "exit_code": 0
+    }
+   ]
+  },
+  {
+   "instance": 61802029,
+   "gpu": "Quadro RTX 8000",
+   "region": "US",
+   "inet_down_mbps_advertised": 7988,
+   "cpus": 64,
+   "usd_per_hour": 0.287,
+   "results": [
+    {
+     "case": "gguf/fetcher-32",
+     "bytes": 27495353472,
+     "seconds": 61.7,
+     "mb_per_s": 445.9,
+     "workers": 32
+    },
+    {
+     "case": "gguf/fetcher-64",
+     "bytes": 27495353472,
+     "seconds": 75.1,
+     "mb_per_s": 365.9,
+     "workers": 64
+    },
+    {
+     "case": "gguf/single-stream",
+     "bytes": 21431844864,
+     "seconds": 180.0,
+     "mb_per_s": 119.1,
+     "capped": true
+    },
+    {
+     "case": "st/fetcher-32",
+     "bytes": 55583489105,
+     "seconds": 126.6,
+     "mb_per_s": 439.1,
+     "workers": 32
+    },
+    {
+     "case": "st/fetcher-64",
+     "bytes": 55583489105,
+     "seconds": 148.8,
+     "mb_per_s": 373.4,
+     "workers": 64
+    },
+    {
+     "case": "st/hf-default",
+     "bytes": 55584488447,
+     "seconds": 52.2,
+     "mb_per_s": 1065.4,
+     "exit_code": 0
+    }
+   ]
+  }
+ ]
+}

@@ -71,6 +71,18 @@ Echo = Callable[[str], None]
 
 _HOST_NETWORK_FAILURE = re.compile(HOST_NETWORK_FAILURE_PATTERN)
 
+# The weight fetcher the watchdog loads (POST /extend) before the server starts.
+FETCH_EXTENSION_NAME = "fetch"
+FETCH_EXTENSION_PATH = Path(watchdog_pkg.__file__).resolve().parent / "fetch_ext.py"
+# The bandwidth floor aims to bring the weights in this long, and never asks
+# for more than FETCH_FLOOR_MAX_MBPS. The host's link is the ceiling: 55.6 GB
+# took 494 s on an 864 Mbps host and 52 s on an 8 Gbps one. On 2026-11-21 the
+# cheapest 80 GB offer cost the same at >=5000 Mbps as at >=500.
+FETCH_TARGET_S = 90.0
+FETCH_FLOOR_MAX_MBPS = 5000.0
+# While the fetch runs, the provider is asked about the machine this often.
+PROVIDER_CHECK_S = 15.0
+
 # A pull stuck retrying a layer: its countdown changes, but it is no progress.
 _PULL_RETRY = re.compile(r"\bretrying\b", re.IGNORECASE)
 
@@ -134,6 +146,11 @@ class Engine:
         # cheapest match when setup searched) and the cheapest last seen.
         self.quote: Optional[dict[str, Any]] = None
         self._cheapest = None
+        # Size of the weights the server will load (None: unknown), looked up once.
+        self._weights_bytes: Optional[int] = None
+        self._weights_looked_up = False
+        # True once the watchdog accepted a weight fetch for this setup.
+        self._fetching = False
 
     # ------------------------------------------------------------------
     # policy plumbing
@@ -528,8 +545,43 @@ class Engine:
             spot=cfg.compute.spot,
             region=cfg.compute.region,
             max_hourly_cost_usd=cfg.budget.max_hourly_cost_usd,
+            min_download_mbps=self.download_floor_mbps(),
             provider_options=dict(cfg.provider.options),
         )
+
+    def weights_bytes(self) -> Optional[int]:
+        """Bytes the model server will load (vLLM and llama), from the Hub; None if unknown."""
+        if self._weights_looked_up:
+            return self._weights_bytes
+        self._weights_looked_up = True
+        engine = self.config.runtime.engine
+        if engine not in ("vllm", "llama") or not self.config.model.id:
+            return None
+        from ..watchdog import fetch_ext
+
+        token = ""
+        if self.config.model.hf_token_env:
+            token = self.credentials.get(self.config.model.hf_token_env) or ""
+        try:
+            found = fetch_ext.fetch_plan(
+                self.config.model.id,
+                self.config.model.revision or "main",
+                engine,
+                self.config.runtime.quant,
+                token,
+                timeout=10.0,
+            )
+        except Exception:  # noqa: BLE001 - offline, gated, renamed: no floor, nothing else
+            return None
+        self._weights_bytes = found.get("bytes_total")
+        return self._weights_bytes
+
+    def download_floor_mbps(self) -> Optional[float]:
+        """Downlink for the weights to arrive in about FETCH_TARGET_S, capped."""
+        size = self.weights_bytes()
+        if not size:
+            return None
+        return round(min(FETCH_FLOOR_MAX_MBPS, size * 8 / FETCH_TARGET_S / 1e6))
 
     def _label(self, cfg: RuntimeConfig) -> str:
         fp = cfg.fingerprint()[:6]
@@ -1054,6 +1106,7 @@ class Engine:
             self.store.save(state)
 
             self._connect_watchdog(state)
+            self._start_fetch(state)
 
             if self.runtime.service:
                 self._deploy_service(state)
@@ -1192,6 +1245,111 @@ class Engine:
             "`gpu destroy` if this is unexpected."
         )
 
+    def _start_fetch(self, state: RuntimeState) -> None:
+        """Have the watchdog fetch the weights; the launcher waits for them."""
+        self._fetching = False
+        request = self.runtime.fetch_request()
+        client = self.beacon(state)
+        if request is None or client is None:
+            return
+        loaded = client.ensure_extension(FETCH_EXTENSION_NAME, FETCH_EXTENSION_PATH.read_text())
+        status = client.fetch_start(request) if loaded else None
+        if not isinstance(status, dict):
+            self.echo(
+                "! the weight fetcher did not start; the model server downloads the "
+                "weights itself (after waiting up to 2 minutes for the fetcher)"
+            )
+            return
+        self._fetching = True
+        self.events.emit(ev.WEIGHTS_FETCH_STARTED, state=status.get("state"), repo=request["repo"])
+
+    def _await_fetch(self, state: RuntimeState) -> None:
+        """Wait out the watchdog's weight fetch; replace a host that is too slow.
+
+        The startup timeout starts after this: a download that keeps above
+        health.fetch_min_mbps is never cut off by it.
+        """
+        client = self.beacon(state)
+        if client is None or not self._fetching:
+            return
+        floor = float(self.config.health.fetch_min_mbps or 0)
+        slow_after = self.config.fetch_slow_timeout_s
+        fetching_since: Optional[float] = None
+        unreachable_since: Optional[float] = None
+        last_echo = last_check = time.time()
+        while True:
+            status = client.fetch_status()
+            now = time.time()
+            if status is None:
+                unreachable_since = unreachable_since or now
+                if now - unreachable_since > 120:
+                    self.echo("! the watchdog stopped answering during the weight fetch")
+                    return
+            else:
+                unreachable_since = None
+                phase = status.get("state")
+                if phase not in ("planning", "fetching"):
+                    self._fetch_ended(status)
+                    return
+                if phase == "fetching":
+                    fetching_since = fetching_since or now
+                    rate = float(status.get("rate_mbps") or 0.0)
+                    if now - last_echo >= 15:
+                        last_echo = now
+                        self.echo(
+                            f"  fetching weights: {status.get('bytes_done', 0) / 1e9:.1f} of "
+                            f"{(status.get('bytes_total') or 0) / 1e9:.1f} GB at "
+                            f"{rate / 8:.0f} MB/s"
+                        )
+                    if slow_after and floor and now - fetching_since >= slow_after and rate < floor:
+                        raise HostFailure(
+                            f"the weights arrived at {rate:.0f} Mbps over the last "
+                            f"{format_duration(slow_after)}, under health.fetch_min_mbps "
+                            f"({floor:.0f})",
+                            reason="weights download too slow on this host",
+                            instance=state.instance,
+                        )
+            if now - last_check >= PROVIDER_CHECK_S:
+                last_check = now
+                gone = self._instance_gone(state)
+                if gone:
+                    raise RuntimeStartupError(f"model server did not start: {gone}")
+            time.sleep(2.0)
+
+    def _fetch_ended(self, status: dict) -> None:
+        phase = status.get("state")
+        fields = {k: status.get(k) for k in ("bytes_total", "seconds", "reason", "error")}
+        if phase == "done" and status.get("seconds"):
+            fields["mb_per_s"] = round(
+                (status.get("bytes_total") or 0) / 1e6 / max(float(status["seconds"]), 0.001), 1
+            )
+            self.echo(
+                f"+ weights fetched: {(status.get('bytes_total') or 0) / 1e9:.1f} GB in "
+                f"{float(status['seconds']):.0f}s ({fields['mb_per_s']:.0f} MB/s)"
+            )
+        elif phase in ("failed", "skipped"):
+            self.echo(
+                f"  weight fetch {phase} ({status.get('error') or status.get('reason')}); "
+                "the model server downloads them itself"
+            )
+        self.events.emit(ev.WEIGHTS_FETCH_ENDED, state=phase, **{k: v for k, v in fields.items() if v is not None})
+
+    def _instance_gone(self, state: RuntimeState) -> Optional[str]:
+        instance = state.instance
+        if instance is None:
+            return None
+        try:
+            status = self.provider.status(instance)
+        except ProviderError:
+            return None
+        if not status.exists:
+            return "the instance disappeared at the provider"
+        if status.state is InstanceState.FAILED:
+            return status.message or "the instance entered a failed state"
+        if status.state is InstanceState.STOPPED:
+            return "the instance was stopped"
+        return None
+
     def _wait_runtime(self, state: RuntimeState) -> None:
         endpoint = state.endpoint
         if not endpoint:
@@ -1204,34 +1362,35 @@ class Engine:
         )
         self.echo(f"> waiting for {self.runtime.describe()} at {endpoint}")
         started = time.time()
+        if not self.runtime.service:
+            self._await_fetch(state)
+        last_echo = time.time()
+        last_check = 0.0
 
         def _progress(attempt: int, remaining: float, detail: str) -> None:
+            nonlocal last_echo
             if self.runtime.service:
                 # A redeploy late in a session has no startup grace left: the
                 # wait itself is the activity that keeps the machine up.
                 client = self.beacon(state)
                 if client is not None:
                     client.try_request("POST", "/activity")
-            if attempt % 4 == 0:
+            if time.time() - last_echo >= 30:
+                last_echo = time.time()
                 self.echo(
                     f"  still starting ({int(time.time() - started)}s elapsed, "
                     f"{int(remaining)}s left, last probe: {detail})"
                 )
 
         def _abort() -> Optional[str]:
-            instance = state.instance
-            if instance is None:
+            nonlocal last_check
+            # The health probe runs every 2 s; the provider is asked less often.
+            if time.time() - last_check < PROVIDER_CHECK_S:
                 return None
-            try:
-                status = self.provider.status(instance)
-            except ProviderError:
-                return None
-            if not status.exists:
-                return "the instance disappeared at the provider"
-            if status.state is InstanceState.FAILED:
-                return status.message or "the instance entered a failed state"
-            if status.state is InstanceState.STOPPED:
-                return "the instance was stopped"
+            last_check = time.time()
+            gone = self._instance_gone(state)
+            if gone:
+                return gone
             reason = self._runtime_exited(state)
             if reason and _HOST_NETWORK_FAILURE.search(reason):
                 # The model server died fetching weights over a broken network:

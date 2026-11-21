@@ -210,7 +210,10 @@ def build_search_query(
     if options.min_reliability:
         query["reliability2"] = {"gte": float(options.min_reliability)}
     if options.min_inet_down_mbps:
-        query["inet_down"] = {"gte": float(options.min_inet_down_mbps)}
+        # Raised for a big model so its weights arrive in minutes; 0 turns
+        # the floor off altogether.
+        floor = max(float(options.min_inet_down_mbps), float(spec.min_download_mbps or 0))
+        query["inet_down"] = {"gte": floor}
     min_cuda = effective_min_cuda(spec, options)
     if min_cuda:
         query["cuda_max_good"] = {"gte": min_cuda}

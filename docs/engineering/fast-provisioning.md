@@ -2,7 +2,32 @@
 
 Our last 14 successful setups on Vast.ai took a median of 9.3 minutes to serve a 27B model under vLLM, and 17 minutes to serve a 26.6 GB GGUF under llama.cpp. Nearly all of that time is the model server fetching weights from Hugging Face. The image pull, the boot and the watchdog take about 30 seconds on a host that already has the image. We built gpu4agents, and this note is our plan to make setup fast. We will write our own parallel weight fetch and let an idle machine keep the last model's disk for a few hours. Cog, SkyPilot and a warm pool each solve a different problem, and two of them would break the one-command, self-shutdown design. The plan needs no new dependency and one paid benchmark run. It does not make a cold 27B model instant: the floor is the time to move 55.6 GB onto the machine.
 
-Status: design, not implemented. Measured against `main` at d685034. Nothing was rented to write it. The offer prices were read from Vast's search API on 2026-11-21.
+Status: written as a design on 2026-11-21, before the benchmark. The section below records what the benchmark changed; the rest of the note is kept as written. Measured against `main` at d685034. Nothing was rented to write it. The offer prices were read from Vast's search API on 2026-11-21.
+
+## Update after the benchmark (2026-11-21)
+
+We rented two Vast machines for the benchmark and paid about $1.20 in all. On each we downloaded the 27.5 GB GGUF (with its `mmproj`) and the 55.6 GB of safetensors in three ways: with our fetcher, over one connection (what llama.cpp's `-hf` does), and with `huggingface_hub` 2.2.0 plus `hf_xet` 1.7.0, the download vLLM runs. The script is in [benchmarks/fetch-rate/](../../benchmarks/fetch-rate/) and the raw results are in [results-2026-11-21.json](../../benchmarks/fetch-rate/results-2026-11-21.json).
+
+| Download | A100 host, 864 Mbps advertised | Quadro RTX 8000 host, 7988 Mbps advertised |
+| --- | --- | --- |
+| GGUF, one connection (llama.cpp today) | 67 MB/s | 119 MB/s |
+| GGUF, fetcher, 32 connections | 117 MB/s | **446 MB/s** (27.5 GB in 62 s) |
+| GGUF, fetcher, 64 connections | – | 366 MB/s |
+| Safetensors, fetcher, 32 connections | 100 MB/s | 439 MB/s |
+| Safetensors, fetcher, 64 connections | – | 373 MB/s |
+| Safetensors, `huggingface_hub` + `hf_xet` (vLLM today) | 112 MB/s | **1065 MB/s** (55.6 GB in 52 s) |
+
+Three things changed in the plan:
+
+1. **We were wrong about vLLM's download.** The design assumed vLLM's own download was the slow part. It is not. `hf_xet` filled the 864 Mbps link and reached 1065 MB/s on the fast host, more than twice our fetcher. The 494 s it took on the slow host matches the 496 s median of the lab's real setups. So for vLLM the time was the host's link, and the fetcher would only make it slower. `runtime.fetch: auto` therefore leaves vLLM to `huggingface_hub`, and only `fetch: watchdog` forces the fetcher.
+2. **llama.cpp is where the fetcher pays.** llama.cpp downloads over a single connection, at 67 and 119 MB/s, and the fetcher was 1.75 and 3.7 times faster. `auto` uses it for llama. We also found that the lab's own GGUF repo ships a vision projector (`mmproj`). The first version of the fetcher refused such repos, so it would have skipped the very model it was written for. It now fetches the single `mmproj` and passes `--mmproj`.
+3. **The host's link is the biggest lever, so the bandwidth floor goes up.** The same 55.6 GB took 494 s on one host and 52 s on the other. The floor now aims at 90 s of download instead of 180 s, capped at 5000 Mbps. That cap is 4942 Mbps for the 55.6 GB model and 2444 Mbps for the 27.5 GB GGUF with its projector. On 2026-11-21, raising the floor from 500 to 5000 Mbps left the cheapest 80 GB offer at the same price.
+
+The ~300 MB/s assumption held on the fast host: 439–446 MB/s for the fetcher and 1065 MB/s for `hf_xet`. On a host with a 1 Gbps link no downloader passes about 110 MB/s. Rows (b) in section 2 now depend on renting a fast host, and the floor exists to do that.
+
+The benchmark also found a pricing bug. Vast priced every offer with its default few GB of disk, because our search never sent `allocated_storage`. As a result `gpu offers`, the budget check and the pinned price cap all left out the disk. An A100 quoted at $1.078/h billed $1.275/h. The fix is a separate PR, and the second rental, made with it, billed exactly what it was quoted.
+
+32 connections beat 16 and 64 on every run, so the fetcher uses 32.
 
 ## 1. Where the time goes today
 
