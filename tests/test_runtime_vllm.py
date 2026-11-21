@@ -274,6 +274,8 @@ def test_the_start_command_unpacks_the_launcher_on_the_instance(config, tmp_path
     root = tmp_path / "root"
     for path in ("/var/log/jambu", "/var/run/jambu", "/opt/jambu"):
         command = command.replace(path, str(root) + path)
+        # The boot script creates these before the start command runs.
+        (root / path.lstrip("/")).mkdir(parents=True)
     fake = tmp_path / "bin"
     fake.mkdir()
     (fake / "python3").symlink_to(sys.executable)

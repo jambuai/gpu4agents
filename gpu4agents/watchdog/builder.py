@@ -195,11 +195,13 @@ def build_onstart_script(
     if watchdog_enabled:
         # Config and agent both travel deflated; the config carries the token,
         # so it is written under a 077 umask.
+        # Double quotes only: inside the shell's single quotes they cost nothing
+        # (a single quote costs five bytes there, and the script is size-capped).
         decode = (
-            "import base64,os,zlib;os.umask(0o77);"
-            "[open(p,'wb').write(zlib.decompress(base64.b85decode("
-            "open(p+'.b85','rb').read().replace(b'\\n',b''))))"
-            f" for p in ({CONFIG_REMOTE_PATH!r},{AGENT_REMOTE_PATH!r})]"
+            "import base64,os,zlib;os.umask(63);"
+            '[open(p,"wb").write(zlib.decompress(base64.b85decode('
+            'open(p+".b85","rb").read().replace(b"\\n",b""))))'
+            f' for p in ("{CONFIG_REMOTE_PATH}","{AGENT_REMOTE_PATH}")]'
         )
         config_json = json.dumps(agent_config, separators=(",", ":"))
         # Killing the supervisor pid must still take the watchdog down with it:

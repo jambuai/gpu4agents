@@ -539,6 +539,12 @@ class _DeadRuntimeWatchdog:
     def mark_ready(self):
         return {"ok": True}
 
+    def ensure_extension(self, name, source):
+        return False  # a watchdog from before the fetcher: the server downloads
+
+    def fetch_status(self):
+        return None
+
     def try_state(self):
         return {"starting": False, "runtime_alive": self.alive, "terminated": False}
 

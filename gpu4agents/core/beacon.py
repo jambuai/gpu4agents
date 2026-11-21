@@ -132,5 +132,29 @@ class WatchdogClient:
     def unlock(self, reason: str = "manual") -> dict:
         return self._request("POST", "/unlock", {"reason": reason})
 
+    def ensure_extension(self, name: str, source: str) -> bool:
+        """Load ``source`` as extension ``name`` unless this version already runs.
+
+        False when the watchdog is unreachable or predates extensions.
+        """
+        import base64
+        import hashlib
+        import zlib
+
+        state = self.try_state()
+        if state is None or "extensions" not in state:
+            return False
+        digest = hashlib.sha256(source.encode()).hexdigest()[:16]
+        if (state.get("extensions") or {}).get(name) == digest:
+            return True
+        payload = base64.b64encode(zlib.compress(source.encode(), 9)).decode()
+        return self.try_request("POST", "/extend", {"name": name, "source": payload}) is not None
+
+    def fetch_start(self, request: dict) -> Optional[dict]:
+        return self.try_request("POST", "/fetch", request)
+
+    def fetch_status(self) -> Optional[dict]:
+        return self.try_request("GET", "/fetch")
+
     def shutdown(self, action: str = "stop", reason: str = "manual") -> Optional[dict]:
         return self.try_request("POST", "/shutdown", {"action": action, "reason": reason})

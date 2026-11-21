@@ -37,6 +37,10 @@ def jambu_home(tmp_path, monkeypatch):
     monkeypatch.setenv("GPU_NO_MODEL_CARD", "1")
     # pytest's tmp_path is under /tmp, where `gpu init` refuses a project.
     monkeypatch.setenv("GPU_ALLOW_TEMP_PROJECT", "1")
+    # The bandwidth floor reads the model's size from the Hub; tests stay offline.
+    from gpu4agents.core.engine import Engine
+
+    monkeypatch.setattr(Engine, "weights_bytes", lambda self: None)
     return home
 
 

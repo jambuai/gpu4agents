@@ -53,6 +53,19 @@ THREAD_CAPS = [
 
 ENDPOINT_NAME = "model"
 
+# Where the launcher and the watchdog's weight fetcher (watchdog/fetch_ext.py)
+# meet. The boot script creates the marker; the launcher waits while the fetch
+# runs (or up to 120 s for it to begin), then D holds the local model path,
+# empty to let the server download the weights itself.
+FETCH_MARKER = "/workspace/.jambu-fetch"
+FETCH_WAIT = [
+    f"J={FETCH_MARKER};t=0",
+    "while [ -e $J ]&&{ [ -s $J ]||[ $t -lt 120 ];};do sleep 2;t=$((t+2));done",
+    "rm -f $J;D=$(cat $J.done 2>/dev/null)",
+]
+# Stands for the model reference in a launcher's argv until it is quoted.
+FETCH_MODEL_TOKEN = "__JAMBU_MODEL__"
+
 # `-cu129` -> 12.9, `cu130` -> 13.0, `-cuda12.1-` -> 12.1: the CUDA toolkit an
 # image tag was built for.
 _CU_TAG = re.compile(r"(?:^|[-_.])cu(\d{2})(\d)(?![0-9])")
@@ -128,6 +141,19 @@ class ModelRuntime(ABC):
     @abstractmethod
     def start_command(self) -> str:
         """Shell command that launches the model server in the background."""
+
+    # -- weights ------------------------------------------------------------
+
+    def fetches_weights(self) -> bool:
+        """True when the watchdog fetches the weights before the server starts."""
+        return False
+
+    def fetch_request(self) -> Optional[dict]:
+        """What the watchdog's fetcher downloads (POST /fetch), or None."""
+        return None
+
+    def _fetch_prefix(self) -> str:
+        return f"touch {FETCH_MARKER} 2>/dev/null; " if self.fetches_weights() else ""
 
     # -- health -------------------------------------------------------------
 

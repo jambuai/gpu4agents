@@ -121,6 +121,9 @@ class ComputeSpec:
     # The offer the user approved (`gpu setup --offer`): tried first when the
     # provider still has it. Adapters that cannot rent a given offer ignore it.
     preferred_offer_id: Optional[str] = None
+    # Downlink the machine needs so the model's weights arrive in about three
+    # minutes. Adapters that know a host's bandwidth raise their floor to it.
+    min_download_mbps: Optional[float] = None
     # Free-form provider hints; adapters ignore keys they do not understand.
     provider_options: dict[str, Any] = field(default_factory=dict)
 

@@ -1,0 +1,3 @@
+run: python3 -u bench.py
+timeout: 90m
+label: fetch-rate

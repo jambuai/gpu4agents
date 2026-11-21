@@ -675,7 +675,7 @@ Paste your key here and press Enter (it stays hidden):</pre></div>
         <h3>Event vocabulary</h3>
         <div class="tbl"><table>
           <tr><th>Group</th><th>Events</th></tr>
-          <tr><td>Rent and boot</td><td><code>provision_requested</code> <code>budget_rejected</code> <code>instance_created</code> <code>host_failed</code> <code>runtime_starting</code> <code>runtime_ready</code> <code>setup_failed</code> <code>cleanup_performed</code></td></tr>
+          <tr><td>Rent and boot</td><td><code>provision_requested</code> <code>budget_rejected</code> <code>instance_created</code> <code>host_failed</code> <code>runtime_starting</code> <code>weights_fetch_started</code> <code>weights_fetch_ended</code> <code>runtime_ready</code> <code>setup_failed</code> <code>cleanup_performed</code></td></tr>
           <tr><td>Work</td><td><code>workload_started</code> <code>workload_finished</code> <code>job_submitted</code> <code>job_finished</code> <code>job_outputs_pulled</code> <code>job_outputs_kept</code></td></tr>
           <tr><td>Lifecycle</td><td><code>instance_idle</code> <code>instance_locked</code> <code>instance_unlocked</code> <code>lifecycle_guard_triggered</code> <code>instance_stopped</code> <code>instance_started</code> <code>instance_destroyed</code> <code>instance_adopted</code> <code>state_reconciled</code></td></tr>
           <tr><td>Watchdog</td><td><code>watchdog_started</code> <code>watchdog_identified</code> <code>session_started</code> <code>runtime_exited</code> <code>guard_retry</code> <code>guard_reissue</code> <code>activity_probe_error</code></td></tr>
@@ -1023,6 +1023,7 @@ conn = ensure_gpu()
             <tr><td><code>lifecycle.traffic_counts_as_activity</code></td><td>true</td></tr>
             <tr><td><code>health.boot_timeout</code></td><td>30m</td></tr>
             <tr><td><code>health.pull_stall_timeout</code></td><td>10m</td></tr>
+            <tr><td><code>health.fetch_min_mbps</code></td><td>200</td></tr>
             <tr><td><code>compute.host_attempts</code></td><td>3</td></tr>
             <tr><td><code>budget.*</code></td><td>unset</td></tr>
           </table></div>
