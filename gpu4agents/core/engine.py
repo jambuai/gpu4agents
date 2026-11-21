@@ -82,6 +82,9 @@ FETCH_TARGET_S = 90.0
 FETCH_FLOOR_MAX_MBPS = 5000.0
 # While the fetch runs, the provider is asked about the machine this often.
 PROVIDER_CHECK_S = 15.0
+# How long a parked machine (lifecycle.park) gets to come back before setup
+# gives up on it and rents a new one. A restart measured 41 s.
+PARK_RESTART_S = 120.0
 
 # A pull stuck retrying a layer: its countdown changes, but it is no progress.
 _PULL_RETRY = re.compile(r"\bretrying\b", re.IGNORECASE)
@@ -259,6 +262,22 @@ class Engine:
                 "removes it; set lifecycle.stopped_ttl (e.g. 24h)",
                 "lifecycle.stopped_ttl",
             )
+
+        if cfg.lifecycle.park and not self.provider.capabilities.stop_eliminates_billing:
+            try:
+                from ..cli import timer as timer_mod
+
+                timer_on = timer_mod.is_installed()
+            except Exception:  # noqa: BLE001 - an unknown platform: say it anyway
+                timer_on = False
+            if not timer_on:
+                result.warn(
+                    f"lifecycle.park keeps a stopped {self.provider.display_name} machine billing "
+                    f"its disk, and only the sweep timer removes it after {cfg.lifecycle.park}; "
+                    "without it the machine bills until `gpu destroy`. Run "
+                    "`gpu sweep --install-timer`",
+                    "lifecycle.park",
+                )
 
         from .model_inspect import known_vram_floor
 
@@ -1090,12 +1109,20 @@ class Engine:
                         f"provider '{self.provider.name}' cannot restart instances"
                     )
                 self.echo(f"> starting instance {instance.id}")
-                instance = self.provider.start(instance)
-                state.instance = instance
-                state.starting = True
-                state.mark_billable(True)  # billing resumes now, not at the next reconcile
-                state.mark_session_start()  # max_lifetime and budget restart with it
-                self.events.emit(ev.INSTANCE_STARTED, instance_id=instance.id)
+                parked = bool(self.config.lifecycle.park)
+                try:
+                    instance = self.provider.start(instance)
+                    state.instance = instance
+                    state.starting = True
+                    state.mark_billable(True)  # billing resumes now, not at the next reconcile
+                    state.mark_session_start()  # max_lifetime and budget restart with it
+                    self.events.emit(ev.INSTANCE_STARTED, instance_id=instance.id)
+                    if parked:
+                        instance = self._wait_running(state, timeout=PARK_RESTART_S)
+                except (HostFailure, ProviderError) as exc:
+                    if not parked:
+                        raise
+                    return self._unpark_cold(state, exc)
 
             instance = self._wait_running(state)
             state.instance = instance
@@ -1139,14 +1166,27 @@ class Engine:
         if pulled:
             self.events.extend(pulled)
 
-    def _wait_running(self, state: RuntimeState) -> Instance:
+    def _unpark_cold(self, state: RuntimeState, exc: Exception) -> RuntimeState:
+        """A parked machine that does not come back (on Vast, someone else may
+        have rented its GPU) is destroyed and replaced by a cold setup."""
+        instance_id = state.instance_id
+        self.echo(
+            f"! parked instance {instance_id} did not restart within "
+            f"{format_duration(PARK_RESTART_S)} ({exc}); renting a new machine"
+        )
+        self.events.emit(ev.PARK_RESTART_FAILED, instance_id=instance_id, error=str(exc)[:300])
+        self._terminate(state, action=policy.ACTION_DESTROY, reason="park_restart_failed")
+        self.store.save(state)
+        return self.setup()
+
+    def _wait_running(self, state: RuntimeState, timeout: Optional[float] = None) -> Instance:
         """Wait for the machine itself (mostly the image pull), up to
         health.boot_timeout. The container has not run yet, so every failure
         here is the host's.
         """
         instance = state.instance
         assert instance is not None
-        boot_timeout = self.config.boot_timeout_s
+        boot_timeout = timeout or self.config.boot_timeout_s
         stall_timeout = (
             self.config.pull_stall_timeout_s if self.provider.capabilities.boot_progress else None
         )
