@@ -198,6 +198,10 @@ def build_search_query(
         "external": {"eq": False},
         "num_gpus": {"eq": int(spec.gpu.count)},
         "disk_space": {"gte": float(spec.disk_gb)},
+        # Vast prices an offer (dph_total) with this much disk; without it, with
+        # a few GB. The quote, the budget check and the price cap then missed
+        # the disk: an A100 quoted at $1.078/h rented at $1.275/h with 150 GB.
+        "allocated_storage": float(spec.disk_gb),
         "type": "bid" if spec.spot else "on-demand",
         "order": [[options.order_by, options.order_dir]],
         "limit": int(options.search_limit),
