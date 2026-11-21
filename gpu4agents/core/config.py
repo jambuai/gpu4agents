@@ -252,6 +252,12 @@ class LifecycleConfig(_Base):
     # true keeps the disk (faster restart) and leaves removal to stopped_ttl,
     # which only `gpu guard` / `gpu sweep` on your computer can enforce.
     keep_disk: bool = False
+    # Park the machine instead of letting it go: an idle machine stops and
+    # keeps its disk (weights included) for this long, and the next
+    # `gpu setup` restarts it in about a minute instead of renting a new one.
+    # Sets keep_disk: true and stopped_ttl to this. The disk bills while
+    # parked (Vast.ai, a RunPod volume). Off by default.
+    park: Optional[str] = None
     lock: LockConfig = Field(default_factory=LockConfig)
     watchdog: WatchdogConfig = Field(default_factory=WatchdogConfig)
 
@@ -260,9 +266,13 @@ class LifecycleConfig(_Base):
     _v_hb = _duration("heartbeat_interval")
     _v_grace = _duration("heartbeat_grace")
     _v_stopped_ttl = _duration("stopped_ttl")
+    _v_park = _duration("park")
 
     @model_validator(mode="after")
     def _sane(self) -> "LifecycleConfig":
+        if self.park is not None and parse_duration(self.park):
+            self.keep_disk = True
+            self.stopped_ttl = self.park
         idle = parse_duration(self.idle_timeout)
         life = parse_duration(self.max_lifetime)
         if idle is not None and life is not None and idle > life:
